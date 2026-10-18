@@ -2,6 +2,7 @@
 # (credentials, sessions, projects, memory, settings) stays out of git.
 /*
 !/.gitignore
+!/README.md
 !/stareso-app/
 !/agents/
 /agents/*
