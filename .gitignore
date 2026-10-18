@@ -1,0 +1,11 @@
+# Whitelist: only the stareso-app workflow is tracked. Everything else in ~/.claude
+# (credentials, sessions, projects, memory, settings) stays out of git.
+/*
+!/.gitignore
+!/stareso-app/
+!/agents/
+/agents/*
+!/agents/stareso-slice-builder.md
+!/skills/
+/skills/*
+!/skills/stareso-app-*/
