@@ -14,4 +14,20 @@ This repository is rooted at `~/.claude`. Its `.gitignore` is a whitelist: only 
 | `stareso-app/templates/` | Starting docs for a new project |
 | `stareso-app/CHANGELOG.md` | One line per workflow change |
 
+## Skills, in the order of a project
+
+| Skill | Model | What it does |
+|---|---|---|
+| `stareso-app-init` | Opus | Creates the project: folders, private guard, git, first docs |
+| `stareso-app-discuss` | Opus | Free talk about the app; keeps `docs/IDEAS.md` |
+| `stareso-app-grill` | Opus | Decision rounds with recommended answers; writes `PLAN.md`, `GLOSSARY.md`, decision records |
+| `stareso-app-setup` | Opus | Writes `CLAUDE.md` and the roadmap of small slices in milestones |
+| `stareso-app-build` | Sonnet, auto mode | Builds slices with one helper agent each, checks and merges them |
+| `stareso-app-test` | Sonnet | Test in the browser pane; feedback becomes fix slices or ideas |
+| `stareso-app-improve` | Opus | Turns new ideas or decisions into PLAN updates and new slices; keeps all docs coherent |
+| `stareso-app-status` | any | Where the project stands and the next step |
+| `stareso-app-deploy` | Opus | Publishing: GitHub, Supabase, Vercel, subdomain, phones |
+
+`init`, `build` and `deploy` are started only by typing them; the others also by asking.
+
 Start with `stareso-app/README.md`. To save a change: `git -C ~/.claude add -A`, commit, push.
