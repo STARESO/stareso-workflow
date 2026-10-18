@@ -14,6 +14,21 @@ This repository is rooted at `~/.claude`. Its `.gitignore` is a whitelist: only 
 | `stareso-app/templates/` | Starting docs for a new project |
 | `stareso-app/CHANGELOG.md` | One line per workflow change |
 
+## Workflow
+
+```mermaid
+flowchart LR
+    init[init] --> discuss[discuss] --> grill[grill] --> setup[setup] --> build[build]
+    build --> test[test]
+    test -- "bugs and changes:<br/>fix slices" --> build
+    test -- "ideas and rule changes" --> improve[improve]
+    improve -- "new slices" --> build
+    test -- "all milestones done" --> deploy[deploy]
+    status([status: any time]) -.-> build
+```
+
+Docs flow the same way: `IDEAS.md` (inbox) → `PLAN.md` (decided) → `ROADMAP.md` (slices) → code; test feedback goes to `FEEDBACK.md`.
+
 ## Skills, in the order of a project
 
 | Skill | Model | What it does |
