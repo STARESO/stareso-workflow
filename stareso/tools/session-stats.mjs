@@ -12,17 +12,23 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { execSync } from "node:child_process";
 
 const PROJECTS = path.join(os.homedir(), ".claude", "projects");
 
 async function summarise(file) {
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
   const s = { id: path.basename(file, ".jsonl"), first: null, last: null, models: {}, tools: {}, user: 0, assistant: 0, agents: 0,
-    compactions: 0, kind: null, usage: { input: 0, cache_read: 0, cache_create: 0, output: 0 }, timeline: [] };
+    compactions: 0, active: 0, kind: null, usage: { input: 0, cache_read: 0, cache_create: 0, output: 0 }, timeline: [] };
   const t = (ts) => (ts || "").slice(5, 16);
   for await (const line of rl) {
     let o; try { o = JSON.parse(line); } catch { continue; }
-    if (o.timestamp) { s.first ??= o.timestamp; s.last = o.timestamp; }
+    if (o.timestamp) {
+      // Active time: gaps longer than 15 min (lunch, night) are pauses, not work.
+      const gap = s.last ? new Date(o.timestamp) - new Date(s.last) : 0;
+      if (gap > 0 && gap <= 15 * 60e3) s.active += gap;
+      s.first ??= o.timestamp; s.last = o.timestamp;
+    }
     if (o.isCompactSummary) s.compactions++;
     const m = o.message; if (!m) continue;
     if (o.type === "user") {
@@ -59,6 +65,7 @@ async function summarise(file) {
   return s;
 }
 
+const hours = (ms) => (ms / 3.6e6).toFixed(1);
 const fmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n));
 const short = (model) => model.replace(/^claude-/, "").replace(/-\d.*$/, "");
 const modelsText = (models) => Object.entries(models).sort((a, b) => b[1] - a[1]).map(([m, n]) => `${short(m)} ${n}`).join(", ");
@@ -78,7 +85,7 @@ async function logMode() {
   // Sessions spent on the workflow itself (a `/stareso-workflow-review` run, or a worktree named for it) are listed
   // apart and left out of the project totals: they are not the project's cost.
   const isWorkflowSession = (s, dirName) => /workflow-review|retro/.test(s.kind || "") || /workflow-review|workflow-improvement/.test(dirName);
-  const newTotals = () => ({ sessions: 0, turns: 0, out: 0, cr: 0, cw: 0, helpers: 0, hOut: 0, hCr: 0, hCw: 0, equiv: 0, models: {} });
+  const newTotals = () => ({ sessions: 0, turns: 0, user: 0, active: 0, compactions: 0, out: 0, cr: 0, cw: 0, helpers: 0, hOut: 0, hCr: 0, hCw: 0, equiv: 0, models: {} });
   const rows = [], wfRows = [];
   const totals = newTotals(), wfTotals = newTotals();
   for (const d of dirs) {
@@ -94,7 +101,7 @@ async function logMode() {
       const inWorktree = d !== slug;
       const end = s.last.slice(0, 10) === s.first.slice(0, 10) ? s.last.slice(11, 16) : s.last.slice(5, 16).replace("T", " ");
       const wf = isWorkflowSession(s, d);
-      const line = `| ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${wf && !/workflow-review/.test(s.kind || "") ? "workflow review" : s.kind || "chat"}${inWorktree ? " (worktree)" : ""} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${h.n ? `${h.n} (${modelsText(h.models)}) · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} | ${fmt(Math.round(e))} |`;
+      const line = `| ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${hours(s.active)} | ${wf && !/workflow-review/.test(s.kind || "") ? "workflow review" : s.kind || "chat"}${inWorktree ? " (worktree)" : ""} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${s.user} | ${s.compactions || ""} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${h.n ? `${h.n} (${modelsText(h.models)}) · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} | ${fmt(Math.round(e))} |`;
       (wf ? wfRows : rows).push({ first: s.first, turns: s.assistant, line, s, h, e, wf });
     }
   }
@@ -108,23 +115,68 @@ async function logMode() {
   const kept = dedupe(rows), wfKept = dedupe(wfRows);
   for (const r of [...kept, ...wfKept]) {
     const t = r.wf ? wfTotals : totals, s = r.s, h = r.h;
-    t.sessions++; t.turns += s.assistant; t.out += s.usage.output; t.cr += s.usage.cache_read; t.cw += s.usage.cache_create;
+    t.sessions++; t.turns += s.assistant; t.user += s.user; t.active += s.active; t.compactions += s.compactions; t.out += s.usage.output; t.cr += s.usage.cache_read; t.cw += s.usage.cache_create;
     t.helpers += h.n; t.hOut += h.out; t.hCr += h.cr; t.hCw += h.cw; t.equiv += r.e;
     for (const [m, n] of Object.entries(s.models)) t.models[m] = (t.models[m] || 0) + n;
     for (const [m, n] of Object.entries(h.models)) t.models[m] = (t.models[m] || 0) + n;
   }
   rows.length = 0; rows.push(...kept); wfRows.length = 0; wfRows.push(...wfKept);
 
-  const header = ["| Date (start–end) | Kind | Models (turns) | Turns | Ctx/turn | Output | Cache read | Helpers | ≈ equiv |", "|---|---|---|---|---|---|---|---|---|"];
+  const header = ["| Date (start–end) | Active h | Kind | Models (turns) | Turns | You | Compact | Ctx/turn | Output | Cache read | Helpers | ≈ equiv |", "|---|---|---|---|---|---|---|---|---|---|---|---|"];
+  // Cost per slice: a build session often runs past its first milestone, so count the "Merge slice …" commits
+  // (slice-done, every branch) made between the session's start and end, plus 5 min for the last merge.
+  let merges = [];
+  try {
+    const seen = new Set();
+    merges = execSync("git log --all --merges --format=%H%x09%cI%x09%s", { cwd: root, encoding: "utf8" }).split("\n")
+      .map((l) => l.split("\t")).filter(([h, , subj]) => h && /^Merge slice /.test(subj || "") && !seen.has(h) && seen.add(h))
+      .map(([, date]) => new Date(date).getTime());
+  } catch { /* not a git repository: no cost-per-slice table */ }
+  // Windows can overlap (one session ends as the next starts): a merge goes to the latest-started session holding it.
+  const merged = new Map();
+  for (const m of merges) {
+    const owner = rows.filter((r) => m >= new Date(r.s.first).getTime() && m <= new Date(r.s.last).getTime() + 5 * 60e3)
+      .sort((a, b) => b.first.localeCompare(a.first))[0];
+    if (owner) merged.set(owner, (merged.get(owner) || 0) + 1);
+  }
+  const sliceRows = rows.map((r) => {
+    const n = merged.get(r) || 0;
+    return n ?`| ${r.s.first.slice(0, 10)} ${r.s.first.slice(11, 16)} | ${r.s.kind || "chat"} | ${n} | ${fmt(Math.round(r.e))} | ${fmt(Math.round(r.e / n))} |` : null;
+  }).filter(Boolean);
+  const allTurns = (t) => Object.values(t.models).reduce((a, n) => a + n, 0);
+  const highlights = (t) => `${hours(t.active)} h active · ${t.user} messages from you, ${(t.turns / Math.max(1, t.user)).toFixed(1)} session turns each · helpers made ${Math.round(100 * (allTurns(t) - t.turns) / Math.max(1, allTurns(t)))}% of all turns · ${t.compactions} compaction${t.compactions === 1 ? "" : "s"}`;
   const scopes = [["Project", totals], ...(wfRows.length ? [["Workflow improvement", wfTotals]] : [])];
   const modelNames = [...new Set(scopes.flatMap(([, t]) => Object.keys(t.models)))].sort((a, b) => scopes.reduce((n, [, t]) => n + (t.models[b] || 0), 0) - scopes.reduce((n, [, t]) => n + (t.models[a] || 0), 0));
+  const glossary = [
+    "### Glossary", "",
+    "Token = a small chunk of text (about three-quarters of a word). Turn = one model response. `k` = thousand, `M` = million. Times are UTC.", "",
+    "| Column | Meaning |", "|---|---|",
+    "| Date (start–end) | Start date and time, then end time (`10-18 15:10` = ended on a later day). |",
+    "| Active h | Hours of work: time between consecutive messages, pauses over 15 min left out. |",
+    "| Kind | The stareso command that opened the session (`build M5` = started with M5; it may go on to later milestones). `(worktree)` = it ran in its own copy of the repo. |",
+    "| Models (turns) | Models that answered in the session itself, with their turn counts. |",
+    "| Turns | Responses in the session itself, helpers excluded. |",
+    "| You | Messages typed by the user (including slash commands). |",
+    "| Compact | Times the context filled up and was summarised (empty = never). |",
+    "| Ctx/turn | Average text the model re-reads each turn (conversation, files, tool results) = cache read ÷ turns. |",
+    "| Output | Tokens the session wrote (replies, code, commands). |",
+    "| Cache read | Tokens re-read from the prompt cache (about a tenth of the normal input price). |",
+    "| Cache write | Tokens stored into the cache the first time (Totals only). |",
+    "| Helpers | Fresh agents the session started for side tasks: `count (turns per model) · out <their output> · cache <their cache read>`. |",
+    "| ≈ equiv | Session and its helpers together; formula at the bottom. |", "",
+    "In **Totals**, Turns, Output, Cache read and Cache write cover the sessions only, the Helper columns cover the helpers, and ≈ equiv covers both. **Turns per model** counts sessions and helpers. **Cost per slice** divides a session's ≈ equiv by the `Merge slice …` commits made during it.", "",
+  ];
   const block = [
+    ...glossary,
     "### Sessions", "", ...header, ...rows.map((r) => r.line),
     ...(wfRows.length ? ["", "### Workflow improvement sessions (reviews of the workflow itself: not in the project totals)", "", ...header, ...wfRows.map((r) => r.line)] : []),
     "", "### Totals", "",
     "| Scope | Sessions | Turns | Output | Cache read | Cache write | Helpers | Helper output | Helper cache read | ≈ equiv |",
     "|---|---|---|---|---|---|---|---|---|---|",
     ...scopes.map(([label, t]) => `| ${label} | ${t.sessions} | ${t.turns} | ${fmt(t.out)} | ${fmt(t.cr)} | ${fmt(t.cw)} | ${t.helpers} | ${fmt(t.hOut)} | ${fmt(t.hCr)} | ${fmt(Math.round(t.equiv))} |`),
+    "", ...scopes.map(([label, t]) => `**${label}:** ${highlights(t)}.`),
+    ...(sliceRows.length ? ["", "**Cost per slice** (sessions that merged slices; the cost of the tests that found the fixes is not included)", "",
+      "| Session start | Kind | Slices merged | ≈ equiv | ≈ equiv per slice |", "|---|---|---|---|---|", ...sliceRows] : []),
     "", "**Turns per model** (sessions and their helpers)", "",
     `| Scope | ${modelNames.map(short).join(" | ")} |`, `|---|${modelNames.map(() => "---").join("|")}|`,
     ...scopes.map(([label, t]) => `| ${label} | ${modelNames.map((m) => t.models[m] || "").join(" | ")} |`),

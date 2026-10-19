@@ -96,7 +96,7 @@ Rule of thumb: a skill that touches a decision runs the coherence pair (`roadmap
 | `docs-check.mjs` | coherence of the records (ticked slice without log line, stale 🛠, broken `after:`, missing `Pack:`, docs not listed, version mismatch, old files) |
 | `roadmap-overview.mjs` | regenerates the overview (milestones with their Kind, then the open slices) of `ROADMAP.md` |
 | `roadmap-split.mjs` | one-off: splits an old single-file roadmap into the folder layout |
-| `session-stats.mjs --log` | from inside a project: regenerates `docs/USAGE.md` (every session of the project and its worktrees, kind, models, turns, context per turn, output and cache tokens, helpers; workflow-review sessions apart; forks counted once; totals and turns-per-model tables). Build and test run it at the end |
+| `session-stats.mjs --log` | from inside a project: regenerates `docs/USAGE.md` (every session of the project and its worktrees, kind, active hours, models, turns, user messages, compactions, context per turn, output and cache tokens, helpers; workflow-review sessions apart; forks counted once; glossary, totals, highlights line, cost per slice from the `Merge slice` commits, turns-per-model table). Build and test run it at the end |
 | `session-stats.mjs <out> <transcripts…>` | deep retro: per-transcript header and the user-message timeline |
 
 ## Packs

@@ -17,7 +17,7 @@ Talk in English unless the user switches to French. Budget: stop and report at 1
 ## 2. Metrics (compute, do not guess; write "n/a" when the records cannot give it)
 | Metric | From | Reference (Scriba, 2026-10-19 review) |
 |---|---|---|
-| Conductor turns per merged slice | USAGE build sessions turns ÷ BUILD-LOG slices in the period | 49 before the review; target < 15 |
+| Conductor turns per merged slice | USAGE: session Turns ÷ "Slices merged" (Cost per slice table) | 49 before the review; target < 15 |
 | ≈ equivalents per slice, conductor vs helpers | USAGE | conductor 74 % of the cost; target < 50 % |
 | Helper median output and share of slices needing a fix round | USAGE helpers, BUILD-LOG results | 3.4 k · ~3 % |
 | Sessions over 300 turns or more than one milestone | USAGE | 0 is the target |
