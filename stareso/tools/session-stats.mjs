@@ -75,8 +75,12 @@ async function logMode() {
   const dirs = fs.existsSync(PROJECTS) ? fs.readdirSync(PROJECTS).filter((d) => d === slug || d.startsWith(slug + "--claude-worktrees-")) : [];
   if (!dirs.length) { console.error("No transcripts found for this project."); process.exit(1); }
 
-  const rows = [];
-  const totals = { sessions: 0, turns: 0, out: 0, cr: 0, cw: 0, helpers: 0, hOut: 0, hCr: 0, hCw: 0, equiv: 0, models: {} };
+  // Sessions spent on the workflow itself (a `/stareso-workflow-review` run, or a worktree named for it) are listed
+  // apart and left out of the project totals: they are not the project's cost.
+  const isWorkflowSession = (s, dirName) => /workflow-review|retro/.test(s.kind || "") || /workflow-review|workflow-improvement/.test(dirName);
+  const newTotals = () => ({ sessions: 0, turns: 0, out: 0, cr: 0, cw: 0, helpers: 0, hOut: 0, hCr: 0, hCw: 0, equiv: 0, models: {} });
+  const rows = [], wfRows = [];
+  const totals = newTotals(), wfTotals = newTotals();
   for (const d of dirs) {
     const dir = path.join(PROJECTS, d);
     for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".jsonl"))) {
@@ -89,22 +93,26 @@ async function logMode() {
       const e = equiv(s.usage) + helpers.reduce((a, x) => a + equiv(x.usage), 0);
       const inWorktree = d !== slug;
       const end = s.last.slice(0, 10) === s.first.slice(0, 10) ? s.last.slice(11, 16) : s.last.slice(5, 16).replace("T", " ");
-      rows.push({ first: s.first, line: `| ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${s.kind || "chat"}${inWorktree ? " (worktree)" : ""} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${h.n ? `${h.n} (${modelsText(h.models)}) · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} | ${fmt(Math.round(e))} |` });
-      totals.sessions++; totals.turns += s.assistant; totals.out += s.usage.output; totals.cr += s.usage.cache_read; totals.cw += s.usage.cache_create;
-      totals.helpers += h.n; totals.hOut += h.out; totals.hCr += h.cr; totals.hCw += h.cw; totals.equiv += e;
-      for (const [m, n] of Object.entries(s.models)) totals.models[m] = (totals.models[m] || 0) + n;
-      for (const [m, n] of Object.entries(h.models)) totals.models[m] = (totals.models[m] || 0) + n;
+      const wf = isWorkflowSession(s, d);
+      const line = `| ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${wf && !/workflow-review/.test(s.kind || "") ? "workflow review" : s.kind || "chat"}${inWorktree ? " (worktree)" : ""} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${h.n ? `${h.n} (${modelsText(h.models)}) · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} | ${fmt(Math.round(e))} |`;
+      (wf ? wfRows : rows).push({ first: s.first, line });
+      const t = wf ? wfTotals : totals;
+      t.sessions++; t.turns += s.assistant; t.out += s.usage.output; t.cr += s.usage.cache_read; t.cw += s.usage.cache_create;
+      t.helpers += h.n; t.hOut += h.out; t.hCr += h.cr; t.hCw += h.cw; t.equiv += e;
+      for (const [m, n] of Object.entries(s.models)) t.models[m] = (t.models[m] || 0) + n;
+      for (const [m, n] of Object.entries(h.models)) t.models[m] = (t.models[m] || 0) + n;
     }
   }
   rows.sort((a, b) => a.first.localeCompare(b.first));
+  wfRows.sort((a, b) => a.first.localeCompare(b.first));
 
+  const header = ["| Date | Session (start–end) | Kind | Models (turns) | Turns | Ctx/turn | Output | Cache read | Helpers | ≈ equiv |", "|---|---|---|---|---|---|---|---|---|---|"];
+  const totalsLine = (t, label) => `**${label}:** ${t.sessions} sessions · ${t.turns} turns · output ${fmt(t.out)} · cache read ${fmt(t.cr)} · cache write ${fmt(t.cw)} · helpers ${t.helpers} (output ${fmt(t.hOut)}, cache read ${fmt(t.hCr)}) · models: ${modelsText(t.models) || "—"} · ≈ ${fmt(Math.round(t.equiv))} input-token equivalents`;
   const block = [
-    "| Date | Session (start–end) | Kind | Models (turns) | Turns | Ctx/turn | Output | Cache read | Helpers | ≈ equiv |",
-    "|---|---|---|---|---|---|---|---|---|---|",
-    ...rows.map((r) => r.line),
-    "",
-    `**Totals:** ${totals.sessions} sessions · ${totals.turns} turns · output ${fmt(totals.out)} · cache read ${fmt(totals.cr)} · cache write ${fmt(totals.cw)} · helpers ${totals.helpers} (output ${fmt(totals.hOut)}, cache read ${fmt(totals.hCr)}) · models: ${modelsText(totals.models)} · ≈ ${fmt(Math.round(totals.equiv))} input-token equivalents (cache read 0.1, cache write 1.25, output 5; a comparison unit, not money). Updated ${new Date().toISOString().slice(0, 16).replace("T", " ")}.`,
+    ...header, ...rows.map((r) => r.line), "",
+    totalsLine(totals, "Project totals") + ` (cache read 0.1, cache write 1.25, output 5; a comparison unit, not money). Updated ${new Date().toISOString().slice(0, 16).replace("T", " ")}.`,
   ];
+  if (wfRows.length) block.push("", "**Workflow improvement sessions** (reviews of the workflow itself: not counted in the project totals)", "", ...header, ...wfRows.map((r) => r.line), "", totalsLine(wfTotals, "Workflow totals") + ".");
   const file = path.join(root, "docs", "USAGE.md");
   const START = "<!-- usage:start -->", END = "<!-- usage:end -->";
   let text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : `# Usage\n\nToken and model usage per session, generated by \`session-stats.mjs --log\` (run at the end of every build and test; re-running refreshes the lines). Helpers are the fresh agents a session started. Numbers only: no paths, no names.\n\n${START}\n${END}\n`;
