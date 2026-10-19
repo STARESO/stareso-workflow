@@ -36,8 +36,8 @@ On Windows `~` is `C:\Users\<you>`. These places are one git repository rooted a
 | `stareso-improve` | `/stareso-improve` / "I have a new idea" | Opus · new · normal | One idea: discussion + grilling → PLAN → new milestone file, coherence check |
 | `stareso-status` | "where are we?" / `/stareso-status` | any | Phase, progress, debt, what waits for you, the next step with its model and session |
 | `stareso-deploy` | `/stareso-deploy` (typed) | Opus · new · normal | Pre-flight, prepared files, `DEPLOY.md`, the pack's provider or delivery steps one at a time |
-| `stareso-retrofit` | `/stareso-retrofit [pack]` (typed) | Opus · new · normal | Existing project → standard docs, Commands, PLAN from the code, a retrofit milestone of behaviour-preserving slices |
-| `stareso-retro` | `/stareso-retro [quick|deep]` | quick: Sonnet · test session · normal; deep: Opus · new | Measured review from the generated records: fixed metrics, comparison with the previous retro, at most three workflow changes, entry in `docs/USAGE.md` |
+| `stareso-retrofit` | `/stareso-workflow-reviewfit [pack]` (typed) | Opus · new · normal | Existing project → standard docs, Commands, PLAN from the code, a retrofit milestone of behaviour-preserving slices |
+| `stareso-workflow-review` | `/stareso-workflow-review [quick|deep]` | quick: Sonnet · test session · normal; deep: Opus · new | Measured review from the generated records: fixed metrics, comparison with the previous retro, at most three workflow changes, entry in `docs/USAGE.md` |
 
 Typed-only skills (`init`, `build`, `deploy`, `retrofit`) cannot be started by Claude on its own: they create things, spend tokens or go online. Every skill opens with its **Session** line (model, new or same session, mode) and closes with the next step's; `/stareso-status` repeats it any time.
 
@@ -52,14 +52,14 @@ The model is chosen **per slice in the brief** (`model: haiku | sonnet | opus`),
 
 ## Your routine
 
-1. Empty folder, Opus session: `/stareso-init <name> app-next` (or `analysis-r`). Existing project instead: `/stareso-retrofit`.
+1. Empty folder, Opus session: `/stareso-init <name> app-next` (or `analysis-r`). Existing project instead: `/stareso-workflow-reviewfit`.
 2. Reference files into `private/sources/locked/` (data into `data/raw/` for an analysis). Claude asks before reading any of them; datasets are seen as structure only.
 3. Talk (`discuss`), as long as you want. Say **"let's grill"**; answer the rounds ("1 yes, 2 yes, 3 no, rather…"); correct the walkthrough.
 4. `/stareso-setup`, review the overview and the slice titles, accept.
 5. **New session**, Sonnet, auto mode, in the project folder (no worktree): `/stareso-build M1`. Leave it working; anything you notice goes to FEEDBACK, not to the conductor.
 6. When it reports: clear, **new session**, `/stareso-test`; test; "end test".
 7. Fixes: `/stareso-build M<n>` in a new session. New ideas or decisions to confirm: `/stareso-improve` (Opus, new session).
-8. Repeat 5–7 per milestone; `/stareso-retro` at the end of each test (10 turns, measured). Back after a break: `/stareso-status`.
+8. Repeat 5–7 per milestone; `/stareso-workflow-review` at the end of each test (10 turns, measured). Back after a break: `/stareso-status`.
 9. Ready: `/stareso-deploy`. Feedback from phones or readers afterwards: `/stareso-test`.
 
 ## Files in each project, and when they enter the workflow
