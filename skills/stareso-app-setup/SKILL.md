@@ -19,7 +19,7 @@ Write `docs/ROADMAP.md` from `templates/ROADMAP.md`, starting from guide §18 an
 - **Slices** small enough for a Sonnet-class model working from the brief alone: at most one table, one route and one screen change; usually 1 to 5 files. Split anything bigger.
 - Each brief is **self-contained**: goal, files, 2 to 5 steps, "done when", guide sections to read. No reference to "the discussion" or "as agreed": write the actual fact.
 - `model: haiku` only for trivial slices (copy, config, a token); otherwise `sonnet`.
-- `independent: yes` only when the slice touches no file another pending slice touches (needed for parallel builds).
+- `independent: yes` only when the slice touches no file another pending slice touches (needed for parallel builds). When a slice touches the same files as another pending slice, say so in its brief ("run after M23.5") so the conductor orders them.
 - Slices that need the user (secrets, accounts, online database, a library not yet approved) are marked **[human]**, with what the user must do.
 - Also create `docs/QUESTIONS.md`, `docs/FEEDBACK.md`, `docs/BUILD-LOG.md` from the templates.
 

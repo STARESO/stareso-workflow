@@ -11,7 +11,7 @@ You are the **conductor**. You do not write the app code yourself: each slice is
 
 ## 1. Before starting (one message, then go)
 1. Read `CLAUDE.md`, `docs/ROADMAP.md`, `docs/QUESTIONS.md`. Check: on `main`, working tree clean, `.claude/launch.json` present.
-2. Confirm the run in **one** question (defaults first, the user can just say "go"):
+2. If the user asks to build a milestone that was just written (for example by the test skill) and nothing deviates from the checks above, use the defaults and start without asking. Otherwise confirm the run in **one** question (defaults first, the user can just say "go"):
    - range: from the argument (milestone, slices, or all);
    - cap: stop after N slices (default: the whole range);
    - parallel: 1 (default). 2 is allowed only for slices marked `independent: yes`, each helper in its own worktree;
@@ -21,13 +21,13 @@ You are the **conductor**. You do not write the app code yourself: each slice is
 ## 2. The loop, one slice at a time
 For each unticked slice in the range, in order:
 1. **Human slice** (`[human]`) or a slice depending on an open question in QUESTIONS.md: skip it, note it, go on.
-2. Create the branch `slice/NN-short-name` from `main`.
+2. Create the branch `slice/<id>-short-name` (<id> = `M19.3` style) from `main`.
 3. Start **one** `stareso-slice-builder` helper (model from the brief: `sonnet`, or `haiku` for trivial ones), in the foreground. Its prompt: the full slice brief copied from the roadmap, the branch name, and "follow your agent instructions". Nothing else.
 4. Check the result yourself, cheaply:
    - `npm run lint` and `npm run typecheck`;
    - UI slice: start the dev server with the preview tool (`dev` from launch.json; reuse it if running), open the page, check it with **text tools** (`read_page`, `find`, console errors), resize to 375 px and to 280 px for overflow. No screenshots here.
 5. Failing: send the failure back to the helper (same one, by message, or a new one with the brief plus the failure) at most twice. Still failing: leave the branch unmerged, write the problem in `docs/QUESTIONS.md`, go on with slices that do not depend on it.
-6. Passing: merge into local `main` with `--no-ff` ("Merge slice NN: title"), delete the branch, tick the box in the roadmap, switch the matching 🛠 lines in `docs/IDEAS.md` (those naming this slice) to ✅, add a line to `docs/BUILD-LOG.md` (date and merge time `yyyy-mm-dd HH:mm`, slice, model, result, helper tokens if shown, short note). Commit the roadmap, ideas and log.
+6. Passing: merge into local `main` with `--no-ff` ("Merge slice M19.3: title"), delete the branch, tick the box in the roadmap, switch the matching 🛠 lines in `docs/IDEAS.md` (those naming this slice) to ✅, add a line to `docs/BUILD-LOG.md` (date and merge time `yyyy-mm-dd HH:mm`, slice, model, result, helper tokens if shown, short note). Commit the roadmap, ideas and log.
 7. One short line to the user per slice: `✓ 04 List screen · sonnet · 18k tokens`.
 
 ## 3. Stop only for
