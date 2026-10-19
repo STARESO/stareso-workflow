@@ -41,5 +41,12 @@ Append to `docs/USAGE.md` under `## Retros` (create the heading below the usage 
 Between steps 2 and 3: run the deep statistics on the sessions since the previous deep retro and read **the user-message timelines only** (the `U` lines of the `.txt` files the tool writes), never the transcripts:
 `node ~/.claude/stareso/tools/session-stats.mjs <scratch-dir> <the project's transcript files>` (the project's transcript folder is the one `--log` used; worktrees have their own). Look for the patterns that cost the most in the three first apps: streams of one-line requests into a long session, the same subject coming back (rework), long gaps after a usage limit, decisions taken in chat that never reached PLAN. Quote at most one timeline line per pattern. Delete the scratch files afterwards (they hold prompts).
 
+## End of a project (deep mode, when PLAN says `Phase: deployed` or `delivered`)
+Also:
+- Compare this project's USAGE totals and per-slice costs with the previous projects' `docs/USAGE.md` (the user names the folders); one table, three to five rows.
+- Read the pack guide's section list and the project's `CLAUDE.md` Stack / Commands and `docs/decisions/`: what this project did that the pack does not describe becomes a proposal to add to the pack guide (that is how the guides were born: from SecuSurf and BaieWatch); what the pack describes and the project did otherwise becomes a question (project exception or outdated default?).
+- List the CHANGELOG entries made during the project and, for each, whether a later retro measured its effect; unmeasured ones are the first thing the next project should watch.
+- Write the entry under `## Retros` as "Project retro" and, in `~/.claude/stareso/DESIGN-NOTES.md`, one dated paragraph only if a decision of the workflow changed.
+
 ## What this skill never does
 Rewrite the workflow in one go, read code, propose a change without a metric, or spend more than its budget. The method is one measured change per retro.
