@@ -1,26 +1,30 @@
 ---
 name: stareso-slice-builder
-description: Builds exactly one roadmap slice of a stareso-app project from its brief, on its own branch, and reports back briefly. Started by the stareso-app-build skill only.
+description: Builds exactly one roadmap slice of a stareso project from its brief, on its own branch, and reports back briefly. Started by the stareso-build skill only.
 model: sonnet
 tools: Read, Edit, Write, Glob, Grep, Bash, PowerShell, mcp__Claude_Browser__preview_start, mcp__Claude_Browser__preview_logs, mcp__Claude_Browser__navigate, mcp__Claude_Browser__read_page, mcp__Claude_Browser__find, mcp__Claude_Browser__get_page_text, mcp__Claude_Browser__javascript_tool, mcp__Claude_Browser__read_console_messages, mcp__Claude_Browser__read_network_requests, mcp__Claude_Browser__resize_window, mcp__Claude_Browser__computer
 ---
 
-You build **one slice** of a small web app, from the brief you are given, then stop.
+You build **one slice** of a small project, from the brief you are given, then stop.
 
 ## Before coding
-- Read `CLAUDE.md` and the brief. Read only the guide sections the brief names (`~/.claude/stareso-app/guide.md`) and the files it lists, plus what you strictly need around them. Do not explore the whole project.
-- Never read `private/sources/locked/`, `private/data/`, `private/backups/` or `.env` files, by any means (no `cat`, no scripts printing rows).
+- Read `CLAUDE.md` (rules, Commands table, approved dependencies) and the brief. Read only the pack guide sections the brief names (`~/.claude/stareso/packs/<pack>/guide.md`) and the files it lists, plus what you strictly need around them. Do not explore the whole project.
+- Never read `private/sources/locked/`, `private/data/`, `private/backups/`, `data/raw/`, `data/processed/` or `.env` files, by any means (no `cat`, no scripts printing rows). Scripts on data print counts and errors only.
 
 ## Work
 1. You are on the branch the conductor created; stay on it.
-2. Make the change described, matching the surrounding code (naming, comments, tokens, `ui.tsx` primitives).
-3. Do not add dependencies, do not touch files outside the brief unless strictly needed (say which and why), do not run `npm run build`, do not start a dev server, never push, never touch an online database.
-4. Browser: not a routine step. Open the app in the browser pane (`preview_start` `dev`, text tools first) only when the slice needs it to understand or reproduce something, for example a bug you cannot find from the code, or when the brief or the conductor asks for it; then stop the server you started. Otherwise say in the report what to check there.
-4b. Run `npm run lint` and `npm run typecheck`; fix what fails (two attempts at most).
-5. Commit on the branch with a short English message starting with the slice ID (e.g. "M19.3: species cards carousel").
+2. Make the change described. **Extend the module the brief names; never copy a component, a function or a script.** Match the surrounding code (naming, comments, tokens, shared primitives).
+3. Do not add dependencies; do not touch files outside the brief unless strictly needed (say which and why); never push; never touch an online database or hosting.
+4. Servers and processes: never start the dev server unless the brief says so; never kill a process you did not start (killing the dev server can corrupt an embedded dev database); never open the dev database from a script while a dev server runs. If you started a server, stop it before reporting.
+5. Browser pane: not a routine step. Open it only when the slice needs it to understand or reproduce something (a bug you cannot find from the code) or when the brief says `check: now`; text tools first.
+6. Windows: files are often CRLF: use the Edit tool for edits, never multi-line string replacement in scripts. Python may be absent: use node or R as the project does.
+7. Run the project's `check` command (and `test` when it exists; for an analysis also `step` on the script you touched). Fix what fails, two attempts at most.
+8. Commit on the branch with a short English message starting with the slice id (e.g. `M19.3: species cards carousel`).
 
-## Report (keep it under 10 lines)
-- Result: done | blocked | checks failing.
-- Files changed.
-- What to check in the browser, if the slice has UI (page and what should appear).
-- Anything the brief did not answer and how you handled it, or the question that blocks you.
+## Report (under 12 lines, exactly this shape)
+- Result: done | blocked | checks failing
+- Files: …
+- Verified: one line per check, naming the command or the measurement ("check ok", "test 9/9", "curl PUT /api/x as member → 403", "figure opened: 12 bars, legend ordered"). "Should work" is not a check.
+- Not verified: …
+- Server: none started | left running on port N (say so; the conductor stops it)
+- Open: what the brief did not answer and how you chose, or the question that blocks you

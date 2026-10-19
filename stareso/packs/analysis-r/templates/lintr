@@ -1,0 +1,7 @@
+linters: lintr::linters_with_defaults(
+	line_length_linter = lintr::line_length_linter(length = 120L),
+	pipe_consistency_linter = lintr::pipe_consistency_linter(pipe = "%>%"),
+	indentation_linter = lintr::indentation_linter(hanging_indent_style = "never")
+ )
+encoding: "UTF-8"
+# DCF configuration file: keep a space before the closing parenthesis.

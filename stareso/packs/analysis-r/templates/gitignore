@@ -1,0 +1,19 @@
+# private material and data: never committed
+private/
+data/raw/
+data/processed/
+outputs/
+!outputs/.gitkeep
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+renv/library/
+renv/staging/
+*_files/
+*.html
+*.pdf
+/.quarto/
+**/*.quarto_ipynb

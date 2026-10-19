@@ -1,0 +1,22 @@
+# Every file and folder the project reads or writes, by name. Scripts read this file and nothing else.
+raw:
+  # <dataset>: "data/raw/<file as received, versioned>.xlsx"
+
+config:
+  # <topic>: "config/<topic>.yml"
+
+scripts:            # steps of main/run_all.R, in order
+  preprocessing: "main/01_preprocessing.R"
+
+processed:
+  # <dataset>_rds: "data/processed/<dataset>.rds"
+  # <dataset>_csv: "data/processed/<dataset>.csv"
+
+outputs:
+  tables: "outputs/tables"
+  figures_registry: "outputs/figures.csv"
+  report: "outputs/report"
+
+tests:
+  toy: "tests/toy"
+  snapshot: "tests/regression/snapshot.csv"

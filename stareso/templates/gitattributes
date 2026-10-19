@@ -1,0 +1,13 @@
+# Text files use LF in the repository and in the working tree (scripted edits break on CRLF).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.xlsx binary
+*.rds binary
+*.woff binary
+*.woff2 binary

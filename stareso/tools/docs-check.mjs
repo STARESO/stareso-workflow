@@ -1,0 +1,85 @@
+// Coherence check of a stareso project's records. Prints one line per finding, exit code 1 when any.
+// The improve and test skills run it first and read only what it flags.
+//
+//   node ~/.claude/stareso/tools/docs-check.mjs
+//
+// Checks: ticked slices without a BUILD-LOG line · 🛠 ideas naming a ticked slice · `after:` pointing to
+// an unknown slice · PLAN.md without Phase/Pack lines · docs/ files missing from docs/README.md ·
+// package.json version vs the newest changelog entry (when both exist) · single-file roadmap over 300 lines ·
+// FEEDBACK.md blocks older than the newest two (should move to FEEDBACK-DONE.md).
+import fs from "node:fs";
+import path from "node:path";
+import { findRoot, milestones, readText } from "./lib/roadmap.mjs";
+
+const root = findRoot();
+const docs = path.join(root, "docs");
+const findings = [];
+const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "");
+
+const ms = milestones(root);
+const all = ms.flatMap((m) => m.slices.map((s) => ({ ...s, milestone: m.id })));
+const ids = new Set(all.map((s) => s.id));
+
+// Ticked slices need a BUILD-LOG line.
+const log = read(path.join(docs, "BUILD-LOG.md"));
+for (const s of all.filter((x) => x.done)) {
+  const re = new RegExp(`(^|[^A-Za-z0-9.])${s.id.replace(/\./g, "\\.")}(?![0-9A-Za-z])`, "m");
+  if (!re.test(log)) findings.push(`BUILD-LOG: no line for ticked slice ${s.id} (${s.milestone})`);
+}
+
+// 🛠 ideas naming a ticked slice.
+const ideas = read(path.join(docs, "IDEAS.md")).split(/\r?\n/);
+for (const l of ideas.filter((x) => x.startsWith("- 🛠"))) {
+  for (const s of all.filter((x) => x.done)) {
+    const re = new RegExp(`(^|[^A-Za-z0-9.])${s.id.replace(/\./g, "\\.")}(?![0-9A-Za-z])`);
+    if (re.test(l)) findings.push(`IDEAS: 🛠 line names merged slice ${s.id}: "${l.slice(0, 70)}…"`);
+  }
+}
+
+// after: references.
+for (const m of ms) {
+  for (const s of m.slices) {
+    const am = /after: ([A-Za-z0-9., ]+)/.exec(s.rest);
+    if (!am) continue;
+    for (const ref of am[1].split(/[,\s]+/).filter(Boolean)) if (!ids.has(ref)) findings.push(`ROADMAP: ${s.id} says after: ${ref}, which does not exist`);
+  }
+}
+
+// PLAN header.
+const plan = read(path.join(docs, "PLAN.md"));
+if (plan && !/^Phase: /m.test(plan)) findings.push("PLAN.md: no `Phase:` line");
+if (plan && !/^Pack: /m.test(plan)) findings.push("PLAN.md: no `Pack:` line (app-next | analysis-r | …)");
+
+// docs/README.md lists every doc.
+const readme = read(path.join(docs, "README.md"));
+if (readme) {
+  for (const f of fs.readdirSync(docs)) {
+    if (f === "README.md") continue;
+    if (!readme.includes(f)) findings.push(`docs/README.md: ${f} not listed`);
+  }
+}
+
+// Version vs changelog (app projects).
+const pkgFile = path.join(root, "package.json"), chFile = path.join(root, "src", "lib", "changelog.ts");
+if (fs.existsSync(pkgFile) && fs.existsSync(chFile)) {
+  const v = JSON.parse(read(pkgFile)).version;
+  const first = /version:\s*["'`]([^"'`]+)["'`]/.exec(read(chFile));
+  if (first && first[1] !== v) findings.push(`version: package.json ${v} but newest changelog entry ${first[1]}`);
+}
+
+// Old single-file roadmap too long.
+if (!fs.existsSync(path.join(docs, "roadmap"))) {
+  const n = readText(path.join(docs, "ROADMAP.md")).lines.length;
+  if (n > 300) findings.push(`ROADMAP.md: ${n} lines in one file: split it (tools/roadmap-split.mjs)`);
+}
+
+// FEEDBACK blocks beyond the newest two.
+const fb = read(path.join(docs, "FEEDBACK.md"));
+const blocks = (fb.match(/^## Test /gm) || []).length;
+if (blocks > 2) findings.push(`FEEDBACK.md: ${blocks} test blocks; move the older ones to FEEDBACK-DONE.md`);
+
+// Leftover files the workflow no longer uses.
+for (const f of ["HELPER-RULES.md", "FUTURE.md"]) if (fs.existsSync(path.join(docs, f))) findings.push(`docs/${f}: no longer part of the workflow; fold it into CLAUDE.md / IDEAS / QUESTIONS in a tidy slice`);
+
+if (findings.length) { console.log(findings.map((f) => "✗ " + f).join("\n")); process.exit(1); }
+console.log(`✓ docs coherent (${ms.length} milestones, ${all.length} slices, ${all.filter((s) => s.done).length} done)`);

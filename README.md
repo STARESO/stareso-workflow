@@ -1,48 +1,51 @@
-# stareso-app workflow
+# stareso workflow
 
-Claude Code skills and shared material used to build STARESO's small web apps (Scriba, SecuSurf, BaieWatch style): from a first discussion to a published app, in small checked slices.
+Claude Code skills, helper agents and shared material used at STARESO to take a piece of work (a small web app, a data analysis) from the first discussion to the delivered result, in small checked slices: the expensive model decides, cheap fresh helpers execute, records are generated and kept short.
 
 This repository is rooted at `~/.claude`. Its `.gitignore` is a whitelist: only the workflow below is tracked; credentials, settings, sessions, projects and memory never are.
 
 | Path | What |
 |---|---|
-| `skills/stareso-app-*/` | The skills: init, discuss, grill, setup, build, test, improve, status, deploy |
-| `agents/stareso-slice-builder.md` | Helper agent that builds one roadmap slice |
-| `stareso-app/README.md` | Manual: phases, which skill when, which model |
-| `stareso-app/guide.md` | Stack and patterns shared by the apps |
-| `stareso-app/grilling.md` | How decisions are asked and recorded |
-| `stareso-app/templates/` | Starting docs for a new project |
-| `stareso-app/CHANGELOG.md` | One line per workflow change |
+| `skills/stareso-*/` | The skills: init, discuss, grill, setup, build, test, improve, status, deploy, retrofit |
+| `agents/stareso-slice-builder.md`, `agents/stareso-slice-checker.md` | Helper agents: build one slice; check one milestone's outputs |
+| `stareso/README.md` | Manual: phases, which skill when, which model and session, profiles |
+| `stareso/grilling.md` | How decisions are asked and recorded |
+| `stareso/templates/` | Starting docs for a new project (pack-independent) |
+| `stareso/packs/<pack>/` | Stack and conventions: `app-next` (Next.js · Supabase · Vercel), `analysis-r` (R · figures · Quarto report) |
+| `stareso/tools/` | Node scripts: `slice-done`, `docs-check`, `roadmap-overview`, `roadmap-split`, `session-stats` |
+| `stareso/DESIGN-NOTES.md`, `stareso/CHANGELOG.md`, `stareso/PORTABILITY.md` | Why, what changed, how to use it with another assistant |
 
 ## Workflow
 
 ```mermaid
 flowchart LR
     init[init] --> discuss[discuss] --> grill[grill] --> setup[setup] --> build[build]
+    retrofit[retrofit: existing project] --> build
     build --> test[test]
-    test -- "bugs and changes:<br/>fix slices" --> build
+    test -- "bugs and changes: fix slices" --> build
     test -- "ideas and rule changes" --> improve[improve]
     improve -- "new slices" --> build
-    test -- "all milestones done" --> deploy[deploy]
+    test -- "all milestones done" --> deploy[deploy / deliver]
     status([status: any time]) -.-> build
 ```
 
-Docs flow the same way: `IDEAS.md` (inbox) → `PLAN.md` (decided) → `ROADMAP.md` (slices) → code; test feedback goes to `FEEDBACK.md`.
+Docs flow the same way: `IDEAS.md` (inbox) → `PLAN.md` (decided) → `ROADMAP.md` + `roadmap/<ID>.md` (slices) → code; test feedback goes to `FEEDBACK.md`; the build log and the overview are generated.
 
 ## Skills, in the order of a project
 
-| Skill | Model | What it does |
+| Skill | Model · session · mode | What it does |
 |---|---|---|
-| `stareso-app-init` | Opus | Creates the project: folders, private guard, git, first docs |
-| `stareso-app-discuss` | Opus | Free talk about the app; keeps `docs/IDEAS.md` |
-| `stareso-app-grill` | Opus | Decision rounds with recommended answers; writes `PLAN.md`, `GLOSSARY.md`, decision records |
-| `stareso-app-setup` | Opus | Writes `CLAUDE.md` and the roadmap of small slices in milestones |
-| `stareso-app-build` | Sonnet, auto mode | Builds slices with one helper agent each, checks and merges them |
-| `stareso-app-test` | Sonnet | Test in the browser pane; feedback becomes fix slices or ideas |
-| `stareso-app-improve` | Opus | Turns new ideas or decisions into PLAN updates and new slices; keeps all docs coherent |
-| `stareso-app-status` | any | Where the project stands and the next step |
-| `stareso-app-deploy` | Opus | Publishing: GitHub, Supabase, Vercel, subdomain, phones |
+| `stareso-init` | Opus · new · normal | Creates the project from a pack: folders, private guard, git, first docs, the workflow chart |
+| `stareso-discuss` | Opus · same · normal | Free talk; keeps `docs/IDEAS.md` |
+| `stareso-grill` | Opus · same · normal | Decision rounds with recommended answers, access table, modes, walkthrough; writes `PLAN.md`, `GLOSSARY.md`, decisions |
+| `stareso-setup` | Opus · same · normal | `CLAUDE.md` with the Commands table and the roadmap (overview + one file per milestone) |
+| `stareso-build` | Sonnet · new, no worktree · auto | Conductor: one helper per slice, `check`, `slice-done`; checker helper and tidy slice per milestone; eco or fast profile |
+| `stareso-test` | Sonnet · new · normal | Test in the browser pane or on the rendered report; feedback becomes fix slices or ideas |
+| `stareso-improve` | Opus · new · normal | New ideas or decisions → PLAN updates and new slices; coherence check |
+| `stareso-status` | any | Where the project stands, debt, and the next step with its model and session |
+| `stareso-deploy` | Opus · new · normal | Pre-flight and the pack's steps for going online or delivering |
+| `stareso-retrofit` | Opus · new · normal | Brings an existing project into the workflow without rewriting it |
 
-`init`, `build` and `deploy` are started only by typing them; the others also by asking.
+`init`, `build`, `deploy` and `retrofit` are started only by typing them; the others also by asking.
 
-Start with `stareso-app/README.md`. To save a change: `git -C ~/.claude add -A`, commit, push.
+Start with `stareso/README.md`. To save a change: `git -C ~/.claude add -A`, commit, push.
