@@ -1,4 +1,4 @@
-# NNNN. <Short title>
+# NNNN. [Short title]
 
 Date: yyyy-mm-dd
 

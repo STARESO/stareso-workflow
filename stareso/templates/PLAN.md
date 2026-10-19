@@ -1,7 +1,9 @@
-# <ProjectName>: plan
+# [ProjectName]: plan
 
 Phase: discussion
-Pack: <app-next | analysis-r>
+
+Pack: app-next | analysis-r (one of the folders of ~/.claude/stareso/packs/)
+
 <!-- Phase: discussion | grilling | setup | build | deployed (apps) | delivered (analyses). Pack: a folder of ~/.claude/stareso/packs/. Updated by the stareso-* skills. -->
 
 The decided version of the project: single source of truth. Raw ideas live in IDEAS.md;
