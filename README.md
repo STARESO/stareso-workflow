@@ -6,7 +6,7 @@ This repository is rooted at `~/.claude`. Its `.gitignore` is a whitelist: only 
 
 | Path | What |
 |---|---|
-| `skills/stareso-*/` | The skills: init, discuss, grill, setup, build, test, improve, status, deploy, retrofit |
+| `skills/stareso-*/` | The skills: init, discuss, grill, setup, build, test, improve, status, deploy, retrofit, retro |
 | `agents/stareso-slice-builder.md`, `agents/stareso-slice-checker.md` | Helper agents: build one slice; check one milestone's outputs |
 | `stareso/README.md` | Manual: phases, which skill when, which model and session, profiles |
 | `stareso/grilling.md` | How decisions are asked and recorded |
@@ -45,6 +45,7 @@ Docs flow the same way: `IDEAS.md` (inbox) → `PLAN.md` (decided) → `ROADMAP.
 | `stareso-status` | any | Where the project stands, debt, and the next step with its model and session |
 | `stareso-deploy` | Opus · new · normal | Pre-flight and the pack's steps for going online or delivering |
 | `stareso-retrofit` | Opus · new · normal | Brings an existing project into the workflow without rewriting it |
+| `stareso-retro` | Sonnet (quick) · Opus (deep) | Measured review of the workflow on this project from the records; at most three changes per retro |
 
 `init`, `build`, `deploy` and `retrofit` are started only by typing them; the others also by asking.
 
