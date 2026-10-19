@@ -115,7 +115,7 @@ async function logMode() {
   }
   rows.length = 0; rows.push(...kept); wfRows.length = 0; wfRows.push(...wfKept);
 
-  const header = ["| Date | Session (start–end) | Kind | Models (turns) | Turns | Ctx/turn | Output | Cache read | Helpers | ≈ equiv |", "|---|---|---|---|---|---|---|---|---|---|"];
+  const header = ["| Date (start–end) | Kind | Models (turns) | Turns | Ctx/turn | Output | Cache read | Helpers | ≈ equiv |", "|---|---|---|---|---|---|---|---|---|"];
   const scopes = [["Project", totals], ...(wfRows.length ? [["Workflow improvement", wfTotals]] : [])];
   const modelNames = [...new Set(scopes.flatMap(([, t]) => Object.keys(t.models)))].sort((a, b) => scopes.reduce((n, [, t]) => n + (t.models[b] || 0), 0) - scopes.reduce((n, [, t]) => n + (t.models[a] || 0), 0));
   const block = [
@@ -128,7 +128,7 @@ async function logMode() {
     "", "**Turns per model** (sessions and their helpers)", "",
     `| Scope | ${modelNames.map(short).join(" | ")} |`, `|---|${modelNames.map(() => "---").join("|")}|`,
     ...scopes.map(([label, t]) => `| ${label} | ${modelNames.map((m) => t.models[m] || "").join(" | ")} |`),
-    "", `≈ equiv = cache read × 0.1 + cache write × 1.25 + output × 5 (relative list prices: a comparison unit, not money). Forks of a session are counted once. Updated ${new Date().toISOString().slice(0, 16).replace("T", " ")}.`,
+    "", `≈ equiv = cache read × 0.1 + cache write × 1.25 + output × 5 (relative list prices: a comparison unit, not money), session and its helpers together. Forks of a session are counted once. Updated ${new Date().toISOString().slice(0, 16).replace("T", " ")}.`,
   ];
   const file = path.join(root, "docs", "USAGE.md");
   const START = "<!-- usage:start -->", END = "<!-- usage:end -->";
