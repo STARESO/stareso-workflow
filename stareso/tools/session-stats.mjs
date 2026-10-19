@@ -95,16 +95,25 @@ async function logMode() {
       const end = s.last.slice(0, 10) === s.first.slice(0, 10) ? s.last.slice(11, 16) : s.last.slice(5, 16).replace("T", " ");
       const wf = isWorkflowSession(s, d);
       const line = `| ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${wf && !/workflow-review/.test(s.kind || "") ? "workflow review" : s.kind || "chat"}${inWorktree ? " (worktree)" : ""} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${h.n ? `${h.n} (${modelsText(h.models)}) · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} | ${fmt(Math.round(e))} |`;
-      (wf ? wfRows : rows).push({ first: s.first, line });
-      const t = wf ? wfTotals : totals;
-      t.sessions++; t.turns += s.assistant; t.out += s.usage.output; t.cr += s.usage.cache_read; t.cw += s.usage.cache_create;
-      t.helpers += h.n; t.hOut += h.out; t.hCr += h.cr; t.hCw += h.cw; t.equiv += e;
-      for (const [m, n] of Object.entries(s.models)) t.models[m] = (t.models[m] || 0) + n;
-      for (const [m, n] of Object.entries(h.models)) t.models[m] = (t.models[m] || 0) + n;
+      (wf ? wfRows : rows).push({ first: s.first, turns: s.assistant, line, s, h, e, wf });
     }
   }
-  rows.sort((a, b) => a.first.localeCompare(b.first));
-  wfRows.sort((a, b) => a.first.localeCompare(b.first));
+  // A forked or continued session shares its start timestamp with the original and repeats its turns:
+  // keep the longest transcript per start time, so nothing is counted twice.
+  const dedupe = (list) => {
+    const byStart = new Map();
+    for (const r of list) { const k = r.first; if (!byStart.has(k) || byStart.get(k).turns < r.turns) byStart.set(k, r); }
+    return [...byStart.values()].sort((a, b) => a.first.localeCompare(b.first));
+  };
+  const kept = dedupe(rows), wfKept = dedupe(wfRows);
+  for (const r of [...kept, ...wfKept]) {
+    const t = r.wf ? wfTotals : totals, s = r.s, h = r.h;
+    t.sessions++; t.turns += s.assistant; t.out += s.usage.output; t.cr += s.usage.cache_read; t.cw += s.usage.cache_create;
+    t.helpers += h.n; t.hOut += h.out; t.hCr += h.cr; t.hCw += h.cw; t.equiv += r.e;
+    for (const [m, n] of Object.entries(s.models)) t.models[m] = (t.models[m] || 0) + n;
+    for (const [m, n] of Object.entries(h.models)) t.models[m] = (t.models[m] || 0) + n;
+  }
+  rows.length = 0; rows.push(...kept); wfRows.length = 0; wfRows.push(...wfKept);
 
   const header = ["| Date | Session (start–end) | Kind | Models (turns) | Turns | Ctx/turn | Output | Cache read | Helpers | ≈ equiv |", "|---|---|---|---|---|---|---|---|---|---|"];
   const totalsLine = (t, label) => `**${label}:** ${t.sessions} sessions · ${t.turns} turns · output ${fmt(t.out)} · cache read ${fmt(t.cr)} · cache write ${fmt(t.cw)} · helpers ${t.helpers} (output ${fmt(t.hOut)}, cache read ${fmt(t.hCr)}) · models: ${modelsText(t.models) || "—"} · ≈ ${fmt(Math.round(t.equiv))} input-token equivalents`;
