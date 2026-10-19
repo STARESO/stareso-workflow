@@ -28,7 +28,7 @@ Read by `stareso-deploy`. The user does every step in the providers' consoles; C
 
 **C. Vercel.** 1. Add New → Project → import the repository → Framework Preset **Next.js**. 2. Environment variables (Production): `DATABASE_URL`, `SESSION_SECRET` (64 hex: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`), code hashes (`npm run hash-code`, **different codes** from local), Storage URL and **server** key, bucket names, API keys. 3. Deploy, open `….vercel.app`, log in, check every tab and one image.
 
-**D. Subdomain (OVH domain, Cloudflare DNS).** 1. Use `<app>.stareso.work`, never the root. 2. Vercel → Settings → Domains → add it. 3. Cloudflare → DNS → Add record: **CNAME**, name `<app>`, target from Vercel, proxy **DNS only (grey cloud)**. 4. Wait for the certificate; open `https://<app>.stareso.work`.
+**D. Subdomain (OVH domain, Cloudflare DNS).** 1. Use a subdomain of the organisation's domain (`<app>.<domain>`), never the root. 2. Vercel → Settings → Domains → add it. 3. Cloudflare → DNS → Add record: **CNAME**, name `<app>`, target from Vercel, proxy **DNS only (grey cloud)**. 4. Wait for the certificate; open `https://<app>.<domain>`.
 
 **E. Keep-alive.** 1. GitHub → Settings → Secrets and variables → Actions → **Variables** → `APP_URL`. 2. Actions → "Keep database awake" → Run workflow. Keep the repository private (public repositories lose scheduled jobs after 60 idle days).
 

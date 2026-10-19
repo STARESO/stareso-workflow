@@ -41,7 +41,7 @@ init ──▶ discuss ──▶ grill ──▶ setup ──▶ build ◀──
                                            ▲          │
                                            └ improve ◀┘      status: any time
 ```
-Manual and skills: `~/.claude/stareso/README.md` (repository github.com/awoehrel/stareso-workflow, private).
+Manual and skills: `~/.claude/stareso/README.md` (the `stareso-workflow` repository).
 1. Put reference material in `private/sources/locked/` any time (forms, screenshots, exports, notes, data files). Tell me when you add something; I'll ask before reading it.
 2. `/stareso-discuss` (Opus, this session or a new one): talk freely (keyboard or voice). Nothing is decided yet.
 3. "let's grill" (Opus): the structured rounds. Ends with a walkthrough you correct.

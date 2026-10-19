@@ -26,7 +26,7 @@ Fill `~/.claude/stareso/packs/<pack>/templates/CLAUDE.md`: short, rules plus poi
 - `model: haiku` for trivial slices (copy, config, a token); `sonnet` by default; `opus` only with a real risk written in the brief (security, legal records, migrations on real data, a statistical method); such slices also get `check: now`.
 - Slices that need the user (secrets, accounts, online database, a real data file, a library not yet approved) are marked **[human]**, with what the user must do.
 - Every milestone ends with its **tidy slice** (`M<n>.tidy`, from the template).
-- Also create `docs/QUESTIONS.md`, `docs/FEEDBACK.md`, `docs/BUILD-LOG.md` from the templates, and (app-next) the access-matrix test skeleton named in the Commands table if the pack guide asks for it.
+- Also create `docs/QUESTIONS.md` (template, then one `(grilling)` line per "(open: …)" point of PLAN, each with the slices it blocks), `docs/FEEDBACK.md`, `docs/BUILD-LOG.md`, `docs/USAGE.md` from the templates, and (app-next) the access-matrix test skeleton named in the Commands table if the pack guide asks for it.
 - Run `node ~/.claude/stareso/tools/roadmap-overview.mjs` to fill the overview table, then `node ~/.claude/stareso/tools/docs-check.mjs`.
 
 ## 4. Review with the user

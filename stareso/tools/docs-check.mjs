@@ -78,6 +78,18 @@ const fb = read(path.join(docs, "FEEDBACK.md"));
 const blocks = (fb.match(/^## Test /gm) || []).length;
 if (blocks > 2) findings.push(`FEEDBACK.md: ${blocks} test blocks; move the older ones to FEEDBACK-DONE.md`);
 
+// QUESTIONS: an open question whose "blocks:" slices are all done is stale; a ticked one needs an Answer.
+const qs = read(path.join(docs, "QUESTIONS.md")).split(/\r?\n/);
+for (const l of qs) {
+  const open = /^- \[ \]/.test(l), done = /^- \[x\]/.test(l);
+  if (!open && !done) continue;
+  if (done && !/\*\*Answer \(\d{4}-\d{2}-\d{2}\)/.test(l)) findings.push(`QUESTIONS: ticked without an "**Answer (yyyy-mm-dd): …**": "${l.slice(0, 70)}…"`);
+  const bm = /blocks: ([A-Za-z0-9., ]+)/.exec(l);
+  if (open && bm && !/none/.test(bm[1])) {
+    const blocked = bm[1].split(/[,\s]+/).filter(Boolean);
+    if (blocked.length && blocked.every((id) => all.find((s) => s.id === id)?.done)) findings.push(`QUESTIONS: still open but every blocked slice is done: "${l.slice(0, 70)}…"`);
+  }
+}
 // Leftover files the workflow no longer uses.
 for (const f of ["HELPER-RULES.md", "FUTURE.md"]) if (fs.existsSync(path.join(docs, f))) findings.push(`docs/${f}: no longer part of the workflow; fold it into CLAUDE.md / IDEAS / QUESTIONS in a tidy slice`);
 

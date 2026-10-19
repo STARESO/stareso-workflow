@@ -21,4 +21,4 @@ Talk in English unless the user switches to French.
 - A grilling can span sessions: PLAN.md is updated after each round, so a new session resumes from the files.
 
 ## End
-When no question is left, after the walkthrough, and when the user confirms: `Phase: setup`, summarise the plan in about ten lines, and point to `/stareso-setup` (Opus; same session is fine).
+When no question is left, after the walkthrough, and when the user confirms: `Phase: setup`, summarise the plan in about ten lines, and point to `/stareso-setup` (Opus; same session is fine). A point the user could not settle ("ask the manager", "depends on the data") is not a blocker: write it in PLAN as "(open: …)" so setup turns it into a `(grilling)` line of `docs/QUESTIONS.md` and a `[human]` or waiting slice.

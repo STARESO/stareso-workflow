@@ -19,7 +19,9 @@ retrofit (existing project) ──▶ build      └ improve ◀┘         stat
 | Shared material: this manual, grilling rules, templates, tools | `~/.claude/stareso/` |
 | Packs (stack and conventions) | `~/.claude/stareso/packs/<pack>/` |
 
-On Windows `~` is `C:\Users\aubin`. These places are one git repository rooted at `~/.claude` (whitelist `.gitignore`: only the workflow is tracked). After changing the workflow: `git -C ~/.claude add -A && git -C ~/.claude commit -m "…"`, then push to the private remote (`github.com/awoehrel/stareso-workflow`).
+On Windows `~` is `C:\Users\<you>`. These places are one git repository rooted at `~/.claude` (whitelist `.gitignore`: only the workflow is tracked). After changing the workflow: `git -C ~/.claude add -A && git -C ~/.claude commit -m "…"`, then push to the `stareso-workflow` remote.
+
+**This repository must stay free of personal and project-private information** (it may be shared or made public): no user names or home paths (write `<you>`), no e-mail addresses, no domain names, keys, codes or account ids, no real people, no data. Project-specific facts live in each project's own repository and `private/` folder; the workflow holds only the method and the packs. Git commit metadata carries the author name and e-mail of whoever commits: use a work identity if the repository is ever made public.
 
 ## The skills
 
@@ -59,11 +61,31 @@ The model is chosen **per slice in the brief** (`model: haiku | sonnet | opus`),
 8. Repeat 5–7 per milestone. Back after a break: `/stareso-status`.
 9. Ready: `/stareso-deploy`. Feedback from phones or readers afterwards: `/stareso-test`.
 
-## Files in each project
+## Files in each project, and when they enter the workflow
 
-`docs/IDEAS.md` (inbox) → `docs/PLAN.md` (decided, single source of truth; `Phase:` and `Pack:` on top) → `docs/ROADMAP.md` (overview, generated) + `docs/roadmap/<ID>.md` (briefs) → code.
-Also `docs/GLOSSARY.md`, `docs/decisions/`, `docs/QUESTIONS.md` (open questions, `[debt]`), `docs/FEEDBACK.md` (+ `FEEDBACK-DONE.md`), `docs/BUILD-LOG.md` (generated), `docs/DEPLOY.md`, (analysis) `docs/LOGBOOK.md`, `docs/README.md` (the list).
-`private/` (never committed or published): `sources/locked/`, `sources/readable/`, `sources/INDEX.md`, `data/`, `backups/`; analyses also keep `data/raw/`, `data/processed/`, `outputs/` out of git.
+The flow: `IDEAS.md` (inbox) → `PLAN.md` (decided) → `ROADMAP.md` + `roadmap/<ID>.md` (slices) → code; `FEEDBACK.md` feeds the next milestone; `QUESTIONS.md` holds what nobody could decide yet; `BUILD-LOG.md` and `USAGE.md` record what was done and what it cost. Nothing lives only in the chat.
+
+| File | Enters at | Written by | Read by | Kept coherent by | Leaves / archives |
+|---|---|---|---|---|---|
+| `.claude/settings.json`, `.gitattributes`, `.editorconfig` | init / retrofit | init, retrofit | the harness, git | — | never |
+| `CLAUDE.md` | init (name), **setup** (rules, Commands, dependencies) | setup, improve, retrofit, deploy (status line) | every session and helper, on every turn | improve's old-wording search; `docs-check` (Pack line in PLAN) | never; stays short |
+| `private/sources/INDEX.md` | init | init, discuss (classification) | discuss, grill | — | never |
+| `docs/PLAN.md` | init (`Phase`, `Pack`) | grill (each round), improve, retrofit, deploy (`Phase`) | setup, build (conductor), improve, status, checker (access table) | improve's coherence step; the walkthrough; `docs-check` (header lines) | never: single source of truth |
+| `docs/IDEAS.md` | init | discuss, test (💭), improve (💭 → 🛠 / ✖), retrofit | discuss, grill, improve, status | `slice-done` (🛠 → ✅), `docs-check` (stale 🛠) | lines change status, never deleted |
+| `docs/GLOSSARY.md` | init | grill, improve, retrofit | discuss (voice), setup, helpers through the briefs | improve's old-wording search | never |
+| `docs/decisions/` | grill (first hard choice) | grill, improve, retrofit | improve, anyone asking "why" | a replaced record says so in its status line | never |
+| `docs/ROADMAP.md` | **setup** | tools only (`roadmap-overview`, `slice-done`) | status, build start, improve, test, the user | generated | never |
+| `docs/roadmap/<ID>.md` | setup; test and improve add milestones | setup, test, improve, retrofit; `slice-done` ticks | build (one file per run), helpers (their brief), checker (done-when lines) | `docs-check` (`after:` targets, log lines) | stays; done milestones show as done in the overview |
+| `docs/QUESTIONS.md` | **setup** (grilling leftovers) | build (blocked decisions), test (undecidable points), retrofit (`[debt]`), tidy slices (`[debt]`); answered by improve, build, any session | **improve (first thing)**, build (skips what a question blocks), status | `docs-check` (open but unblocked, ticked without answer) | lines are ticked with their answer, never deleted |
+| `docs/FEEDBACK.md` | setup | test (points), build (requests during a run) | test's "end test" segmentation, improve (decisions to confirm) | `docs-check` (more than two blocks) | older blocks → `FEEDBACK-DONE.md` at the end of a test |
+| `docs/BUILD-LOG.md` | setup | `slice-done` only | status, retros | `docs-check` (ticked slice without a line) | never |
+| `docs/USAGE.md` | setup | `session-stats --log` at the end of build and test | status (totals), retros | regenerated | never |
+| `docs/LOGBOOK.md` (analysis) | init | slices (one line), the user | report writing, improve | — | never |
+| `docs/DEPLOY.md` (app) | **deploy** | deploy | deploy, the user when publishing | lessons copied to the pack's `deploy.md` | never |
+| `docs/README.md` | init | any skill that adds a doc | newcomers | `docs-check` (unlisted file) | never |
+| `private/`, `data/raw`, `data/processed`, `outputs/` | init | the user, import scripts | nobody reads rows | read guard | never committed |
+
+Rule of thumb: a skill that touches a decision runs the coherence pair (`roadmap-overview`, `docs-check`) before committing, and `improve` also searches the old wording across `docs/` and `CLAUDE.md`, because tools check structure, not meaning.
 
 ## Tools (`~/.claude/stareso/tools/`, plain Node, no install)
 
@@ -73,7 +95,8 @@ Also `docs/GLOSSARY.md`, `docs/decisions/`, `docs/QUESTIONS.md` (open questions,
 | `docs-check.mjs` | coherence of the records (ticked slice without log line, stale 🛠, broken `after:`, missing `Pack:`, docs not listed, version mismatch, old files) |
 | `roadmap-overview.mjs` | regenerates the overview (milestones with their Kind, then the open slices) of `ROADMAP.md` |
 | `roadmap-split.mjs` | one-off: splits an old single-file roadmap into the folder layout |
-| `session-stats.mjs <out> <transcripts…>` | exact tokens, turns, context per turn and user timeline from the Claude Code transcripts (`~/.claude/projects/`): use it in every retro |
+| `session-stats.mjs --log` | from inside a project: regenerates `docs/USAGE.md` (every session of the project and its worktrees, kind, models, turns, context per turn, output and cache tokens, helpers; totals). Build and test run it at the end |
+| `session-stats.mjs <out> <transcripts…>` | deep retro: per-transcript header and the user-message timeline |
 
 ## Packs
 

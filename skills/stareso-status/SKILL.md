@@ -9,7 +9,7 @@ description: Where is this stareso project in its workflow and what is the next 
 
 1. `docs/PLAN.md`: the `Phase:` and `Pack:` lines.
 2. `docs/ROADMAP.md`: the overview table only (done / total per milestone, tested up to, `[human]` waiting). Do not open the milestone files.
-3. `docs/QUESTIONS.md`: open questions and `[debt]` lines. `docs/IDEAS.md`: number of 💭 lines. `docs/FEEDBACK.md`: date of the newest block. `docs/BUILD-LOG.md`: last line (date of the last slice, last tidy).
+3. `docs/QUESTIONS.md`: open questions (say which slices they block) and `[debt]` lines. `docs/IDEAS.md`: number of 💭 lines. `docs/FEEDBACK.md`: date of the newest block. `docs/BUILD-LOG.md`: last line (date of the last slice, last tidy). `docs/USAGE.md`: the totals line (sessions, tokens, models), if the file exists.
 4. `git status` (one line) and the current branch; say if the folder is a worktree.
 
 Answer in at most ten lines:
