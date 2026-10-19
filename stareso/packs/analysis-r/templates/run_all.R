@@ -16,7 +16,7 @@ for (step in unlist(paths$scripts)) {
 
 # Files written during this run, per folder.
 written <- list.files("outputs", recursive = TRUE, full.names = TRUE)
-written [- written[file.mtime(written) ]= started]
+written <- written[file.mtime(written) >= started]
 counts <- table(dirname(written))
 for (folder in names(counts)) message("  ", folder, ": ", counts[[folder]])
 message("Files written: ", length(written), " in ",
