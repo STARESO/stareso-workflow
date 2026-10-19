@@ -19,7 +19,7 @@ retrofit (existing project) ──▶ build      └ improve ◀┘         stat
 | Shared material: this manual, grilling rules, templates, tools | `~/.claude/stareso/` |
 | Packs (stack and conventions) | `~/.claude/stareso/packs/<pack>/` |
 
-On Windows `~` is `C:\Users\aubin`. These places are one git repository rooted at `~/.claude` (whitelist `.gitignore`: only the workflow is tracked). After changing the workflow: `git -C ~/.claude add -A && git -C ~/.claude commit -m "…"`, then push to the private remote (`github.com/awoehrel/stareso-app-workflow`).
+On Windows `~` is `C:\Users\aubin`. These places are one git repository rooted at `~/.claude` (whitelist `.gitignore`: only the workflow is tracked). After changing the workflow: `git -C ~/.claude add -A && git -C ~/.claude commit -m "…"`, then push to the private remote (`github.com/awoehrel/stareso-workflow`).
 
 ## The skills
 
