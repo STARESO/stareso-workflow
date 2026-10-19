@@ -1,6 +1,6 @@
 # Guide: building a small team web app the STARESO way
 
-A blueprint for starting a **new, unrelated** app with the same look, structure and habits as SecuSurf (dive safety sheets) and BaieWatch (boat counts). It covers UI and architecture, not the business logic of either app. Used by the `stareso-app-*` skills (see `README.md` next to this file); everything here is a **default** that the grilling can change for a given app (stack and providers included).
+A blueprint for starting a **new, unrelated** app with the same look, structure and habits as SecuSurf (dive safety sheets) and BaieWatch (boat counts). It covers UI and architecture, not the business logic of either app. Used by the `stareso-*` skills (manual: `~/.claude/stareso/README.md`); everything here is a **default** that the grilling can change for a given app (stack and providers included).
 
 Each pattern is tagged with the app it comes from: **[S]** SecuSurf, **[B]** BaieWatch, **[S+B]** both.
 
@@ -59,7 +59,7 @@ docs/
   BUILD-LOG.md             one line per built slice (result, tokens)
   FEEDBACK.md              test feedback, sorted (bug / change / idea)
   QUESTIONS.md             open questions the build could not answer alone
-  DEPLOY.md                deployment checklist [B] (written by stareso-app-deploy)
+  DEPLOY.md                deployment checklist [B] (written by stareso-deploy)
 db/
   schema.sql               full structure for a FRESH database (wipes everything)
   migrations/001-*.sql     changes on real data, numbered, safe to re-run
@@ -375,7 +375,7 @@ The SecuSurf data design (client UUIDs, idempotent upserts) was made for this; B
 
 ## 17. CLAUDE.md of a new app
 
-Template: `templates/CLAUDE.md` (filled by `stareso-app-setup`). Keep it **short**: rules plus pointers. It is loaded on every turn, so the details of each screen live in `docs/PLAN.md`, terms in `docs/GLOSSARY.md`, and anything a tool can check (lint, types) goes in the tool, not in the text.
+Template: `templates/CLAUDE.md` (filled by `stareso-setup`). Keep it **short**: rules plus pointers. It is loaded on every turn, so the details of each screen live in `docs/PLAN.md`, terms in `docs/GLOSSARY.md`, and anything a tool can check (lint, types) goes in the tool, not in the text.
 
 ---
 
@@ -401,7 +401,7 @@ Typical milestones for a new app (adapt in setup):
 
 **M3+. One milestone per further feature**, each sliced the same way: second resource, pickers and quick-add, filters / history / calendar, live sync (`app_state` + polling + `useDataVersion`, section 9), dashboard (SQL summaries), CSV export (section 14), PWA manifest + icons + install card (section 11), offline (section 12) if the field has poor signal.
 
-**Last milestone before publishing:** `.env.example` complete, `vercel.json` region, keep-alive workflow, backup script, then `stareso-app-deploy`.
+**Last milestone before publishing:** `.env.example` complete, `vercel.json` region, keep-alive workflow, backup script, then `stareso-deploy`.
 
 Every slice ends with lint + typecheck passing and, for UI slices, a check in the preview browser at 280 / 320 / 375 px in both themes (section 5).
 

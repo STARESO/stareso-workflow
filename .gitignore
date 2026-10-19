@@ -4,7 +4,6 @@
 !/.gitignore
 !/README.md
 !/stareso/
-!/stareso-app/
 !/agents/
 /agents/*
 !/agents/stareso-slice-builder.md

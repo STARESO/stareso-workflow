@@ -17,7 +17,7 @@ Fill `~/.claude/stareso/packs/<pack>/templates/CLAUDE.md`: short, rules plus poi
 
 ## 3. Roadmap
 - `docs/ROADMAP.md` from `templates/ROADMAP.md` (numbering rules, slice format, the overview markers).
-- One file per milestone `docs/roadmap/M1.md`, `M2.md`… from `templates/roadmap-milestone.md`, starting from the pack's default milestones adapted to the plan. `H.md` for slices waiting on human input, `P.md` for after the first delivery.
+- One file per milestone `docs/roadmap/M1.md`, `M2.md`… from `templates/roadmap-milestone.md` (`Kind:` line: feature | fixes | tidy | security | release; a title that says what the user gets), starting from the pack's default milestones adapted to the plan. `H.md` (Kind: human) for slices waiting on human input, `P.md` (Kind: after-delivery) for after the first delivery; no other lettered milestones.
 - **Milestones** each end with something worth testing (a screen that works, a figure family, a report section).
 - **Slices** small enough for a Sonnet-class model from the brief alone: at most one table, one route and one screen change (app) or one step, one module and one figure family (analysis); usually 1 to 5 files. Split anything bigger.
 - Each brief is **self-contained**: goal, files, 2 to 5 steps, "done when", guide sections. No "as discussed": write the fact.

@@ -9,7 +9,7 @@ What each file is for and which stareso skill writes it. Doc files are named in 
 | `GLOSSARY.md` | Domain words: UI word, meaning, code name | init | grill, improve |
 | `decisions/` | Why a hard-to-reverse choice was made | grill | improve |
 | `IDEAS.md` | Inbox of raw ideas, each with a status mark | init | discuss, test, improve; `slice-done` marks ✅ |
-| `ROADMAP.md` | Numbering rules, slice format and the overview table (generated) | setup | tools |
+| `ROADMAP.md` | Numbering rules, slice format, the overview table and the open-slices table (generated) | setup | tools |
 | `roadmap/<ID>.md` | One file per milestone: intro, test marker, slice briefs | setup | improve, test; `slice-done` ticks |
 | `QUESTIONS.md` | Open questions the build could not answer, `[debt]` lines | setup | build asks; improve and sessions answer |
 | `FEEDBACK.md` | The newest test rounds and what became of each point | setup | test, build (requests during a run) |

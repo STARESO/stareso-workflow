@@ -1,5 +1,6 @@
-# M<n>. <Title>
+# M<n>. <Title: what the user gets, not "fixes after the Nth test">
 
+Kind: feature | fixes | tidy | security | release | human | after-delivery
 Ends with: <what the user can see or use at the end of this milestone, one or two lines>.
 Order: <which slices share files and must run one after the other; the rest is free>.
 

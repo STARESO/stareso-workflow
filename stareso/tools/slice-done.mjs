@@ -31,7 +31,8 @@ if (branch !== "none") {
     if (list.length !== 1) { console.error(list.length ? `Several branches match slice/${id}-*: ${list.join(", ")}` : `No branch slice/${id}-* (pass --branch <name> or --branch none)`); process.exit(1); }
     branch = list[0];
   }
-  if (git("status", "--porcelain")) { console.error("Working tree not clean: commit or discard first."); process.exit(1); }
+  // Untracked files (dev logs, generated AGENTS.md) do not block a merge; modified tracked files do.
+  if (git("status", "--porcelain", "--untracked-files=no")) { console.error("Working tree not clean (modified tracked files): commit or discard first."); process.exit(1); }
   git("merge", "--no-ff", branch, "-m", `Merge slice ${id}: ${slice.title}`);
   git("branch", "-d", branch);
 }

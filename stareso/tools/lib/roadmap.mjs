@@ -51,7 +51,7 @@ export function milestones(root) {
       const { lines, eol } = readText(file);
       const head = lines.find((l) => /^# /.test(l)) || "";
       const hm = /^# ([A-Za-z]+\d*)\. (.+)$/.exec(head);
-      result.push({ file, eol, lines, id: hm ? hm[1] : path.basename(name, ".md"), title: hm ? hm[2] : head.replace(/^# /, ""), slices: parseSlices(lines), tested: lastTestMarker(lines) });
+      result.push({ file, eol, lines, id: hm ? hm[1] : path.basename(name, ".md"), title: hm ? hm[2] : head.replace(/^# /, ""), kind: kindOf(lines), slices: parseSlices(lines), tested: lastTestMarker(lines) });
     }
   } else {
     const file = path.join(root, "docs", "ROADMAP.md");
@@ -62,7 +62,7 @@ export function milestones(root) {
       if (hm) { cur = { file, eol, id: hm[1], title: hm[2], start: i, lines: [] }; result.push(cur); }
       else if (cur) cur.lines.push(l);
     });
-    for (const m of result) { m.slices = parseSlices(m.lines).map((s) => ({ ...s, line: s.line + m.start + 1 })); m.tested = lastTestMarker(m.lines); m.lines = lines; }
+    for (const m of result) { m.slices = parseSlices(m.lines).map((s) => ({ ...s, line: s.line + m.start + 1 })); m.tested = lastTestMarker(m.lines); m.kind = kindOf(m.lines); m.lines = lines; }
   }
   return result;
 }
@@ -70,6 +70,12 @@ export function milestones(root) {
 function sortIds(a, b) {
   const num = (s) => { const m = /^M(\d+)/.exec(s); return m ? Number(m[1]) : Infinity; };
   return num(a) - num(b) || a.localeCompare(b);
+}
+
+// `Kind: feature | fixes | tidy | security | release | human | after-delivery` near the top of a milestone file.
+function kindOf(lines) {
+  for (const l of lines.slice(0, 12)) { const m = /^Kind: (\S+)/.exec(l); if (m) return m[1]; }
+  return "";
 }
 
 function lastTestMarker(lines) {
@@ -86,15 +92,28 @@ export function findSlice(root, id) {
   return null;
 }
 
+// Milestone table, then the open slices (done ones stay in their milestone file, so this block stays short).
 export function overviewTable(root) {
-  const rows = milestones(root).map((m) => {
+  const ms = milestones(root);
+  const linked = fs.existsSync(path.join(root, "docs", "roadmap"));
+  const link = (m) => (linked ? `[${m.id}](roadmap/${path.basename(m.file)})` : m.id);
+  const rows = ms.map((m) => {
     const done = m.slices.filter((s) => s.done).length;
     const human = m.slices.filter((s) => !s.done && s.human).length;
     const status = m.slices.length === 0 ? "—" : done === m.slices.length ? "done" : done > 0 ? "in progress" : "open";
-    const file = fs.existsSync(path.join(root, "docs", "roadmap")) ? `[${m.id}](roadmap/${path.basename(m.file)})` : m.id;
-    return `| ${file} | ${m.title} | ${done}/${m.slices.length} | ${human ? human + " [human]" : ""} | ${m.tested && m.tested !== "none yet" ? m.tested : ""} | ${status} |`;
+    return `| ${link(m)} | ${m.title} | ${m.kind} | ${done}/${m.slices.length} | ${human ? human + " [human]" : ""} | ${m.tested && m.tested !== "none yet" ? m.tested : ""} | ${status} |`;
   });
-  return ["| Milestone | Title | Done | Waiting | Tested | Status |", "|---|---|---|---|---|---|", ...rows].join("\n");
+  const open = ms.flatMap((m) => m.slices.filter((s) => !s.done).map((s) => {
+    const model = (/model: (\w+)/.exec(s.rest) || [])[1] || "";
+    const after = (/after: ([A-Za-z0-9., ]+?)(?: ·|$)/.exec(s.rest) || [])[1] || "";
+    const flags = [s.human ? "[human]" : "", /check: now/.test(s.rest) ? "check: now" : ""].filter(Boolean).join(" ");
+    return `| ${s.id} | ${s.title} | ${model} | ${after.trim()} | ${flags} |`;
+  }));
+  return [
+    "| Milestone | Title | Kind | Done | Waiting | Tested | Status |", "|---|---|---|---|---|---|---|", ...rows,
+    "", `**Open slices** (${open.length}; done ones are in their milestone file)`, "",
+    "| Slice | Title | Model | After | Flags |", "|---|---|---|---|---|", ...(open.length ? open : ["| — | none | | | |"]),
+  ].join("\n");
 }
 
 export const OVERVIEW_START = "<!-- overview:start -->";

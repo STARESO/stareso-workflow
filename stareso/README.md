@@ -71,7 +71,7 @@ Also `docs/GLOSSARY.md`, `docs/decisions/`, `docs/QUESTIONS.md` (open questions,
 |---|---|
 | `slice-done.mjs <id> --model m --tokens n --note "…"` | merges the slice branch `--no-ff`, ticks the box, flips 🛠 → ✅ in IDEAS, writes the BUILD-LOG line, regenerates the overview, commits |
 | `docs-check.mjs` | coherence of the records (ticked slice without log line, stale 🛠, broken `after:`, missing `Pack:`, docs not listed, version mismatch, old files) |
-| `roadmap-overview.mjs` | regenerates the overview table of `ROADMAP.md` |
+| `roadmap-overview.mjs` | regenerates the overview (milestones with their Kind, then the open slices) of `ROADMAP.md` |
 | `roadmap-split.mjs` | one-off: splits an old single-file roadmap into the folder layout |
 | `session-stats.mjs <out> <transcripts…>` | exact tokens, turns, context per turn and user timeline from the Claude Code transcripts (`~/.claude/projects/`): use it in every retro |
 
