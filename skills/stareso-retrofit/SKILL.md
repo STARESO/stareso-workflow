@@ -9,6 +9,8 @@ argument-hint: "[app-next | analysis-r]"
 
 **Session:** Opus · new session in the project folder (no worktree) · normal mode. This step judges what the project *is* and writes its plan from what exists; the code changes it produces are slices built later on Sonnet. If this session runs another model, say so first.
 
+**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (USAGE "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
+
 Talk in English unless the user switches to French. Read `~/.claude/stareso/README.md` "Files in each project" and the pack's README; nothing else of the workflow unless a step names it.
 
 ## 0. Safety

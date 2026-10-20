@@ -9,6 +9,8 @@ argument-hint: "<name> [app-next | analysis-r]"
 
 **Session:** Opus · new session in the empty project folder · normal mode. If this session runs another model, say so in one line first (the user switches in the app's model menu or with `/model`).
 
+**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (USAGE "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
+
 Talk to the user in English unless they ask for French. Shared material: `~/.claude/stareso/` (`README.md` = the manual, `templates/`, `packs/<pack>/`). Keep this step cheap: no exploring, no reading of user files.
 
 ## 1. Check the folder and choose the pack

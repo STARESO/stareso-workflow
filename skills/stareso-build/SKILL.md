@@ -9,6 +9,8 @@ argument-hint: "[M1 | M3.2-M3.6 | all] [eco | fast]"
 
 **Session:** Sonnet · **new session in the project folder, no worktree** · permission mode **auto**. If this session runs Opus, say so in one line (it works, it costs more); if it runs in a worktree, stop (step 1).
 
+**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (USAGE "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
+
 You are the **conductor**. You do not write the project's code: each slice is built by a fresh `stareso-slice-builder` helper, you run `check`, merge with the `slice-done` tool, and keep going. Your own context must stay small: short helper reports, failures only, never full tool output (`… 2>&1 | tail -20`). Talk in English unless the user switches to French.
 
 ## 1. Before starting (one message, then go)
@@ -24,11 +26,11 @@ You are the **conductor**. You do not write the project's code: each slice is bu
 For each unticked slice in the range, in order (eco) or by independent sets (fast):
 1. **Human slice** (`[human]`) or a slice depending on an open QUESTIONS item: skip it, note it, go on.
 2. `git switch -c slice/<id>-short-name main`.
-3. Start **one** `stareso-slice-builder` helper (model from the brief: `sonnet`, `haiku`, or `opus` when the brief says so), foreground in eco. Its prompt: the full brief copied from the milestone file, the pack name, the branch name, the Commands table, and "follow your agent instructions". Nothing else.
-4. Read the report. Run `check` yourself (failures only). If the brief says `check: now`, start a `stareso-slice-checker` helper on that slice's output now.
+3. Start **one** `stareso-slice-builder` helper (model from the brief: `sonnet`, `haiku`, or `opus` when the brief says so), foreground in eco. Its prompt: the full brief copied from the milestone file, the pack name, the branch name, the Commands table, whether the dev server is running (and on which port), and "follow your agent instructions". Nothing else.
+4. Read the report. Run `check` yourself (failures only). **You own the dev server and the dev database** (app packs): helpers never start, stop or rebuild. When the report says "needs rebuild" (schema or seed change): stop the server (`preview_stop`), run the rebuild command, start it again (`preview_start`). Then run `test` and the access tests (when the project has them) on the running server, and before merging a slice that touched routes, schema or build config, stop the server and run `build` (delete its output afterwards, as CLAUDE.md says). Runtime checks the helper listed under "Not verified" are yours or the checker's. If the brief says `check: now`, start a `stareso-slice-checker` helper on that slice's output now (it uses your running server).
 5. Failing: send the failure back (same helper by message, or a new one with the brief plus the failure), twice at most. Still failing: leave the branch unmerged, write the problem in `docs/QUESTIONS.md`, go on with slices that do not depend on it.
 6. Passing: `git switch main` then `node ~/.claude/stareso/tools/slice-done.mjs <id> --model <m> --tokens <n> --profile <p> --note "<10 words>"` (merge `--no-ff`, branch deleted, box ticked, IDEAS marks, BUILD-LOG line, overview, commit). Print its line to the user: `✓ M23.4 Données dropdowns · sonnet · 42k tokens`.
-7. A helper that left a server running: stop it (`preview_stop`), never by killing processes.
+7. Keep the dev server running between slices while a helper may need it; stop it (`preview_stop`, never by killing processes) before `build`, before a rebuild, and at the end of the run.
 
 **Requests from the user during the loop are logged, not built:** append the message to `docs/FEEDBACK.md` under `## During build <milestone> yyyy-mm-dd`, tagged [bug] / [change] / [idea], answer in one line ("noted for the next fix milestone"), continue. Only **stop**, **skip <id>**, **go**, and an answer to an open question change the loop.
 

@@ -8,9 +8,9 @@ tools: Read, Grep, Glob, Bash, PowerShell, mcp__Claude_Browser__preview_start, m
 You **check, you do not fix**. The conductor gives you: the pack, the list of pages or outputs touched by the milestone, the "done when" line of each slice, and (apps) the dev accounts. Read `CLAUDE.md` (Commands table) and the pack guide's "Verification" section only (`~/.claude/stareso/packs/<pack>/guide.md`); nothing else of the project unless a check needs it.
 
 ## Pack `app-next`
-1. Start the dev server with `preview_start` (`dev`); log in with the dev accounts (test values from the project files only).
+1. Use the dev server the conductor says is running; only if none runs, start it with `preview_start` (`dev`). Log in with the dev accounts (test values from the project files only).
 2. For each page, at **280, 375 and 1280 px**, dark and light: no element wider than its container (scan `document.querySelectorAll('*')` for `scrollWidth > clientWidth` and right edge beyond the viewport, report the selector); buttons and links at least 44 px tall; no console error; the slice's "done when" visible (quote what you saw); on count-data pages a guest gets 403.
-3. Stop the server you started with `preview_stop`. Never kill a process you did not start.
+3. Stop a server only if you started it (`preview_stop`); leave the conductor's running. Never kill a process.
 
 ## Pack `analysis-r`
 1. Run `run` from the Commands table; it must end without error and print counts only. Then `check` (lintr, tests, regression snapshot): a snapshot difference is a problem unless a slice's brief announced it.

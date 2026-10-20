@@ -54,6 +54,20 @@ if (fs.existsSync(ideasFile)) {
   if (ideasFlipped) writeText(ideasFile, out, eol);
 }
 
+// 3b. QUESTIONS: an open [debt] line whose "→ slice <id>" names this slice is paid: tick it with the answer.
+let debtPaid = 0;
+const qFile = path.join(root, "docs", "QUESTIONS.md");
+if (fs.existsSync(qFile)) {
+  const { lines, eol } = readText(qFile);
+  const out = lines.map((l) => {
+    const m = /^- \[ \] \[debt\].*→ slice ([A-Za-z0-9.]+)/.exec(l);
+    if (!m || m[1] !== id) return l;
+    debtPaid++;
+    return l.replace("- [ ] ", "- [x] ") + ` **Answer (${stamp().slice(0, 10)}): paid by ${id}.**`;
+  });
+  if (debtPaid) writeText(qFile, out, eol);
+}
+
 // 4. BUILD-LOG line.
 const logFile = path.join(root, "docs", "BUILD-LOG.md");
 const model = a.model || "?", tokens = a.tokens ? `${a.tokens} tokens` : "tokens not shown", result = a.result || "ok";
@@ -72,6 +86,6 @@ const line = "- " + parts.join(" · ");
 const overview = writeOverview(root);
 if (!a["no-commit"]) {
   git("add", "docs");
-  git("commit", "-q", "-m", `${id} done: roadmap, log${ideasFlipped ? ", ideas" : ""}`);
+  git("commit", "-q", "-m", `${id} done: roadmap, log${ideasFlipped ? ", ideas" : ""}${debtPaid ? ", debt" : ""}`);
 }
-console.log(`✓ ${id} ${slice.title} · ${model} · ${tokens}${ideasFlipped ? ` · ${ideasFlipped} idea(s) ✅` : ""}${overview ? "" : " · (no overview markers in ROADMAP.md)"}`);
+console.log(`✓ ${id} ${slice.title} · ${model} · ${tokens}${ideasFlipped ? ` · ${ideasFlipped} idea(s) ✅` : ""}${debtPaid ? ` · ${debtPaid} debt line(s) paid` : ""}${overview ? "" : " · (no overview markers in ROADMAP.md)"}`);

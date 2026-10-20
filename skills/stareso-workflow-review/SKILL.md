@@ -8,6 +8,8 @@ argument-hint: "[quick | deep]"
 
 **Session:** quick (default): Sonnet, the test session is fine, about 10 turns. `deep`: Opus, **new session**, about 40 turns. Never read a transcript, a tool output or the code: the records are the evidence; if a number is missing, say so instead of reading more.
 
+**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (USAGE "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
+
 Talk in English unless the user switches to French. Budget: stop and report at 15 turns (quick) or 50 (deep), whatever is left undone.
 
 ## 1. Refresh and read (both modes)

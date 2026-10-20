@@ -84,6 +84,9 @@ for (const l of qs) {
   const open = /^- \[ \]/.test(l), done = /^- \[x\]/.test(l);
   if (!open && !done) continue;
   if (done && !/\*\*Answer \(\d{4}-\d{2}-\d{2}\)/.test(l)) findings.push(`QUESTIONS: ticked without an "**Answer (yyyy-mm-dd): …**": "${l.slice(0, 70)}…"`);
+  // A debt line pointing to a slice already done was paid (or forgotten): tick it or re-point it.
+  const pm = open && /\[debt\].*→ slice ([A-Za-z0-9.]+)/.exec(l);
+  if (pm && all.find((s) => s.id === pm[1])?.done) findings.push(`QUESTIONS: [debt] still open but its slice ${pm[1]} is done: "${l.slice(0, 70)}…"`);
   const bm = /blocks: ([A-Za-z0-9., ]+)/.exec(l);
   if (open && bm && !/none/.test(bm[1])) {
     const blocked = bm[1].split(/[,\s]+/).filter(Boolean);

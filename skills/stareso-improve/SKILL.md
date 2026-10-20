@@ -7,6 +7,8 @@ description: Turn new ideas or decisions to confirm of a stareso project into PL
 
 **Session:** Opus · **new session** · normal mode. If this session runs another model, say so in one line first (this step decides things).
 
+**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (USAGE "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
+
 Talk in English unless the user switches to French.
 
 ## 1. Pick the idea
