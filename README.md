@@ -10,6 +10,7 @@ This repository is rooted at `~/.claude`. Its `.gitignore` is a whitelist: only 
 | `agents/stareso-slice-builder.md`, `agents/stareso-slice-checker.md` | Helper agents: build one slice; check one milestone's outputs |
 | `stareso/README.md` | Manual: phases, which skill when, which model and session, profiles |
 | `stareso/grilling.md` | How decisions are asked and recorded |
+| `stareso/metrics.md` | The retro metrics: definition, source, tool, target, reference value |
 | `stareso/templates/` | Starting docs for a new project (pack-independent) |
 | `stareso/packs/<pack>/` | Stack and conventions: `app-next` (Next.js · Supabase · Vercel), `analysis-r` (R · figures · Quarto report) |
 | `stareso/tools/` | Node scripts: `slice-done`, `docs-check`, `roadmap-overview`, `roadmap-split`, `session-stats` |

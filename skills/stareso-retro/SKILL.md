@@ -17,17 +17,7 @@ Talk in English unless the user switches to French. Budget: stop and report at 1
 2. Read: `docs/USAGE.md` (the table and the "## Retros" section at the bottom: the previous entries are the baseline), `docs/BUILD-LOG.md` lines since the previous retro, `docs/QUESTIONS.md` (`[debt]` lines, open questions and their age), `docs/FEEDBACK.md` + `FEEDBACK-DONE.md` headings only (counts per round, "During build" blocks), `~/.claude/stareso/CHANGELOG.md` entries since the previous retro.
 
 ## 2. Metrics (compute, do not guess; write "n/a" when the records cannot give it)
-| Metric | From | Reference (Scriba, 2026-10-19 review) |
-|---|---|---|
-| Conductor turns per merged slice | USAGE: session Turns ÷ "Slices merged" (Cost per slice table) | 49 before the review; target < 15 |
-| ≈ equivalents per slice, conductor vs helpers | USAGE | conductor 74 % of the cost; target < 50 % |
-| Helper median output and share of slices needing a fix round | USAGE helpers, BUILD-LOG results | 3.4 k · ~3 % |
-| Sessions over 300 turns or more than one milestone | USAGE | 0 is the target |
-| Requests logged during builds | FEEDBACK "During build" lines | the rule is "logged, not built": every one is a win; a request *built* mid-run is a miss |
-| Profile used | BUILD-LOG lines | eco unless asked |
-| Records drift | docs-check findings | 0 |
-| Debt | `[debt]` lines open and their age; tidy slice run per milestone? | paid within one milestone |
-| Reworks | slices whose title repeats an earlier one's subject (visibility, exam vs training…) | each one is a grilling branch that was skipped |
+The metrics, their definitions, sources, tools, targets and reference values are in `~/.claude/stareso/metrics.md`. Read it and report every line of its table. Copy the numbers the tools print (USAGE tables, `docs-check`) and count by hand only the ones the table assigns to the retro.
 
 ## 3. Reading (one paragraph, then one line per metric that moved)
 Name the **single biggest cost** of the period and its cause in the records (a session shape, a brief shape, a skipped step). Compare with the previous retro entry; say what improved after the last accepted change (that is how the workflow learns: one change, then its number).
