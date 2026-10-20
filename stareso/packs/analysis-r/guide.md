@@ -76,6 +76,7 @@ Conventions:
 - Header: title, subtitle, author (institution), `date: today`, `lang: fr`, `format: html: embed-resources: true, toc: true`.
 - The report **loads** outputs (tables, PNG) and writes the text; it never recomputes. Numbers quoted in the text come from the tables through inline `r` so they cannot drift.
 - Sections: context and protocol hypotheses · data and controls (what was received, what was excluded and why, counts) · results per family · synthesis · methods and parameters (from `config/`) · session info.
+- **Writing:** report prose and figure texts are written in good scientific French: full, clear sentences, one idea each, linked by connectors (« alors que », « tandis que », « ce qui »), never chained with semicolons. No « ; » in running text. Bullet points only where a list helps (protocol hypotheses, limits), each item a complete sentence. Numbers carry their unit and their sample size, the reading comes before the caveat, and a caveat is stated once in its section rather than repeated in every caption.
 - The `render` command produces the HTML; the user opens it (Claude cannot view HTML here; it views the PNG figures with the Read tool and the tables as text).
 
 ## 7. Tests and regression
