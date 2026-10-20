@@ -98,6 +98,7 @@ Rule of thumb: a skill that touches a decision runs the coherence pair (`roadmap
 | `roadmap-split.mjs` | one-off: splits an old single-file roadmap into the folder layout |
 | `session-stats.mjs --log` | from inside a project: regenerates `docs/USAGE.md` (every session of the project and its worktrees, kind, active hours, models, turns, user messages, compactions, context per turn, output and cache tokens, helpers; retro sessions apart; forks counted once; glossary, totals, highlights line, cost per slice from the `Merge slice` commits, turns-per-model table). Build and test run it at the end |
 | `session-stats.mjs <out> <transcripts…>` | deep retro: per-transcript header and the user-message timeline |
+| `workflow-changed.mjs` | hook, not run by hand: tells a running session that the workflow repository changed (commits, changed skills, packs, helper definitions) so it re-reads the skill it is running. Install once per machine in `~/.claude/settings.json`: the command `node "$HOME/.claude/stareso/tools/workflow-changed.mjs"` under `SessionStart`, `UserPromptSubmit` and `PostToolUse` (matcher `Agent`). Silent while nothing changed. |
 
 ## Packs
 
