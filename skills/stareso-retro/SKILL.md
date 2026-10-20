@@ -1,10 +1,10 @@
 ---
-name: stareso-workflow-review
+name: stareso-retro
 description: Measured review of how the stareso workflow performed on this project - reads the generated records (USAGE, BUILD-LOG, QUESTIONS, FEEDBACK), computes a few fixed metrics, compares with the previous retro, proposes at most three workflow changes and applies the accepted ones. Quick mode after each test (Sonnet); "deep" mode a few times per project (Opus, timelines only, never transcripts).
 argument-hint: "[quick | deep]"
 ---
 
-# stareso-workflow-review
+# stareso-retro
 
 **Session:** quick (default): Sonnet, the test session is fine, about 10 turns. `deep`: Opus, **new session**, about 40 turns. Never read a transcript, a tool output or the code: the records are the evidence; if a number is missing, say so instead of reading more.
 

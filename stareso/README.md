@@ -37,7 +37,7 @@ On Windows `~` is `C:\Users\<you>`. These places are one git repository rooted a
 | `stareso-status` | "where are we?" / `/stareso-status` | any | Phase, progress, debt, what waits for you, the next step with its model and session |
 | `stareso-deploy` | `/stareso-deploy` (typed) | Opus · new · normal | Pre-flight, prepared files, `DEPLOY.md`, the pack's provider or delivery steps one at a time |
 | `stareso-retrofit` | `/stareso-retrofit [pack]` (typed) | Opus · new · normal | Existing project → standard docs, Commands, PLAN from the code, a retrofit milestone of behaviour-preserving slices |
-| `stareso-workflow-review` | `/stareso-workflow-review [quick|deep]` | quick: Sonnet · test session · normal; deep: Opus · new | Measured review from the generated records: fixed metrics, comparison with the previous retro, at most three workflow changes, entry in `docs/USAGE.md` |
+| `stareso-retro` | `/stareso-retro [quick|deep]` | quick: Sonnet · test session · normal; deep: Opus · new | Measured review from the generated records: fixed metrics, comparison with the previous retro, at most three workflow changes, entry in `docs/USAGE.md` |
 
 Typed-only skills (`init`, `build`, `deploy`, `retrofit`) cannot be started by Claude on its own: they create things, spend tokens or go online. Every skill opens with its **Session** line (model, new or same session, mode) and closes with the next step's; `/stareso-status` repeats it any time.
 
@@ -59,7 +59,7 @@ The model is chosen **per slice in the brief** (`model: haiku | sonnet | opus`),
 5. **New session**, Sonnet, auto mode, in the project folder (no worktree): `/stareso-build M1`. Leave it working; anything you notice goes to FEEDBACK, not to the conductor.
 6. When it reports: clear, **new session**, `/stareso-test`; test; "end test".
 7. Fixes: `/stareso-build M<n>` in a new session. New ideas or decisions to confirm: `/stareso-improve` (Opus, new session).
-8. Repeat 5–7 per milestone; `/stareso-workflow-review` at the end of each test (10 turns, measured). Back after a break: `/stareso-status`.
+8. Repeat 5–7 per milestone; `/stareso-retro` when asked (10 turns, measured; never part of the test). Back after a break: `/stareso-status`.
 9. Ready: `/stareso-deploy`. Feedback from phones or readers afterwards: `/stareso-test`.
 
 ## Files in each project, and when they enter the workflow
@@ -96,7 +96,7 @@ Rule of thumb: a skill that touches a decision runs the coherence pair (`roadmap
 | `docs-check.mjs` | coherence of the records (ticked slice without log line, stale 🛠, broken `after:`, missing `Pack:`, docs not listed, version mismatch, old files) |
 | `roadmap-overview.mjs` | regenerates the overview (milestones with their Kind, then the open slices) of `ROADMAP.md` |
 | `roadmap-split.mjs` | one-off: splits an old single-file roadmap into the folder layout |
-| `session-stats.mjs --log` | from inside a project: regenerates `docs/USAGE.md` (every session of the project and its worktrees, kind, active hours, models, turns, user messages, compactions, context per turn, output and cache tokens, helpers; workflow-review sessions apart; forks counted once; glossary, totals, highlights line, cost per slice from the `Merge slice` commits, turns-per-model table). Build and test run it at the end |
+| `session-stats.mjs --log` | from inside a project: regenerates `docs/USAGE.md` (every session of the project and its worktrees, kind, active hours, models, turns, user messages, compactions, context per turn, output and cache tokens, helpers; retro sessions apart; forks counted once; glossary, totals, highlights line, cost per slice from the `Merge slice` commits, turns-per-model table). Build and test run it at the end |
 | `session-stats.mjs <out> <transcripts…>` | deep retro: per-transcript header and the user-message timeline |
 
 ## Packs

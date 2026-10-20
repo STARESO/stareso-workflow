@@ -28,11 +28,9 @@ description: Where is this stareso project in its workflow, what is the current 
 | every milestone before `H` done and tested, `Phase: build` | ready to publish or deliver | `/stareso-deploy` (Opus, new session) |
 | `Phase: deployed` / `delivered` and nothing open | in use | `/stareso-improve` for new ideas; `/stareso-test` for feedback from phones or readers |
 
-## 3. Is a workflow review due? (say it in one line when yes)
-- quick: a test round happened since the last `### Retro` entry, or five or more sessions were added to USAGE since it → "`/stareso-workflow-review` (quick, Sonnet, ~10 turns) is due";
-- deep: `Phase: deployed` / `delivered` and no "Project retro" entry, or three quick retros since the last deep one → "`/stareso-workflow-review deep` (Opus, new session) is due";
-- the last entry's "next retro" line names a moment that has passed → repeat it.
-Never run the review yourself from status: name it.
+## 3. Retro
+A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: never suggest it after a test or from status. Mention it only if the user asks what is left to improve in the workflow.
+
 
 ## 4. Answer, at most twelve lines
 1. The workflow line with the current step in **bold**: `init → discuss → grill → setup → build ⇄ test → improve → deploy` (manual: `~/.claude/stareso/README.md`).

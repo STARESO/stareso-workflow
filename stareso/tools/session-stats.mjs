@@ -144,9 +144,9 @@ async function logMode() {
   const dirs = fs.existsSync(PROJECTS) ? fs.readdirSync(PROJECTS).filter((d) => d === slug || d.startsWith(slug + "--claude-worktrees-")) : [];
   if (!dirs.length) { console.error("No transcripts found for this project."); process.exit(1); }
 
-  // Sessions spent on the workflow itself (a `/stareso-workflow-review` run, or a worktree named for it) are listed
+  // Sessions spent on the workflow itself (a `/stareso-retro` run, or a worktree named for it) are listed
   // apart and left out of the project totals: they are not the project's cost.
-  const isWorkflowSession = (s, dirName) => /workflow-review|retro/.test(s.kinds?.[0] || "") || /workflow-review|workflow-improvement/.test(dirName);
+  const isWorkflowSession = (s, dirName) => /workflow-review|retro/.test(s.kinds?.[0] || "") || /workflow-review|stareso-retro|workflow-improvement/.test(dirName);
   const newTotals = () => ({ sessions: 0, turns: 0, user: 0, active: 0, compactions: 0, out: 0, cr: 0, cw: 0, helpers: 0, hOut: 0, hCr: 0, hCw: 0, equiv: 0, models: {} });
   const rows = [], wfRows = [];
   const totals = newTotals(), wfTotals = newTotals();
@@ -163,7 +163,7 @@ async function logMode() {
       const inWorktree = d !== slug;
       const end = s.last.slice(0, 10) === s.first.slice(0, 10) ? s.last.slice(11, 16) : s.last.slice(5, 16).replace("T", " ");
       const wf = isWorkflowSession(s, d);
-      const kind = (wf && !/workflow-review/.test(s.kind || "") ? "workflow review" : s.kind || "chat") + (inWorktree ? " (worktree)" : "");
+      const kind = (wf && !/workflow-review|stareso-retro/.test(s.kind || "") ? "workflow review" : s.kind || "chat") + (inWorktree ? " (worktree)" : "");
       // Session line, its steps and its details are written once the sessions are numbered (below).
       const session = (n) => `| ${n} | ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${kind} | ${hours(steps.reduce((a, st) => a + st.active, 0))} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${s.user} | ${h.n || ""} | ${fmt(Math.round(e))} |`;
       const details = (n) => `| ${n} | ${s.compactions || ""} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${fmt(s.usage.cache_create)} | ${h.n ? `${modelsText(h.models)} · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} |`;
