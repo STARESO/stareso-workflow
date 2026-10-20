@@ -3,7 +3,7 @@
 Read by `stareso-deploy`. The user does every step in the providers' consoles; Claude prepares files and gives one step at a time.
 
 ## Pre-flight (one message, the user answers yes / no to each)
-1. The Supabase account has a free project slot (two free projects per account; a second account was needed for Scriba).
+1. The Supabase account has a free project slot (two free projects per account; a second account was needed for project C).
 2. The GitHub repository will be **private**, on the **personal** account (Vercel's free plan refuses private organisation repositories). Check afterwards: `gh repo view --json visibility`.
 3. In Vercel the Framework Preset will be **Next.js** (imported as "Other", every page is a 404).
 4. Environment values are pasted **raw**: no `NAME=`, no quotes, no spaces.

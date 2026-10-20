@@ -1,6 +1,6 @@
 # Guide: a data analysis project in R, the STARESO way
 
-Defaults for analyses that start from field or lab data (spreadsheets, CSV exports, app backups), produce figures and tables, and end in an HTML report. Drawn from the BaieWatch frequentation analysis and the OEC 2026 litter analysis [L]. Everything here is a **default**; the grilling decides what differs for a project.
+Defaults for analyses that start from field or lab data (spreadsheets, CSV exports, app backups), produce figures and tables, and end in an HTML report. Drawn from the visitor-count analysis of project B and the litter analysis of project D [L]. Everything here is a **default**; the grilling decides what differs for a project.
 
 **Read only the sections you need**: the skills and the slice briefs name section numbers.
 

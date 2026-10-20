@@ -1,6 +1,6 @@
 # Pack `app-next`: small team web app (Next.js · Postgres/Supabase · Vercel)
 
-The stack and patterns of SecuSurf, BaieWatch and Scriba. Everything here is a **default** the grilling can change.
+The stack and patterns of projects A, B and C. Everything here is a **default** the grilling can change.
 
 | File | What |
 |---|---|

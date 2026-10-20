@@ -1,8 +1,8 @@
 # Guide: building a small team web app the STARESO way
 
-A blueprint for starting a **new, unrelated** app with the same look, structure and habits as SecuSurf (dive safety sheets) and BaieWatch (boat counts). It covers UI and architecture, not the business logic of either app. Used by the `stareso-*` skills (manual: `~/.claude/stareso/README.md`); everything here is a **default** that the grilling can change for a given app (stack and providers included).
+A blueprint for starting a **new, unrelated** app with the same look, structure and habits as project A (safety sheets) and project B (counts in the field). It covers UI and architecture, not the business logic of either app. Used by the `stareso-*` skills (manual: `~/.claude/stareso/README.md`); everything here is a **default** that the grilling can change for a given app (stack and providers included).
 
-Each pattern is tagged with the app it comes from: **[S]** SecuSurf, **[B]** BaieWatch, **[S+B]** both.
+Each pattern is tagged with the app it comes from: **[A]** project A, **[B]** project B, **[A+B]** both, **[C]** project C.
 
 **Read only the sections you need** (token economy): the skills point to section numbers.
 
@@ -17,7 +17,7 @@ Each pattern is tagged with the app it comes from: **[S]** SecuSurf, **[B]** Bai
 
 ---
 
-## 2. Stack [S+B]
+## 2. Stack [A+B]
 
 | Layer | Choice | Notes |
 |---|---|---|
@@ -26,8 +26,8 @@ Each pattern is tagged with the app it comes from: **[S]** SecuSurf, **[B]** Bai
 | Database | **PostgreSQL** (local for dev, **Supabase EU** online) | Used as plain Postgres through one `DATABASE_URL` with the `postgres` library (`prepare: false` for the Supabase pooler). Never the Supabase SDK. Row-level security on, with no policies, so Supabase's public API is closed. |
 | Auth | **`jose`** signed httpOnly cookie | No user accounts: shared access codes. |
 | Validation | **`zod`** on the server | Error messages in the UI language, so they can be shown as is. |
-| Charts | `recharts` [B] or hand-made SVG [S] | |
-| PDF | `jspdf`, loaded only on demand (`import()` on tap) [S] | |
+| Charts | `recharts` [B] or hand-made SVG [A] | |
+| PDF | `jspdf`, loaded only on demand (`import()` on tap) [A] | |
 | Hosting | **Vercel**, EU region (`vercel.json`: `"regions": ["cdg1"]` or `"fra1"`) | Deployed from GitHub `main`. |
 
 **Dependency rule:** keep the list short. Ask before adding a library and write down what it is for.
@@ -36,7 +36,7 @@ Each pattern is tagged with the app it comes from: **[S]** SecuSurf, **[B]** Bai
 ```ts
 allowedDevOrigins: ["192.168.*.*"],            // test from phones on the same Wi-Fi
 env: {
-  NEXT_PUBLIC_APP_VERSION: version,             // from package.json [B] or the commit [S]
+  NEXT_PUBLIC_APP_VERSION: version,             // from package.json [B] or the commit [A]
   NEXT_PUBLIC_APP_BUILD: `${version}+${(process.env.VERCEL_GIT_COMMIT_SHA ?? "dev").slice(0, 7)}`,
 },
 ```
@@ -44,7 +44,7 @@ Leave `cacheComponents` off: screens are client components, so it only produces 
 
 ---
 
-## 3. Folder structure [S+B]
+## 3. Folder structure [A+B]
 
 ```
 .claude/launch.json        dev server config for the preview tool
@@ -78,7 +78,7 @@ scripts/
   migrate.mjs              runs every migration in name order
   backup.mjs               dumps every table to private/backups/<target>-<date>.json
   hash-code.mjs            makes the access-code hash for .env
-  make-icons.mjs           draws the icons without any library [S]
+  make-icons.mjs           draws the icons without any library [A]
 src/
   proxy.ts                 auth gate on every request
   app/
@@ -124,7 +124,7 @@ Conventions:
 
 ---
 
-## 4. Design system [S+B]
+## 4. Design system [A+B]
 
 ### 4.1 Mood
 Warm neutrals and a calm sea-blue accent (fonts, spacing and cards in the spirit of the Claude app; its clay accent is orange, which here means alert). **Dark by default**, light via a sun/moon toggle, remembered per device. Serif titles, sans body, mono for numbers and times.
@@ -175,7 +175,7 @@ body { background: var(--bg); color: var(--text); transition: background-color .
 
 Rules:
 - Three clearly separate levels: **page < cards < inputs**.
-- **Red and orange mean alerts only**, including the accent: never pick an orange or red accent, tag, focus ring or selected state. An app may let each person pick their accent among 5–6 calm tokens (stored on the account, applied before paint like the theme) [Scriba]. Category colours (types, groups...) come from a calm palette; they can be made admin-editable and injected as CSS variables at runtime [S].
+- **Red and orange mean alerts only**, including the accent: never pick an orange or red accent, tag, focus ring or selected state. An app may let each person pick their accent among 5–6 calm tokens (stored on the account, applied before paint like the theme) [C]. Category colours (types, groups...) come from a calm palette; they can be made admin-editable and injected as CSS variables at runtime [A].
 - Tints are mixes of a token: `bg-accent/15 text-accent`, `color-mix(in srgb, var(--accent) 35%, transparent)`.
 - Charts: SVG attributes can't read `var(--x)`, so read the computed tokens in a hook and re-read them when `data-theme` changes (`useChartColors`, a `MutationObserver` on `<html>`) [B].
 
@@ -192,7 +192,7 @@ A tiny `beforeInteractive` script sets `<html data-theme="light">` from localSto
 
 ---
 
-## 5. App shell and layout [S+B]
+## 5. App shell and layout [A+B]
 
 ```
 ┌──────────────────────────────┐  sticky header: logo + app name (tiny caps) + screen title (serif)
@@ -212,8 +212,8 @@ A tiny `beforeInteractive` script sets `<html data-theme="light">` from localSto
 - Page content wrapped in `.pb-tabbar` so nothing hides behind the bar.
 - `viewport: { viewportFit: "cover" }` + `env(safe-area-inset-*)` for notches.
 - Header: `sticky top-0 z-10 bg-surface/95 backdrop-blur border-b`.
-- Settings (⚙) is a page opened from the header; tapping ⚙ again (or "← Retour") goes back [S].
-- Two columns only on wide screens (`lg:`); everything works at **320 px**, and BaieWatch tightened that to **280 px**: nothing may go past its card or the screen edge (`min-w-0`, `truncate`, `minmax(0,1fr)`, `flex-wrap`). Check 280, 320, 375 px and desktop after every UI change [B].
+- Settings (⚙) is a page opened from the header; tapping ⚙ again (or "← Retour") goes back [A].
+- Two columns only on wide screens (`lg:`); everything works at **320 px**, and project B tightened that to **280 px**: nothing may go past its card or the screen edge (`min-w-0`, `truncate`, `minmax(0,1fr)`, `flex-wrap`). Check 280, 320, 375 px and desktop after every UI change [B].
 - Heavy tabs can be loaded on first visit with `next/dynamic`, so the field screen starts fast on poor signal [B].
 
 Provider stack in the root layout (order matters):
@@ -232,7 +232,7 @@ Provider stack in the root layout (order matters):
 
 ---
 
-## 6. UI primitives (`src/components/ui.tsx`) [S+B]
+## 6. UI primitives (`src/components/ui.tsx`) [A+B]
 
 Build these once; every screen uses them.
 
@@ -252,7 +252,7 @@ Build these once; every screen uses them.
 | `Sheet` | bottom sheet on phones, centred dialog on tablets; rendered with a portal to `document.body`; Escape and backdrop close it. Used for edit forms. |
 | `useConfirm` | in-app confirmation, **never `window.confirm`** (blocked in some installed apps). `const ok = await ask("…", { danger: true })`. **Every deletion (and every other destructive action: archive, merge, reopen a locked record) asks first** in this pop-up: message naming what will go, "Annuler" + a red confirm button ("Supprimer"). Never delete on a single tap. |
 | `useToast` | short message above the tab bar, disappears after about 4.5 s, `role="status" aria-live="polite"`, tone dot ok/warn [B]. |
-| `DemoTag` | dashed "Démo · données fictives" tag, so fake data is never mistaken for real data [S]. |
+| `DemoTag` | dashed "Démo · données fictives" tag, so fake data is never mistaken for real data [A]. |
 | `AppVersion` | "AppName v1.2.0 · abc1234" line at the bottom of every screen and the login page, to know which build a phone runs [B]. |
 
 Screen recipe: `PageHeader` → banners → a primary action (`+ Nouveau …`) → filters (chips) → list of cards → `Sheet` for edit forms → `{dialog}` from `useConfirm`.
@@ -261,7 +261,7 @@ Lists: one card per item, title in serif, tags under the title on phones, second
 
 ---
 
-## 7. Formats and wording [S+B]
+## 7. Formats and wording [A+B]
 
 - **Times:** 24 h `HH:mm` everywhere. **Dates:** written out where there is room ("mardi 14 octobre 2026"), numeric `dd/mm/yyyy` on screen, ISO `yyyy-mm-dd` in DB and API. Build ISO dates in the **phone's local time zone**, never from `toISOString()` (UTC can shift the day).
 - Plural helper: `count(3, "palanquée", "palanquées")`.
@@ -270,12 +270,12 @@ Lists: one card per item, title in serif, tags under the title on phones, second
 
 ---
 
-## 8. Access control [S+B]
+## 8. Access control [A+B]
 
 No per-person accounts; shared codes typed on a login page.
 
 - **Simple version [B]:** one shared code. `ACCESS_CODE_HASH` in env, `requireAuth()` in every route.
-- **Roles version [S]:** `admin` (one code), `staff` (team code), `guest` (personal codes made by the admin, with an end date, revocable, stored hashed in an `invites` table). The login page shows the kinds of access as chips; only that kind of code is checked.
+- **Roles version [A]:** `admin` (one code), `staff` (team code), `guest` (personal codes made by the admin, with an end date, revocable, stored hashed in an `invites` table). The login page shows the kinds of access as chips; only that kind of code is checked.
 - Codes are stored **only as hashes** (`scrypt:<salt>:<hash>` with `:` not `$`, which Next.js expands in `.env`). Compare in constant time; trim and lowercase what was typed.
 - Session = **signed httpOnly cookie** (`jose`, HS256, `SESSION_SECRET` of at least 32 characters, refuse to start otherwise). Valid a week after the last use; "Rester connecté" = 90 days; renewed once a day by `proxy.ts`.
 - `src/proxy.ts` runs on every request: no session → pages redirect to `/login?suite=<path>` (follow only internal paths, never `//…`), API routes answer 401 with a readable message. Public paths: login page, login route, `/api/health`. Team-only pages redirect guests.
@@ -284,45 +284,45 @@ No per-person accounts; shared codes typed on a login page.
 
 ---
 
-## 9. Data patterns [S+B]
+## 9. Data patterns [A+B]
 
 - **Ids are UUIDs created on the device** (`newId()` with a fallback when `crypto.randomUUID` is missing on plain HTTP). Saves are **idempotent upserts** (`PUT /api/x/:id`), so a retry never duplicates and an offline queue is possible.
-- Client helper `api<T>(url, init)`: fetch + JSON, throws the server's message. `apiCached(url)` reuses list answers under 1 minute old; any non-GET clears the cache [S].
-- **Autosave** 0.8 s after typing; key actions (start / stop) save at once [S].
-- **Same data on every phone [S+B]:** an `app_state` row with `changed_at`, bumped by row triggers on every table. A small polling request (`/api/live` or similar, 10 s when something is live, 30 s otherwise, **only while the page is visible**, at once when it comes back) returns it in a header; when it moved, clear the cache and dispatch an event; screens add `useDataVersion()` to their effect dependencies and reload. Do not reload a form that has unsaved typing.
-- **History of changes:** before an edit or delete of a finished record, copy it to a `revisions` table (jsonb snapshot + reason). Locked records can be enforced by a **database trigger**, not only by the UI [S+B].
+- Client helper `api<T>(url, init)`: fetch + JSON, throws the server's message. `apiCached(url)` reuses list answers under 1 minute old; any non-GET clears the cache [A].
+- **Autosave** 0.8 s after typing; key actions (start / stop) save at once [A].
+- **Same data on every phone [A+B]:** an `app_state` row with `changed_at`, bumped by row triggers on every table. A small polling request (`/api/live` or similar, 10 s when something is live, 30 s otherwise, **only while the page is visible**, at once when it comes back) returns it in a header; when it moved, clear the cache and dispatch an event; screens add `useDataVersion()` to their effect dependencies and reload. Do not reload a form that has unsaved typing.
+- **History of changes:** before an edit or delete of a finished record, copy it to a `revisions` table (jsonb snapshot + reason). Locked records can be enforced by a **database trigger**, not only by the UI [A+B].
 - Soft states instead of deletes: `active=false` (archived), `cancelled`, `needs_review` ("À compléter") for quick-added or imported rows.
 - **Do not hide possible duplicates:** flag them in a panel where they can be merged (after a confirmation pop-up) or dismissed (`dismissed_duplicates`) [B].
 - Summaries computed by the database (one SQL query per stats endpoint), not by downloading everything. Lists load one year at a time.
-- Quick-add: typing an unknown name in a picker creates a minimal record marked "à compléter" [S].
+- Quick-add: typing an unknown name in a picker creates a minimal record marked "à compléter" [A].
 - Sensitive data: store the minimum (e.g. dates only, never the document).
 
 ---
 
-## 10. Database workflow [S+B]
+## 10. Database workflow [A+B]
 
 - `db/schema.sql` describes the full structure for a **fresh** database and wipes it. The runner refuses to run it on a database holding data unless `--allow-wipe`.
 - Changes on real data: new numbered file in `db/migrations/` (`IF NOT EXISTS`, safe to re-run). Order: test locally → back up online → migrate online → push the code that needs it. Keep `schema.sql` in step.
 - Env files: `.env.local` (local Postgres), `.env.supabase` (online pooler URI, port 6543). Scripts take `local` / `online` (`node --env-file=...`).
 - Commands touching the online database are **run by hand by the maintainer**, never automatically.
-- `db:backup-online` saves every table to `private/backups/online-<date>.json`; `db:pull-online` copies online data to local [S].
+- `db:backup-online` saves every table to `private/backups/online-<date>.json`; `db:pull-online` copies online data to local [A].
 - Imports from old tools (spreadsheets, KoboToolbox CSV) are scripts with fixed ids, so re-running only adds new rows.
-- **One dev rebuild command [Scriba]:** when the development data needs more than the seeds (imported photos, maps, pictures, seeds that need those imports), add `npm run dev:rebuild` from the first such import: reset + every import + late seeds, in order, printing counts only. CLAUDE.md, the helper rules and the roadmap header name it; nobody (helper, build, test) runs the bare reset alone, which silently drops the imported files and makes the app look broken during a test.
+- **One dev rebuild command [C]:** when the development data needs more than the seeds (imported photos, maps, pictures, seeds that need those imports), add `npm run dev:rebuild` from the first such import: reset + every import + late seeds, in order, printing counts only. CLAUDE.md, the helper rules and the roadmap header name it; nobody (helper, build, test) runs the bare reset alone, which silently drops the imported files and makes the app look broken during a test.
 
 ---
 
-## 11. Installable app (PWA) [S+B]
+## 11. Installable app (PWA) [A+B]
 
 - `src/app/manifest.ts`: name, `short_name`, `lang`, `start_url` (the main tab), `display: "standalone"`, `theme_color`, `background_color` (the brand colour, never black: it showed as a dark ring on Android), icons `any` (mark on transparency) and `maskable` (colour edge to edge), 192 and 512.
 - `appleWebApp: { capable: true, statusBarStyle: "black-translucent" }` in `metadata`; `apple-icon.png` with no transparency.
-- Icons drawn by a small Node script with no library [S].
+- Icons drawn by a small Node script with no library [A].
 - **Install card [B]:** explains Android (Chrome ⋮ → Installer l'application) and iPhone (Safari → Partager → Sur l'écran d'accueil) steps; shows a real install button when the browser fires `beforeinstallprompt`; hides itself when already installed (`display-mode: standalone`). On iPhone the installed app does not share Safari's session: one login from the icon is needed.
 
 ---
 
-## 12. Offline and poor signal [B] (SecuSurf: planned, not built)
+## 12. Offline and poor signal [B] (project A: planned, not built)
 
-The SecuSurf data design (client UUIDs, idempotent upserts) was made for this; BaieWatch implements it:
+The project A data design (client UUIDs, idempotent upserts) was made for this; project B implements it:
 
 1. **Service worker** `public/sw.js`, registered **in production only** (it fights hot reload in dev):
    - `/_next/static`, icons, images: cache first (file names change per build).
@@ -337,23 +337,23 @@ The SecuSurf data design (client UUIDs, idempotent upserts) was made for this; B
 
 ---
 
-## 13. Live, alerts, updates [S+B]
+## 13. Live, alerts, updates [A+B]
 
-- **Alert banners** at the top of every page (red for emergencies, `caution` yellow for warnings), with a link to the item and a "Vu" button. Sound and vibration once per alert, never repeated; sound needs a first tap on the page; iPhones do not vibrate [S].
-- **New version:** the server returns its build (header on the polling request [S] or field in `/api/me` [B]); an older copy shows "Nouvelle version disponible · Recharger". After an update, one toast "AppName a été mis à jour (v…)" (last build seen kept in localStorage) [B]. Checks on open, on return to screen and every 10 minutes.
-- **Demo mode** on one phone only (sessionStorage, ids `demo-…`, nothing saved, auto-stop after a few minutes, every fake item marked with `DemoTag`) is a cheap way to train people without polluting data [S].
+- **Alert banners** at the top of every page (red for emergencies, `caution` yellow for warnings), with a link to the item and a "Vu" button. Sound and vibration once per alert, never repeated; sound needs a first tap on the page; iPhones do not vibrate [A].
+- **New version:** the server returns its build (header on the polling request [A] or field in `/api/me` [B]); an older copy shows "Nouvelle version disponible · Recharger". After an update, one toast "AppName a été mis à jour (v…)" (last build seen kept in localStorage) [B]. Checks on open, on return to screen and every 10 minutes.
+- **Demo mode** on one phone only (sessionStorage, ids `demo-…`, nothing saved, auto-stop after a few minutes, every fake item marked with `DemoTag`) is a cheap way to train people without polluting data [A].
 
 ---
 
 ## 14. Data out: spreadsheets and documents
 
 - **CSV export [B]:** a GET route returning `text/csv; charset=utf-8` with a **BOM** (`"﻿"`), `;` separator and `\r\n` line ends, so French Excel opens it directly; `Content-Disposition: attachment; filename="app_items_<yyyy-mm-dd>.csv"`; long format (one row per measured value) is easiest to pivot.
-- **PDF on the device [S]:** `jspdf` imported on tap, layout copying the paper form, long values shrink or wrap but are never cut, file name sorted by type then date.
+- **PDF on the device [A]:** `jspdf` imported on tap, layout copying the paper form, long values shrink or wrap but are never cut, file name sorted by type then date.
 - Planned in both: xlsx export, a read-only Google Sheets copy, scheduled backups to the station NAS.
 
 ---
 
-## 15. Free-plan hosting and operations [S+B]
+## 15. Free-plan hosting and operations [A+B]
 
 - **Supabase free plan** pauses after 7 days without use: a GitHub Actions job (`.github/workflows/keep-alive.yml`) calls the public `/api/health` Monday and Thursday at 06:00 UTC, 3 tries, fails (GitHub emails the owner) if the database does not answer. Use a repository **variable** `APP_URL` rather than a hard-coded URL [B]. `/api/health` runs one tiny real query and answers only `ok` / `error`.
 - Keep transfer low: one small polling request only while on screen, cached lists, summaries computed in SQL, no background jobs (with nobody using the app, nothing runs).
@@ -362,7 +362,7 @@ The SecuSurf data design (client UUIDs, idempotent upserts) was made for this; B
 
 ---
 
-## 16. Development habits [S+B]
+## 16. Development habits [A+B]
 
 - `npm run dev` on a **fixed port** per project (e.g. 3100) so two apps can run side by side; open `http://<laptop-ip>:<port>` on phones over Wi-Fi (GPS, `crypto.randomUUID` and service workers need HTTPS or localhost).
 - Check with `npm run lint` and `npm run typecheck` (`next typegen && tsc --noEmit`).
@@ -419,7 +419,7 @@ The skills never name a tool directly: they run the project's named commands fro
 | `rebuild` | `npm run dev:rebuild` | dev server stopped (§10) |
 | `build` | `npm run build` | dev server stopped, delete `.next` afterwards |
 
-## 20. Verification (what "done" means here) [Scriba]
+## 20. Verification (what "done" means here) [C]
 
 - Per slice: `check` passes; routes are exercised with real sessions through the access matrix test (`npm test`: a table `route · method · role → expected status`, one row added per new route) and, when the brief says `check: now`, by the checker helper at once.
 - Per milestone: the `stareso-slice-checker` helper walks every page the milestone touched in the browser pane at 280 / 375 / 1280 px, dark and light, logged in with the dev accounts: nothing wider than its container, touch targets ≥ 44 px, no console error, each slice's "done when" visible, guests refused on count-data pages. It reports a table; problems become fix slices before the milestone's screenshots.

@@ -1,6 +1,6 @@
 # stareso workflow: user manual
 
-A repeatable way to take a piece of work from first idea to delivered result, in small checked slices, with a strong model deciding and cheap fresh helpers executing. Born with STARESO's small web apps (SecuSurf, BaieWatch, Scriba), the process is independent of the kind of work and of the assistant. A **pack** carries what is specific to the work (stack, conventions, verification, delivery steps), and a **harness** folder carries what is specific to the assistant (helpers, read guard, hooks, models).
+A repeatable way to take a piece of work from first idea to delivered result, in small checked slices, with a strong model deciding and cheap fresh helpers executing. Born with three of STARESO's small web apps (projects A, B and C), the process is independent of the kind of work and of the assistant. A **pack** carries what is specific to the work (stack, conventions, verification, delivery steps), and a **harness** folder carries what is specific to the assistant (helpers, read guard, hooks, models).
 
 New to AI assistants: `START-HERE.md`. Why it is built this way: `DESIGN-NOTES.md`. Changes to the workflow: `CHANGELOG.md`. Using it with another assistant: `harness/README.md`.
 

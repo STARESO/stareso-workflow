@@ -12,4 +12,4 @@ Tier → model only. An approximate price ratio between tiers may be noted here 
 
 The build maps the core wording as follows: "the strong tier" and "strong tier" become "Opus", "a standard-tier model" becomes "a Sonnet-class model", `` `tier: light` `` becomes `` `model: haiku` ``, a backticked tier word becomes the id, and a role's `tier:` line becomes the agent's `model:` line.
 
-Evidence: SecuSurf M5 (2026-10-20) built every slice on Sonnet helpers with a Sonnet conductor, at 8.8 conductor turns and 335k ≈ equiv per slice. Status: adopted.
+Evidence: Project A M5 (2026-10-20) built every slice on Sonnet helpers with a Sonnet conductor, at 8.8 conductor turns and 335k ≈ equiv per slice. Status: adopted.

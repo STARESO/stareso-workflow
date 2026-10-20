@@ -6,7 +6,7 @@ Goal: reach a shared, complete understanding of the project (or of one idea) bef
 - Treat the topic as a **tree of decisions**: some decisions only make sense once others are settled.
 - Ask in **numbered rounds**. A round holds every question whose prerequisites are already answered (usually 3 to 6). A question that depends on another one still open waits for a later round.
 - Each question: a short title, the context in one or two lines, the options if useful, and **one recommended answer**, worded so that a plain "yes" accepts it.
-- Start from the pack's defaults (`packs/<pack>/guide.md`): only ask where this project may differ ("Same login model as SecuSurf (roles), or one shared code like BaieWatch?").
+- Start from the pack's defaults (`packs/<pack>/guide.md`): only ask where this project may differ ("Same login model as project A (roles), or one shared code like project B?").
 - Answers may be short or spoken ("1 yes, 2 yes, 3 no, rather weekly"). Read voice input for meaning; if an answer is unclear, restate how you understood it in the next round.
 - Wait for the answers before the next round. Then work out which questions are now open.
 
@@ -25,7 +25,7 @@ Goal: reach a shared, complete understanding of the project (or of one idea) bef
 2. What it replaces (paper, spreadsheet, old tool, previous analysis) and what must not get worse.
 3. Screens or outputs, and what is on each, top to bottom.
 4. Data: entities, key fields, what is legal or must be kept forever, what may be edited or deleted after the fact; for analyses, the structure of each source (from the `structure` run) and the hypotheses of the protocol.
-5. **Access as a table:** for each screen or output, who sees / edits / deletes, per role (admin, member, guest, reader…). Written into PLAN §5 as a table; the access-matrix test and the briefs read it. Skipping this branch caused the costliest reworks so far (Scriba: sheet visibility, twice).
+5. **Access as a table:** for each screen or output, who sees / edits / deletes, per role (admin, member, guest, reader…). Written into PLAN §5 as a table; the access-matrix test and the briefs read it. Skipping this branch caused the costliest reworks so far (project C: sheet visibility, twice).
 6. **Modes and states:** training vs evaluation, draft vs closed, demo vs real, data version 1 vs 2; what each role sees in each state; what is locked when.
 7. Field or delivery conditions: offline needed? live sync between phones? alerts? For analyses: report readers, formats, deadline, review.
 8. Data out: CSV, PDF, spreadsheets, figures, backups.

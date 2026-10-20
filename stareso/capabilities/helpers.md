@@ -17,7 +17,7 @@ The role file is the helper's whole instruction. A harness maps it onto its own 
 | **session** | the user opens a fresh session per slice (or clears the context), pastes `roles/slice-builder.md` and the brief, and gives the report back to the conductor's session; the per-slice cost is the same, the loop is not unattended | no agents, or agents that inherit the conductor's context |
 | **inline** | the conductor builds the slice in its own context | only a one-line fix, or a chat-only harness; it shows as a conductor-built slice |
 
-**Manual fallback, stated in the build step:** without helpers, run mode session. Never fall back to inline for a whole milestone, because the conductor's context then grows with every slice (Scriba's 49 conductor turns per slice before the 2026-10-19 review).
+**Manual fallback, stated in the build step:** without helpers, run mode session. Never fall back to inline for a whole milestone, because the conductor's context then grows with every slice (project C's 49 conductor turns per slice before the 2026-10-19 review).
 
 ## Measure
 `slice-done --helper <mode>` writes the mode in the BUILD-LOG line (default from the project instructions, else subagent). The retro splits fix rounds, check-fix slices, reworks, conductor-built slices and minutes per slice by mode (`metrics.md`).

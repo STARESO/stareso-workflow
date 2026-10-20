@@ -1,9 +1,9 @@
 # Design notes: why the workflow is built this way
 
-Decisions taken on 2026-10-17 while designing the workflow (in a SecuSurf session), with the reasons, so they are not re-argued later.
+Decisions taken on 2026-10-17 while designing the workflow (in a project A session), with the reasons, so they are not re-argued later.
 
 1. **Skills plus one shared folder.** Personal skills work in every project and load only when used. The shared material (guide, grilling rules, templates) sits in `~/.claude/stareso-app/`, which is not a skill, so it costs nothing in sessions that do not use it.
-2. **Guide = defaults, not rules.** It describes SecuSurf and BaieWatch patterns; the grilling decides what changes per app (stack and providers included).
+2. **Guide = defaults, not rules.** It describes the patterns of projects A and B; the grilling decides what changes per app (stack and providers included).
 3. **Discussion before grilling, switch only by the user.** The user wants to think out loud first (keyboard or voice). Claude may suggest the switch, never make it. The phase is written in PLAN.md so any session resumes correctly.
 4. **Grilling in rounds** (adapted from Matt Pocock's `grilling` skill, github.com/mattpocock/skills): numbered questions whose prerequisites are settled, one recommended answer each, worded so "yes" accepts; facts are Claude's job, decisions are the user's; ends when nothing is open and the user agrees. Rounds suit voice answers.
 5. **Glossary and decision records** (same source): the apps mix French domain words and English code; a glossary keeps names stable. Decision records only when hard to reverse, surprising, and a real trade-off.
@@ -19,9 +19,9 @@ Decisions taken on 2026-10-17 while designing the workflow (in a SecuSurf sessio
 15. **Testing in the Claude Code browser pane** during development; phone feedback only after `deploy`.
 16. **Not taken from Matt Pocock's repo:** issue trackers, tickets, TDD as a rule, parallel implementation, PR skills. Too heavy for one maintainer and small apps. A few tests on critical rules stay possible per app (needs approving a test library).
 
-## Added 2026-10-19 (after the review of SecuSurf, BaieWatch and Scriba)
+## Added 2026-10-19 (after the review of projects A, B and C)
 
-Measured on the transcripts: Scriba cost about the same tokens as SecuSurf for two to three times the app, mostly on Sonnet; three quarters of that cost was the conductor (re-doing browser checks per slice, bookkeeping in many tool calls, micro-requests handled in a 200 k context), not the helpers (median 29 turns, 40 k context). Decisions that follow:
+Measured on the transcripts: Project C cost about the same tokens as project A for two to three times the app, mostly on Sonnet; three quarters of that cost was the conductor (re-doing browser checks per slice, bookkeeping in many tool calls, micro-requests handled in a 200 k context), not the helpers (median 29 turns, 40 k context). Decisions that follow:
 
 17. **Process is pack-independent.** Skills name project commands (`check`, `run`…) from the `CLAUDE.md` table and read conventions from `packs/<pack>/guide.md`; the stack (Next.js, Supabase, Vercel) is one pack among others. Skill names dropped "app". A new kind of work gets a pack from its first real project, never from theory.
 18. **Cost = turns × context per turn.** The conductor's job is to stay small: failures only, one `slice-done` call per slice, no browser per slice. Verification moves to one checker helper per milestone and to scripted checks (access matrix, regression snapshot).

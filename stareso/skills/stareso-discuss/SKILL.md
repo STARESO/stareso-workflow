@@ -22,7 +22,7 @@ Talk in English unless the user switches to French.
 - Every few exchanges (or when asked), give **"Here is what I understood"**: short bullets (goals, ideas, constraints, open points). The user corrects it.
 - Keep `docs/IDEAS.md` up to date after each playback: raw ideas, constraints, open questions; short lines, the user's meaning, no decisions; each idea starts with 💭 (status legend in the template).
 - Facts you can find (the pack guide `<stareso>/packs/<pack>/guide.md`, earlier projects, readable sources) are yours to look up, cheaply.
-- Suggest the pack's defaults when relevant ("SecuSurf did X; BaieWatch did Y"), without deciding.
+- Suggest the pack's defaults when relevant ("project A did X, project B did Y"), without deciding.
 
 ## Switching to grilling
 - **Never switch by yourself.** When enough material is there, you may say once: "I think we have enough to start the grilling; say 'let's grill' when you want."

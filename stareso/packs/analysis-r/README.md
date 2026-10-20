@@ -1,6 +1,6 @@
 # Pack `analysis-r`: data analysis in R with figures and an HTML report
 
-Conventions of the STARESO analyses (BaieWatch frequentation 2026, OEC 2026 marine litter). Defaults the grilling can change.
+Conventions of the STARESO analyses (project B's visitor counts, project D's marine litter). Defaults the grilling can change.
 
 | File | What |
 |---|---|
