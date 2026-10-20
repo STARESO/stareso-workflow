@@ -20,7 +20,17 @@ The single definition of the numbers a retro reports. Each metric is defined onc
 | Debt | Open `[debt]` lines in QUESTIONS and their age, and whether a tidy slice ran per milestone. | records | `docs-check.mjs` (stale debt lines), retro (age) | paid within one milestone | — |
 | Reworks | Slices whose title repeats an earlier slice's subject (visibility, exam vs training…). Each one is a grilling branch that was skipped. | records | retro, from roadmap titles | 0 | — |
 
-≈ equiv is defined in the USAGE glossary: cache read × 0.1 + cache write × 1.25 + output × 5, a comparison unit and not money.
+"≈ equiv" in the table is Claude Code's summary unit (`harness/claude-code/capabilities.md`, usage reader), and its references are Claude Code numbers. Another harness reports its own summary unit, or none, under the token rules below.
+
+## Token metrics
+
+Token metrics stay in tokens, per harness, with no money and no price table. The harness's usage reader (`capabilities/usage.md`) reports tokens by kind (input, cache read, cache write, output) and by model or tier, as the harness logs them. A kind that a platform does not log is "n/a".
+
+Two rules hold everywhere:
+- **Never add raw tokens of different kinds**, because a cache read and an output token differ in cost by about 50 times.
+- **Never add tokens across models.**
+
+Comparisons are made only within one harness and one tier, per slice. A harness may define one summary unit that weights its own token kinds, and it must say so in its `capabilities.md`. On a subscription, usage limits are spent rather than dollars, which is why the workflow uses no price weighting.
 
 ## Evaluating a capability on a platform
 

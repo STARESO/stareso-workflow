@@ -76,7 +76,7 @@ function splitSteps(s, helpers, fallback) {
 async function summarise(file) {
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
   const s = { id: path.basename(file, ".jsonl"), first: null, last: null, models: {}, tools: {}, user: 0, assistant: 0, agents: 0,
-    compactions: 0, active: 0, kind: null, kinds: [], events: [], marks: [], lastUserTs: null, lastUserText: "", firstText: "", usage: { input: 0, cache_read: 0, cache_create: 0, output: 0 }, timeline: [] };
+    compactions: 0, active: 0, kind: null, kinds: [], events: [], marks: [], lastUserTs: null, lastUserText: "", firstText: "", usage: { input: 0, cache_read: 0, cache_create: 0, output: 0 }, byModel: {}, timeline: [] };
   const t = (ts) => (ts || "").slice(5, 16);
   for await (const line of rl) {
     let o; try { o = JSON.parse(line); } catch { continue; }
@@ -109,6 +109,7 @@ async function summarise(file) {
         s.usage.cache_read += m.usage.cache_read_input_tokens || 0;
         s.usage.cache_create += m.usage.cache_creation_input_tokens || 0;
         s.usage.output += m.usage.output_tokens || 0;
+        if (m.model && !m.model.startsWith("<")) addKinds(s.byModel, m.model, { input: m.usage.input_tokens, cache_read: m.usage.cache_read_input_tokens, cache_create: m.usage.cache_creation_input_tokens, output: m.usage.output_tokens });
       }
       for (const p of m.content || []) {
         if (p.type !== "tool_use") continue;
@@ -132,8 +133,14 @@ const hours = (ms) => (ms / 3.6e6).toFixed(1);
 const fmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n));
 const short = (model) => model.replace(/^claude-/, "").replace(/-\d.*$/, "");
 const modelsText = (models) => Object.entries(models).sort((a, b) => b[1] - a[1]).map(([m, n]) => `${short(m)} ${n}`).join(", ");
-// Relative weights of list prices (cache read 0.1, cache write 1.25, output 5): a comparison unit, not money.
+// ≈ equiv, Claude Code's summary unit: frozen weights between token kinds (cache read 0.1, cache write 1.25,
+// output 5), taken once from the standard tier's ratios. Not money, never updated, so old references stay valid.
 const equiv = (u) => u.cache_read * 0.1 + u.cache_create * 1.25 + u.output * 5;
+// Tokens per model, kept by kind: kinds and models are never added together (stareso/metrics.md, "Token metrics").
+function addKinds(byModel, model, u) {
+  const k = (byModel[model] ??= { input: 0, cache_read: 0, cache_create: 0, output: 0 });
+  for (const key of Object.keys(k)) k[key] += u[key] || 0;
+}
 
 async function logMode(dryRun) {
   let root = process.cwd();
@@ -148,7 +155,7 @@ async function logMode(dryRun) {
   // Sessions spent on the workflow itself (a `/stareso-retro` run, or a worktree named for it) are listed
   // apart and left out of the project totals: they are not the project's cost.
   const isWorkflowSession = (s, dirName) => /workflow-review|retro/.test(s.kinds?.[0] || "") || /workflow-review|stareso-retro|workflow-improvement/.test(dirName);
-  const newTotals = () => ({ sessions: 0, turns: 0, user: 0, active: 0, compactions: 0, out: 0, cr: 0, cw: 0, helpers: 0, hOut: 0, hCr: 0, hCw: 0, equiv: 0, models: {} });
+  const newTotals = () => ({ sessions: 0, turns: 0, user: 0, active: 0, compactions: 0, out: 0, cr: 0, cw: 0, helpers: 0, hOut: 0, hCr: 0, hCw: 0, equiv: 0, models: {}, byModel: {} });
   const rows = [], wfRows = [];
   const totals = newTotals(), wfTotals = newTotals();
   for (const d of dirs) {
@@ -159,7 +166,7 @@ async function logMode(dryRun) {
       const hDir = path.join(dir, s.id, "subagents");
       const helpers = [];
       if (fs.existsSync(hDir)) for (const hf of fs.readdirSync(hDir).filter((x) => x.endsWith(".jsonl"))) helpers.push(await summarise(path.join(hDir, hf)));
-      const h = helpers.reduce((a, x) => { a.n++; a.out += x.usage.output; a.cr += x.usage.cache_read; a.cw += x.usage.cache_create; for (const [m, n] of Object.entries(x.models)) a.models[m] = (a.models[m] || 0) + n; return a; }, { n: 0, out: 0, cr: 0, cw: 0, models: {} });
+      const h = helpers.reduce((a, x) => { a.n++; a.out += x.usage.output; a.cr += x.usage.cache_read; a.cw += x.usage.cache_create; for (const [m, n] of Object.entries(x.models)) a.models[m] = (a.models[m] || 0) + n; for (const [m, u] of Object.entries(x.byModel)) addKinds(a.byModel, m, u); return a; }, { n: 0, out: 0, cr: 0, cw: 0, models: {}, byModel: {} });
       const e = equiv(s.usage) + helpers.reduce((a, x) => a + equiv(x.usage), 0);
       const inWorktree = d !== slug;
       const end = s.last.slice(0, 10) === s.first.slice(0, 10) ? s.last.slice(11, 16) : s.last.slice(5, 16).replace("T", " ");
@@ -196,6 +203,7 @@ async function logMode(dryRun) {
     t.helpers += h.n; t.hOut += h.out; t.hCr += h.cr; t.hCw += h.cw; t.equiv += r.e;
     for (const [m, n] of Object.entries(s.models)) t.models[m] = (t.models[m] || 0) + n;
     for (const [m, n] of Object.entries(h.models)) t.models[m] = (t.models[m] || 0) + n;
+    for (const [m, u] of [...Object.entries(s.byModel), ...Object.entries(h.byModel)]) addKinds(t.byModel, m, u);
   }
   rows.length = 0; rows.push(...kept); wfRows.length = 0; wfRows.push(...wfKept);
   // Short session numbers link the Sessions, Steps and Details tables (W1… for workflow sessions).
@@ -294,7 +302,7 @@ async function logMode(dryRun) {
     "| Compact | (Details) Times the context filled up and was summarised (empty = never). |",
     "| Ctx/turn | (Details) Average text the model re-reads each turn (conversation, files, tool results) = cache read ÷ turns. |",
     "| Output | (Details) Tokens the session wrote (replies, code, commands). |",
-    "| Cache read / write | (Details) Tokens re-read from the prompt cache (about a tenth of the input price) / stored into it the first time. |", "",
+    "| Cache read / write | (Details) Tokens re-read from the prompt cache (weight 0.1 in ≈ equiv) / stored into it the first time. |", "",
     "In **Totals**, Turns, Output, Cache read and Cache write cover the sessions only, the Helper columns cover the helpers, and ≈ equiv covers both. **Turns per model** counts sessions and helpers. **Cost per slice** divides the ≈ equiv of the step that merged slices (usually the build, its helpers included) by the `Merge slice …` commits made during it. **Planning cost** divides the ≈ equiv of an improve or test step by the slices its commits added to the roadmap (target < 300k per slice). **Conductor-built slices** counts BUILD-LOG lines with `0 tokens`, `tokens not shown` or `built in chat`, human slices left out (target 0).", "",
   ];
   const block = [
@@ -313,11 +321,14 @@ async function logMode(dryRun) {
     "", "**Turns per model** (sessions and their helpers)", "",
     `| Scope | ${modelNames.map(short).join(" | ")} |`, `|---|${modelNames.map(() => "---").join("|")}|`,
     ...scopes.map(([label, t]) => `| ${label} | ${modelNames.map((m) => t.models[m] || "").join(" | ")} |`),
+    "", "**Tokens per model** (sessions and their helpers, by kind: never add kinds or models together)", "",
+    "| Scope | Model | Input | Cache read | Cache write | Output |", "|---|---|---|---|---|---|",
+    ...scopes.flatMap(([label, t]) => modelNames.filter((m) => t.byModel[m]).map((m) => { const u = t.byModel[m]; return `| ${label} | ${short(m)} | ${fmt(u.input)} | ${fmt(u.cache_read)} | ${fmt(u.cache_create)} | ${fmt(u.output)} |`; })),
     "", "### Details (per session, for retros)", "",
     "| # | Compact | Ctx/turn | Output | Cache read | Cache write | Helpers (models · output · cache read) |", "|---|---|---|---|---|---|---|",
     ...[...rows, ...wfRows].map((r) => r.details(r.n)),
     "", ...glossary,
-    "", `≈ equiv = cache read × 0.1 + cache write × 1.25 + output × 5 (relative list prices: a comparison unit, not money), session and its helpers together. Forks of a session are counted once. Updated ${localIso(new Date()).slice(0, 16).replace("T", " ")}.`,
+    "", `≈ equiv = cache read × 0.1 + cache write × 1.25 + output × 5, frozen weights between token kinds (a fixed exchange rate taken once from the standard tier's ratios, not money: they never follow prices), session and its helpers together. Forks of a session are counted once. Updated ${localIso(new Date()).slice(0, 16).replace("T", " ")}.`,
   ];
   if (dryRun) { console.log(block.join("\n")); return; }
   const file = path.join(root, "docs", "USAGE.md");
