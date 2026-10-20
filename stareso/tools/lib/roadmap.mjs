@@ -104,7 +104,7 @@ export function overviewTable(root) {
     return `| ${link(m)} | ${m.title} | ${m.kind} | ${done}/${m.slices.length} | ${human ? human + " [human]" : ""} | ${m.tested && m.tested !== "none yet" ? m.tested : ""} | ${status} |`;
   });
   const open = ms.flatMap((m) => m.slices.filter((s) => !s.done).map((s) => {
-    const model = (/model: (\w+)/.exec(s.rest) || [])[1] || "";
+    const model = (/(?:model|tier): (\w+)/.exec(s.rest) || [])[1] || "";
     const after = (/after: ([A-Za-z0-9., ]+?)(?: ·|$)/.exec(s.rest) || [])[1] || "";
     const flags = [s.human ? "[human]" : "", /check: now/.test(s.rest) ? "check: now" : ""].filter(Boolean).join(" ");
     return `| ${s.id} | ${s.title} | ${model} | ${after.trim()} | ${flags} |`;

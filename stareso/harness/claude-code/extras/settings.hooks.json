@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"$HOME/.claude/stareso/tools/workflow-changed.mjs\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"$HOME/.claude/stareso/tools/workflow-changed.mjs\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          { "type": "command", "command": "node \"$HOME/.claude/stareso/tools/workflow-changed.mjs\"", "timeout": 10 }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Read(./private/sources/locked/**)",
+      "Read(./private/data/**)",
+      "Read(./private/backups/**)",
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.supabase)"
+    ]
+  }
+}

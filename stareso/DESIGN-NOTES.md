@@ -34,3 +34,16 @@ Measured on the transcripts: Scriba cost about the same tokens as SecuSurf for t
 25. **Every skill names its session** (model, new or same, permission mode) at the start and the next step's at the end; `status` repeats the chart. The user should never have to guess which model a step deserves.
 26. **An existing project is brought in by `retrofit`,** never rewritten: standard docs from what exists, a baseline, then behaviour-preserving slices with a regression safety net first.
 27. **Measure.** `tools/session-stats.mjs` gives exact tokens per session and per helper; the retro changes one thing at a time and looks at the numbers.
+
+## Added 2026-10-20 (portability)
+
+28. **One core, many harnesses, generated where it matters.** The steps are open Agent Skills that several assistants read, so the step texts became the portable unit and name neither products nor models. Every harness-dependent feature is a capability with a manual fallback stated in the step texts, and a harness only automates or enforces that rule. Each harness row is proposed from the docs and adopted only after a measured milestone or a canary, as any other workflow change. Claude Code, where the workflow is measured, gets generated self-contained files of the same length, because a step that had to read a porting file at run time would cost turns and context in every session.
+
+## Stage 2 plan: the repository out of `~/.claude` (not started)
+
+1. Move the repository to its own folder (`stareso-workflow/`), with `skills/`, `roles/`, `capabilities/`, `harness/`, `packs/`, `templates/` and `tools/` at its root, and keep `~/.claude` free of tracked files.
+2. One install script per harness (`harness/<harness>/install.mjs`). For Claude Code it runs `harness-build` into `~/.claude/skills` and `~/.claude/agents` and merges `settings.hooks.json` into the user settings. For Codex and Cursor it links the core skills into their skill folders and writes their agent files. A `--check` mode reports drift.
+3. `<stareso>` becomes the install path written by the script, so the Claude Code output keeps absolute paths and stays the same length.
+4. Rename the pack template `templates/CLAUDE.md` to `templates/AGENTS.md`, generate `CLAUDE.md` for Claude Code projects, and let the milestone template write `tier:` (Claude Code rendering it as `model:`).
+5. `workflow-changed.mjs` watches the new repository path, with one hook adapter per harness that has hooks.
+6. Measure before and after on one Claude Code build: conductor turns and ≈ equiv per slice must not move by more than 10 %.

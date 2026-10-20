@@ -14,7 +14,7 @@ Talk in English unless the user switches to French. Budget: stop and report at 1
 
 ## 1. Refresh and read (both modes)
 1. `node ~/.claude/stareso/tools/session-stats.mjs --log` (refreshes `docs/USAGE.md`), then `node ~/.claude/stareso/tools/docs-check.mjs` (count the findings, fix nothing).
-2. Read: `docs/USAGE.md` (the table and the "## Retros" section at the bottom: the previous entries are the baseline), `docs/BUILD-LOG.md` lines since the previous retro, `docs/QUESTIONS.md` (`[debt]` lines, open questions and their age), `docs/FEEDBACK.md` + `FEEDBACK-DONE.md` headings only (counts per round, "During build" blocks), `~/.claude/stareso/CHANGELOG.md` entries since the previous retro.
+2. Read: `docs/USAGE.md` (the table and the "## Retros" section at the bottom: the previous entries are the baseline), `docs/BUILD-LOG.md` lines since the previous retro, `docs/QUESTIONS.md` (`[debt]` lines, open questions and their age), `docs/FEEDBACK.md` + `FEEDBACK-DONE.md` headings only (counts per round, "During build" blocks), `~/.claude/stareso/CHANGELOG.md` entries since the previous retro, `~/.claude/stareso/harness/<harness>/capabilities.md` (the `Harness:` line of `CLAUDE.md`, else claude-code): rows `proposed` are evaluated as `metrics.md` says.
 
 ## 2. Metrics (compute, do not guess; write "n/a" when the records cannot give it)
 The metrics, their definitions, sources, tools, targets and reference values are in `~/.claude/stareso/metrics.md`. Read it and report every line of its table. Copy the numbers the tools print (USAGE tables, `docs-check`) and count by hand only the ones the table assigns to the retro.

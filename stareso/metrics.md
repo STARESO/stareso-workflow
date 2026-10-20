@@ -21,3 +21,24 @@ The single definition of the numbers a retro reports. Each metric is defined onc
 | Reworks | Slices whose title repeats an earlier slice's subject (visibility, exam vs training…). Each one is a grilling branch that was skipped. | records | retro, from roadmap titles | 0 | — |
 
 ≈ equiv is defined in the USAGE glossary: cache read × 0.1 + cache write × 1.25 + output × 5, a comparison unit and not money.
+
+## Evaluating a capability on a platform
+
+Each harness lists its capabilities in `harness/<harness>/capabilities.md` with a status (`capabilities/README.md`). A **proposed** row is evaluated once, after one milestone of at least five slices built on that harness, or after the canary for the read guard. The retro of that milestone reads the row, computes the numbers below, writes them in the row's Evidence and sets the status to **adopted** or **rejected**, with a CHANGELOG line. That is one workflow change, so it counts towards the retro's three.
+
+Since 2026-10-20 every BUILD-LOG line carries `harness · helper mode · tier` (`slice-done`, defaults from the `Harness:` and `Helpers:` lines of the project instructions, else `claude-code · subagent`, and the brief's tier). Older lines count as `claude-code · subagent` with the tier of their model. The retro splits the records metrics by harness × helper mode × tier:
+
+| Metric | Definition | Source |
+|---|---|---|
+| Fix rounds | share of slices whose result is "ok after n fix" or that failed | records (BUILD-LOG) |
+| Check-fix slices | `Check fix:` slices added per milestone | records (roadmap) |
+| Reworks | as in the table above | records (roadmap) |
+| Conductor-built slices | as in the table above | records (BUILD-LOG) |
+| Minutes per slice | median gap between consecutive BUILD-LOG times within one build run | records (BUILD-LOG) |
+| Guard verified | the `Guard:` line under `Pack:` in `docs/PLAN.md` (verified, not enforced, or missing) | records (PLAN) |
+
+Usage metrics (conductor turns and ≈ equiv per slice, Carried, planning cost) are split the same way only where the harness has a usage reader (`capabilities/usage.md`); elsewhere they are "n/a". A row is adopted when its numbers meet the targets of the table above, or stay within the Claude Code references where a target is missing. A cheaper tier or helper mode is adopted for a kind of slice only when fix rounds and check-fix slices do not rise.
+
+## No regression after the harness split
+
+On 2026-10-20 the steps and roles moved into a harness-neutral core, and the Claude Code files became generated (`tools/harness-build.mjs`). Nine generated files came out identical and four grew by less than about 5 %, so nothing should cost more. The next Claude Code build after the split checks it: its conductor turns per merged slice and ≈ equiv per slice are compared with SecuSurf M5 (8.8 turns, 335k, 2026-10-20) and Scriba M28 (19.7 turns, 990k, 6 slices, 2026-10-20), each project against its own reference. A move of more than 10 % in either number means the generated files are inspected first (`harness-build.mjs --check`, then `git diff 54eb59b -- skills agents`), before any other cause is looked for.

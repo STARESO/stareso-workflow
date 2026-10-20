@@ -6,14 +6,18 @@
 //   node ~/.claude/stareso/tools/slice-done.mjs M23.4 --model sonnet --tokens 42k --note "three dropdowns; checked at 280 px"
 //   options: --result "ok" (default) | "ok after 1 fix" · --branch <name> (default: the slice/<id>-* branch) | none (built in chat)
 //            --profile eco|fast (written in the log line) · --no-commit
+//            --harness <h> · --helper subagent|session|inline · --tier strong|standard|light (written in the log line;
+//            defaults: the `Harness:` and `Helpers:` lines of the project instructions, else claude-code and subagent,
+//            and the brief's `tier:`, or its `model:` looked up in stareso/harness/<h>/models.md)
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { findRoot, findSlice, readText, writeText, writeOverview, stamp, args } from "./lib/roadmap.mjs";
 
 const a = args(process.argv.slice(2));
 const id = a._[0];
-if (!id) { console.error("usage: slice-done.mjs <slice-id> [--model m] [--tokens n] [--note text] [--result r] [--branch b|none] [--profile p]"); process.exit(1); }
+if (!id) { console.error("usage: slice-done.mjs <slice-id> [--model m] [--tokens n] [--note text] [--result r] [--branch b|none] [--profile p] [--harness h] [--helper m] [--tier t]"); process.exit(1); }
 
 const root = findRoot();
 const git = (...cmd) => execFileSync("git", cmd, { cwd: root, encoding: "utf8" }).trim();
@@ -68,11 +72,27 @@ if (fs.existsSync(qFile)) {
   if (debtPaid) writeText(qFile, out, eol);
 }
 
-// 4. BUILD-LOG line.
+// 4. BUILD-LOG line. Harness, helper mode and tier let the retro compare harnesses (stareso/metrics.md).
+const instructions = ["CLAUDE.md", "AGENTS.md", "GEMINI.md"].map((f) => path.join(root, f)).filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f, "utf8")).join("\n");
+const harness = a.harness || (/\bHarness:\s*([\w-]+)/i.exec(instructions) || [])[1] || "claude-code";
+const helper = a.helper || (/\bHelpers?:\s*(subagent|session|inline)\b/i.exec(instructions) || [])[1] || "subagent";
+let tier = a.tier || (/\btier: (strong|standard|light)\b/.exec(slice.rest) || [])[1];
+if (!tier) {
+  // A `model:` brief: its tier is the row whose Id is that model (| Tier | Prose | Id | … |), in the harness's
+  // models.md, then in Claude Code's, because `model: opus | sonnet | haiku` is the old name of the tier field.
+  const brief = (/\bmodel: (\w+)/.exec(slice.rest) || [])[1];
+  for (const h of brief ? [harness, "claude-code"] : []) {
+    const models = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "harness", h, "models.md");
+    const row = fs.existsSync(models) && fs.readFileSync(models, "utf8").split(/\r?\n/).map((l) => l.split("|").map((c) => c.trim()))
+      .find((c) => /^(strong|standard|light)$/.test(c[1] || "") && (c[3] || "").toLowerCase() === brief.toLowerCase());
+    if (row) { tier = row[1]; break; }
+  }
+}
 const logFile = path.join(root, "docs", "BUILD-LOG.md");
 const model = a.model || "?", tokens = a.tokens ? `${a.tokens} tokens` : "tokens not shown", result = a.result || "ok";
 const parts = [stamp(), `${id} ${slice.title}`, model, result, tokens];
 if (a.profile) parts.push(a.profile);
+parts.push(harness, helper, tier || "tier ?");
 if (a.note) parts.push(a.note);
 const line = "- " + parts.join(" · ");
 {

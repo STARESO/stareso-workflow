@@ -1,0 +1,26 @@
+{
+  "stareso-build": [
+    "disable-model-invocation: true",
+    "argument-hint: \"[M1 | M3.2-M3.6 | all] [eco | fast]\""
+  ],
+  "stareso-deploy": [
+    "disable-model-invocation: true"
+  ],
+  "stareso-discuss": [],
+  "stareso-grill": [],
+  "stareso-improve": [],
+  "stareso-init": [
+    "disable-model-invocation: true",
+    "argument-hint: \"<name> [app-next | analysis-r]\""
+  ],
+  "stareso-retro": [
+    "argument-hint: \"[quick | deep]\""
+  ],
+  "stareso-retrofit": [
+    "disable-model-invocation: true",
+    "argument-hint: \"[app-next | analysis-r]\""
+  ],
+  "stareso-setup": [],
+  "stareso-status": [],
+  "stareso-test": []
+}

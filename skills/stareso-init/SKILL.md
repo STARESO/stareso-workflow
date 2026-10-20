@@ -27,6 +27,7 @@ Core (every pack): `CLAUDE.md` (pack template, name filled in, rest left for set
 Pack `app-next`: `.claude/launch.json` (port 3100 unless another app uses it).
 Pack `analysis-r`: `config/paths.yml`, `main/run_all.R`, `R/helpers.R`, `.lintr` (pack templates), `data/raw/`, `data/processed/`, `outputs/`, `dev/`, `tests/toy/`, `report/`, `docs/LOGBOOK.md` (template).
 ROADMAP, QUESTIONS, FEEDBACK and BUILD-LOG are created by setup. Doc files are named in capitals; decision records `NNNN-slug.md`.
+**Canary:** create `private/backups/CANARY` (one word), read it with the Read tool and expect a refusal. Under `Pack:` in `docs/PLAN.md` write `Guard: verified (claude-code, yyyy-mm-dd)`, or `Guard: not enforced (claude-code, yyyy-mm-dd)` and tell the user.
 
 ## 4. Git
 `git init -b main`, `git status` to check that nothing under `private/` or `data/` is listed, first commit "Initial structure". Never add a remote, never push.
