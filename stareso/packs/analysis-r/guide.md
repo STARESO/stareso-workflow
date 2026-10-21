@@ -92,7 +92,7 @@ Conventions:
 ## 9. Commands (what the skills run)
 | Name | Command | Notes |
 |---|---|---|
-| `check` | `Rscript --vanilla tests/run_tests.R` (lintr + testthat + regression; `--rapide`: lintr + testthat only) | every slice, before merge; `--rapide` for slices that touch no pipeline code |
+| `check` | `Rscript --vanilla tests/run_tests.R` (lintr + testthat + regression; `--rapide`: lintr + testthat only) | `--rapide` on every slice before merge; the full `check` once per milestone and on slices that touch numbers (§10) |
 | `run` | `Rscript --vanilla main/run_all.R` | the whole pipeline from raw data; counts only on stdout |
 | `step` | `Rscript --vanilla main/<script>.R` | one step while building it |
 | `render` | `quarto render report/<project>_report.qmd` | after `run` |
@@ -101,8 +101,10 @@ Conventions:
 On Windows the R binary may not be on PATH: CLAUDE.md names it (`& "C:\Program Files\R\R-4.x.x\bin\Rscript.exe"`).
 
 ## 10. Verification (what "done" means here)
-- Per slice: `check` passes; `step` of the touched script runs clean with counts printed; new figures opened by the helper (Read on the PNG) and described in one line in the report ("verified: 12 bars, legend ordered, no overlapping labels").
-- Per milestone: the `stareso-slice-checker` helper runs `run` from scratch, compares the regression snapshot, opens every new or changed figure and reports a table `figure · ok / problem`; `render` must succeed. Problems become fix slices. For a style change, the checker opens **every figure of the kind** the brief names (a contact sheet, not a sample) and reports the ones the change missed.
+**Checks are rare: the user is the check for how things look.** Automatic checks guard the numbers, not the details of a figure. Waiting on gates for small visual points cost most of the waiting time in the waste-study project (2026-10-21), so:
+- **Looks go through a tune pass** with the user (`stareso-test`, [look] points), never through a slice, a helper or a checker.
+- Per slice: `check --rapide` (testthat + cached lintr); `step` of the touched script runs clean with counts printed; new figures opened by the helper (Read on the PNG) and described in one line ("verified: 12 bars, legend ordered, no overlapping labels"). The CSV regression runs only when the slice touches the processed tables, a statistic or a config hypothesis. The PNG regression runs only for a pure refactor (figures must stay identical); a slice that changes figures on purpose skips it and retakes the PNG baselines.
+- Per milestone: the full `check` once at the end. The `stareso-slice-checker` helper runs only when the milestone changes numbers or methods, or when the user asks: it then runs `run` from scratch, compares the regression snapshot, opens the new or changed figures and reports a table `figure · ok / problem`. Otherwise the user's test is the check. `render` must succeed. For a style change, every figure of the kind the brief names is opened (a contact sheet, not a sample).
 - Per test round ("test time"): the user reads the rendered report and the figures in the browser, and talks; feedback is logged as in every stareso project.
 
 ## 11. Default roadmap (adapt in setup)
@@ -119,6 +121,6 @@ Slices are vertical: a slice goes from data to an output someone can look at. Ne
 
 ## 12. Slice brief shape (pack-specific lines)
 - Files: `R/<module>.R` to extend (never a copy), `main/<step>.R`, `config/…`, `tests/testthat/test-<module>.R`.
-- Done when: `check` passes, `step` prints the expected counts, the output files exist with the names from `paths.yml`, the figure was opened and described, the LOGBOOK line is written.
+- Done when: `check --rapide` passes (the full `check` when the slice touches numbers, §10), `step` prints the expected counts, the output files exist with the names from `paths.yml`, the figure was opened and described, the LOGBOOK line is written.
 - Style change: a `Figures:` line names the figure kind and lists every figure of that kind (from `figures.csv`); done when each listed figure was opened and shows the change.
 - Risk: `opus` for a slice that chooses a statistical method or reinterprets a protocol hypothesis; `haiku` for labels, palettes, report wording.
