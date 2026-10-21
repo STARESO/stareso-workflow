@@ -47,3 +47,15 @@ Measured on the transcripts: Project C cost about the same tokens as project A f
 4. Rename the pack template `templates/CLAUDE.md` to `templates/AGENTS.md`, generate `CLAUDE.md` for Claude Code projects, and let the milestone template write `tier:` (Claude Code rendering it as `model:`).
 5. `workflow-changed.mjs` watches the new repository path, with one hook adapter per harness that has hooks.
 6. Measure before and after on one Claude Code build: conductor turns and ≈ equiv per slice must not move by more than 10 %.
+
+## Proposed 2026-10-21 (Claude Code harness: manager session)
+
+Not applied yet. Origin: a build typed straight into the session that had just run `status` worked, but the user prefers the top session as a manager and each step in its own launched session. Raise at the next retro and measure on one build (conductor context per turn, "Carried" of the later steps).
+
+1. **Manager pattern.** The `Session:` line of build, test and improve says: when a manager session exists (the one that runs `status`), it launches the step in a sub-session (`start_session`, or `clear_session` on an idle child then `send_message` with the command) instead of running it inline. The skill text stays valid when run directly.
+2. **Status offers the launch.** In a manager, `status` ends with the exact launch (skill, model, mode, profile) as a card or a one-line offer, not only the command to type.
+3. **Relay is automatic.** A build child ends with `MILESTONE DONE: M<n> · next: M<n+1>` or `RUN STOPPED: <reason>`. The manager starts the next child on the first and reports to the user on the second.
+4. **One writer per checkout.** The manager never runs slice helpers in the checkout while a child owns it. Before launching a child, the manager lets an inline helper finish and merge, or stops it.
+5. **Records before launch.** The manager runs `session-stats --log` and commits `docs/USAGE.md` before launching a build, so that earlier sessions are logged and the tree is clean for `slice-done`.
+6. **Reuse over spawn.** An idle finished child is cleared and reused for the next milestone (same folder, model and mode), which keeps the sidebar short.
+7. **Skills are user-only.** Build, test and improve are `disable-model-invocation`, so a manager cannot start them in a child by message (found on the first try). Either the user types the command in the child, or the skills allow a manager-sent launch for these three steps. Until then the manager prepares the child and hands the user the exact command and constraints.
