@@ -94,13 +94,14 @@ async function summarise(file) {
     if (o.type === "user") {
       const c = m.content;
       const texts = typeof c === "string" ? [c] : Array.isArray(c) ? c.filter((p) => p.type === "text" && !o.isMeta).map((p) => p.text) : [];
-      // A message the app or another session sent (a manager's launch or relay, a child's status) is not typed by
-      // the user: it is not counted in "You" and names no chat step. Older transcripts carry no origin: typed.
-      const fromSession = o.turnOrigin === "sdk" && o.origin?.kind !== "human";
+      // A message the app or another session sent (a manager's launch or relay, a child's status, a helper's hand-back,
+      // a task notification, an interrupt mark) is not typed by the user: it is not counted in "You" and names no
+      // chat step. The origin says so when the transcript has one, the text's opening otherwise.
+      const fromApp = o.origin?.kind ? o.origin.kind !== "human" : o.turnOrigin === "sdk" || o.promptSource === "system";
       for (const txt of texts) {
         // A reminder the app adds to a message is not the user's text either.
         if (/^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/.test(txt)) continue;
-        if (fromSession) {
+        if (fromApp || /^\s*(Another Claude session sent a message:|<cross-session-message|<task-notification>|\[Request interrupted by user)/.test(txt)) {
           s.timeline.push(`${t(o.timestamp)} M ${txt.replace(/\s+/g, " ").slice(0, 220)}`);
           s.events.push({ ts: o.timestamp });
           // A step a manager session launched: the app opens the new session with this background message.
