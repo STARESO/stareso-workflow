@@ -6,6 +6,7 @@ Goal: reach a shared, complete understanding of the project (or of one idea) bef
 - Treat the topic as a **tree of decisions**: some decisions only make sense once others are settled.
 - Ask in **numbered rounds**. A round holds every question whose prerequisites are already answered (usually 3 to 6). A question that depends on another one still open waits for a later round.
 - Each question: a short title, the context in one or two lines, the options if useful, and **one recommended answer**, worded so that a plain "yes" accepts it.
+- **Ask through the question tool** (`capabilities/questions.md`): each question of the round becomes one tool question with its options as buttons, the recommended one first, the context in the option descriptions. Write at most three lines of chat before the call. Fall back to a numbered message only without a question tool or for free-text answers.
 - Start from the pack's defaults (`packs/<pack>/guide.md`): only ask where this project may differ ("Same login model as project A (roles), or one shared code like project B?").
 - Answers may be short or spoken ("1 yes, 2 yes, 3 no, rather weekly"). Read voice input for meaning; if an answer is unclear, restate how you understood it in the next round.
 - Wait for the answers before the next round. Then work out which questions are now open.
