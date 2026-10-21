@@ -47,7 +47,7 @@ function splitSteps(s, helpers, fallback) {
   // A new-task request that goes straight into a skill is one step, named after the skill.
   marks = marks.filter((m) => !(m.soft && marks.some((n) => !n.soft && n.ts === m.ts)));
   marks = marks.filter((m, i) => i === 0 || m.kind !== marks[i - 1].kind);
-  if (!marks.length || s.events.some((e) => e.a && e.ts < marks[0].ts)) marks.unshift({ ts: s.first, kind: (!marks.length && fallback) || chatLabel(s.firstText) });
+  if (!marks.length || s.events.some((e) => e.a && e.ts < marks[0].ts)) marks.unshift({ ts: s.first, kind: (!marks.length && fallback) || (s.launchTs ? "launched" : chatLabel(s.firstText)) });
   const steps = marks.map((m) => ({ kind: m.kind, first: m.ts, last: m.ts, turns: 0, user: 0, active: 0, carried: null,
     usage: { cache_read: 0, cache_create: 0, output: 0 }, hN: 0, hEquiv: 0, models: {} }));
   let i = 0, prev = null;
@@ -76,7 +76,8 @@ function splitSteps(s, helpers, fallback) {
 async function summarise(file) {
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
   const s = { id: path.basename(file, ".jsonl"), first: null, last: null, models: {}, tools: {}, user: 0, assistant: 0, agents: 0,
-    compactions: 0, active: 0, kind: null, kinds: [], events: [], marks: [], lastUserTs: null, lastUserText: "", firstText: "", usage: { input: 0, cache_read: 0, cache_create: 0, output: 0 }, byModel: {}, timeline: [] };
+    compactions: 0, active: 0, kind: null, kinds: [], events: [], marks: [], lastUserTs: null, lastUserText: "", firstText: "", usage: { input: 0, cache_read: 0, cache_create: 0, output: 0 }, byModel: {}, timeline: [],
+    launchTs: null, launchText: "", launches: [] };
   const t = (ts) => (ts || "").slice(5, 16);
   for await (const line of rl) {
     let o; try { o = JSON.parse(line); } catch { continue; }
@@ -93,7 +94,19 @@ async function summarise(file) {
     if (o.type === "user") {
       const c = m.content;
       const texts = typeof c === "string" ? [c] : Array.isArray(c) ? c.filter((p) => p.type === "text" && !o.isMeta).map((p) => p.text) : [];
+      // A message the app or another session sent (a manager's launch or relay, a child's status) is not typed by
+      // the user: it is not counted in "You" and names no chat step. Older transcripts carry no origin: typed.
+      const fromSession = o.turnOrigin === "sdk" && o.origin?.kind !== "human";
       for (const txt of texts) {
+        // A reminder the app adds to a message is not the user's text either.
+        if (/^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/.test(txt)) continue;
+        if (fromSession) {
+          s.timeline.push(`${t(o.timestamp)} M ${txt.replace(/\s+/g, " ").slice(0, 220)}`);
+          s.events.push({ ts: o.timestamp });
+          // A step a manager session launched: the app opens the new session with this background message.
+          if (!s.launchTs && !s.assistant && /Background \(from the session that started this one\)/.test(txt)) { s.launchTs = o.timestamp; s.launchText = txt; }
+          continue;
+        }
         s.user++; s.timeline.push(`${t(o.timestamp)} U ${txt.replace(/\s+/g, " ").slice(0, 220)}`);
         s.events.push({ ts: o.timestamp, u: 1 });
         s.lastUserTs = o.timestamp; s.lastUserText = txt; s.firstText ||= txt;
@@ -119,8 +132,15 @@ async function summarise(file) {
           s.timeline.push(`${t(o.timestamp)} S ${p.input?.skill}`);
           // A step the agent started itself (e.g. improve after a status) counts like a typed command.
           const k = /^stareso(?:-app)?-([\w-]+)$/.exec(p.input?.skill || "");
-          if (k) s.marks.push({ ts: s.lastUserTs || o.timestamp, kind: addKind(s, k[1], p.input?.args) });
+          if (k) s.marks.push({ ts: s.lastUserTs || s.launchTs || o.timestamp, kind: addKind(s, k[1], p.input?.args) });
         }
+        // A launched session often starts its step by reading the skill file instead of calling the skill: its first
+        // such read names the step, with the range the launch message gives after the skill's name, if any.
+        if (p.name === "Read" && s.launchTs && !s.marks.length) {
+          const k = /[\\/]skills[\\/]stareso-([\w-]+)[\\/]SKILL\.md$/i.exec(p.input?.file_path || "");
+          if (k) s.marks.push({ ts: s.lastUserTs || s.launchTs, kind: addKind(s, k[1], (new RegExp(`stareso-${k[1]}\\s+(\\S+)`).exec(s.launchText) || [])[1]) });
+        }
+        if (/start_session$/.test(p.name)) s.launches.push(o.timestamp);
         // The app's task list says when a request is unrelated work: a new step, named from the request.
         if (/update_plan$/.test(p.name) && p.input?.scope === "new_task") s.marks.push({ ts: s.lastUserTs || o.timestamp, kind: chatLabel(s.lastUserText), soft: true });
       }
@@ -173,18 +193,18 @@ async function logMode(dryRun) {
       const wf = isWorkflowSession(s, d);
       const kind = (wf && !/workflow-review|stareso-retro/.test(s.kind || "") ? "workflow review" : s.kind || "chat") + (inWorktree ? " (worktree)" : "");
       // Session line, its steps and its details are written once the sessions are numbered (below).
-      const session = (n) => `| ${n} | ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${kind} | ${hours(steps.reduce((a, st) => a + st.active, 0))} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${s.user} | ${h.n || ""} | ${fmt(Math.round(e))} |`;
+      const session = (n, by) => `| ${n} | ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${kind}${by ? ` (launched by #${by})` : ""} | ${hours(steps.reduce((a, st) => a + st.active, 0))} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${s.user} | ${h.n || ""} | ${fmt(Math.round(e))} |`;
       const details = (n) => `| ${n} | ${s.compactions || ""} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${fmt(s.usage.cache_create)} | ${h.n ? `${modelsText(h.models)} · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} |`;
       // Carried = context at the step's start above the base (what any new session starts with, see `base` below)
       // and its share of the step's cost (extra × turns × 0.1): what a new session would have saved. Blank for a
       // session's first step. A session with no step mark (e.g. a review run in a worktree named for it) keeps the session's label.
       const steps = splitSteps(s, helpers, wf ? "workflow review" : null);
-      const stepLines = (n, base) => steps.map((st, i) => {
+      const stepLines = (n, base, by) => steps.map((st, i) => {
         const se = equiv(st.usage) + st.hEquiv;
         const extra = Math.max(0, (st.carried || 0) - base);
         const carried = i && st.turns ? `${Math.round(100 * Math.min(1, extra * st.turns * 0.1 / Math.max(1, se)))} % · ${fmt(extra)}` : "";
         const stEnd = st.last.slice(0, 10) === st.first.slice(0, 10) ? st.last.slice(11, 16) : st.last.slice(5, 16).replace("T", " ");
-        return `| ${n} | ${st.first.slice(5, 10)} ${st.first.slice(11, 16)}–${stEnd} | ${st.kind} | ${hours(st.active)} | ${st.turns} | ${st.user} | ${st.hN || ""} | ${fmt(Math.round(se))} | ${carried} |`;
+        return `| ${n} | ${st.first.slice(5, 10)} ${st.first.slice(11, 16)}–${stEnd} | ${st.kind}${!i && by ? ` (launched by #${by})` : ""} | ${hours(st.active)} | ${st.turns} | ${st.user} | ${st.hN || ""} | ${fmt(Math.round(se))} | ${carried} |`;
       });
       (wf ? wfRows : rows).push({ first: s.first, turns: s.assistant, session, details, stepLines, steps, s, h, e, wf });
     }
@@ -208,6 +228,13 @@ async function logMode(dryRun) {
   rows.length = 0; rows.push(...kept); wfRows.length = 0; wfRows.push(...wfKept);
   // Short session numbers link the Sessions, Steps and Details tables (W1… for workflow sessions).
   rows.forEach((r, i) => { r.n = String(i + 1); }); wfRows.forEach((r, i) => { r.n = "W" + (i + 1); });
+  // A launched session names the session that launched it: the one whose start_session call came within
+  // 5 min before the launch message (a manager running in another folder is not in this list: no link).
+  for (const r of [...rows, ...wfRows]) {
+    if (!r.s.launchTs) continue;
+    const t = new Date(r.s.launchTs).getTime();
+    r.by = [...rows, ...wfRows].find((x) => x !== r && x.s.launches.some((l) => t >= new Date(l).getTime() && t - new Date(l).getTime() <= 5 * 60e3))?.n;
+  }
   // Base context: the median context at the first turn of the project's sessions (system prompt, tools, CLAUDE.md,
   // memory). Every new session pays it, so Carried counts only what lies above it.
   const firsts = rows.map((r) => r.steps[0].carried).filter((c) => c != null).sort((a, b) => a - b);
@@ -215,9 +242,9 @@ async function logMode(dryRun) {
 
   const tables = (list) => [
     "| # | Date (start–end) | Steps | Active h | Models (turns) | Turns | You | Helpers | ≈ equiv |", "|---|---|---|---|---|---|---|---|---|",
-    ...list.map((r) => r.session(r.n)), "",
+    ...list.map((r) => r.session(r.n, r.by)), "",
     "| # | Start–end | Step | Active h | Turns | You | Helpers | ≈ equiv | Carried |", "|---|---|---|---|---|---|---|---|---|",
-    ...list.flatMap((r) => r.stepLines(r.n, base)),
+    ...list.flatMap((r) => r.stepLines(r.n, base, r.by)),
   ];
   // Cost per slice: a build session often runs past its first milestone, so count the "Merge slice …" commits
   // (slice-done, every branch) made between the session's start and end, plus 5 min for the last merge.
@@ -228,15 +255,18 @@ async function logMode(dryRun) {
       .map((l) => l.split("\t")).filter(([h, , subj]) => h && /^Merge slice /.test(subj || "") && !seen.has(h) && seen.add(h))
       .map(([, date]) => new Date(date).getTime());
   } catch { /* not a git repository: no cost-per-slice table */ }
-  // Windows can overlap (one session ends as the next starts): a merge goes to the latest-started session holding it.
+  // Windows can overlap (one session ends as the next starts, a manager's status runs while the build it launched
+  // merges): a merge goes to the latest-started step holding it, never to a status or retro step, which do not build.
+  // A merge only such a step holds was made by a session with no transcript here (deleted, or run in another folder).
+  const allSteps = rows.flatMap((r) => r.steps.map((st) => ({ r, st, from: new Date(st.first).getTime(), to: new Date(st.last).getTime() + 5 * 60e3 })));
+  const managerKind = (x) => /^(status|retro|workflow)/.test(x.st.kind);
   const merged = new Map();
+  let unlogged = 0;
   for (const m of merges) {
-    const owner = rows.filter((r) => m >= new Date(r.s.first).getTime() && m <= new Date(r.s.last).getTime() + 5 * 60e3)
-      .sort((a, b) => b.first.localeCompare(a.first))[0];
-    if (!owner) continue;
-    // Within the session, the merge belongs to the step running then (the build, not a status or improve after it).
-    const step = [...owner.steps].reverse().find((st) => m >= new Date(st.first).getTime()) || owner.steps[0];
-    merged.set(step, { r: owner, n: (merged.get(step)?.n || 0) + 1 });
+    const holding = allSteps.filter((x) => m >= x.from && m <= x.to);
+    const owner = holding.filter((x) => !managerKind(x)).sort((a, b) => b.from - a.from)[0];
+    if (!owner) { if (holding.length) unlogged++; continue; }
+    merged.set(owner.st, { r: owner.r, n: (merged.get(owner.st)?.n || 0) + 1 });
   }
   const sliceRows = [...merged.entries()].sort((a, b) => a[0].first.localeCompare(b[0].first)).map(([st, { n }]) => {
     const se = equiv(st.usage) + st.hEquiv;
@@ -257,11 +287,10 @@ async function logMode(dryRun) {
         return { hash, t: new Date(date).getTime(), n: [...ids["+"]].filter((id) => !ids["-"].has(id)).length };
       }).filter((c, i, all) => c.n && all.findIndex((d) => d.hash === c.hash) === i);
   } catch { /* not a git repository: no planning table */ }
-  const allSteps = rows.flatMap((r) => r.steps.map((st) => ({ r, st, from: new Date(st.first).getTime(), to: new Date(st.last).getTime() + 5 * 60e3 })));
   const planned = new Map();
   for (const c of planCommits) {
     let owner = allSteps.filter((x) => c.t >= x.from && c.t <= x.to).sort((a, b) => b.from - a.from)[0];
-    if (owner && /^(status|retro|workflow)/.test(owner.st.kind)) owner = allSteps.filter((x) => x.r === owner.r && x.from < owner.from).at(-1);
+    if (owner && managerKind(owner)) owner = allSteps.filter((x) => x.r === owner.r && x.from < owner.from).at(-1);
     if (!owner || !/^(improve|test)\b/.test(owner.st.kind)) continue;
     planned.set(owner.st, { r: owner.r, n: (planned.get(owner.st)?.n || 0) + c.n });
   }
@@ -290,20 +319,20 @@ async function logMode(dryRun) {
     "| Column | Meaning |", "|---|---|",
     "| # | Session number: links the Sessions, Steps and Details rows (W1… = workflow sessions). |",
     "| Date / Start–end | Start date and time, then end time (`10-18 15:10` = ended on a later day). |",
-    "| Steps | The stareso steps of the session in order (`status → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat: …` = work no skill names, a request the task list marked as new. `(worktree)` = it ran in its own copy of the repo. |",
+    "| Steps | The stareso steps of the session in order (`status → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat: …` = work no skill names, a request the task list marked as new. `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. |",
     "| Step rows | One per step, split at the step's first message; helpers go to the step that started them. The session's totals are the sum of its steps. |",
     `| Carried | For a session's later steps: share of the step's cost spent re-reading the context it started with above the base (${fmt(base)}, the median context at the first turn of this project's sessions, which every new session pays), then that extra context's size. High = a new session would have been cheaper (target < 20 %). |`,
     "| Active h | Hours of work: time between consecutive messages, pauses over 15 min left out. |",
     "| Models (turns) | Models that answered in the session itself, with their turn counts. |",
     "| Turns | Responses in the session itself, helpers excluded. |",
-    "| You | Messages typed by the user (including slash commands). |",
+    "| You | Messages typed by the user (including slash commands), not those a manager session or the app sent. |",
     "| Helpers | Fresh agents started for side tasks (their models and tokens are in Details). |",
     "| ≈ equiv | Session (or step) and its helpers together; formula at the bottom. |",
     "| Compact | (Details) Times the context filled up and was summarised (empty = never). |",
     "| Ctx/turn | (Details) Average text the model re-reads each turn (conversation, files, tool results) = cache read ÷ turns. |",
     "| Output | (Details) Tokens the session wrote (replies, code, commands). |",
     "| Cache read / write | (Details) Tokens re-read from the prompt cache (weight 0.1 in ≈ equiv) / stored into it the first time. |", "",
-    "In **Totals**, Turns, Output, Cache read and Cache write cover the sessions only, the Helper columns cover the helpers, and ≈ equiv covers both. **Turns per model** counts sessions and helpers. **Cost per slice** divides the ≈ equiv of the step that merged slices (usually the build, its helpers included) by the `Merge slice …` commits made during it. **Planning cost** divides the ≈ equiv of an improve or test step by the slices its commits added to the roadmap (target < 300k per slice). **Conductor-built slices** counts BUILD-LOG lines with `0 tokens`, `tokens not shown` or `built in chat`, human slices left out (target 0).", "",
+    "In **Totals**, Turns, Output, Cache read and Cache write cover the sessions only, the Helper columns cover the helpers, and ≈ equiv covers both. **Turns per model** counts sessions and helpers. **Cost per slice** divides the ≈ equiv of the step that merged slices (usually the build, its helpers included) by the `Merge slice …` commits made during it (never a status or retro step: a manager does not build). **Planning cost** divides the ≈ equiv of an improve or test step by the slices its commits added to the roadmap (target < 300k per slice). **Conductor-built slices** counts BUILD-LOG lines with `0 tokens`, `tokens not shown` or `built in chat`, human slices left out (target 0).", "",
   ];
   const block = [
     "### Sessions and steps", "", ...tables(rows),
@@ -315,6 +344,7 @@ async function logMode(dryRun) {
     "", ...scopes.map(([label, t]) => `**${label}:** ${highlights(t)}.`),
     ...(sliceRows.length ? ["", "**Cost per slice** (steps that merged slices; the cost of the tests that found the fixes is not included)", "",
       "| # | Step start | Step | Slices merged | ≈ equiv | ≈ equiv per slice |", "|---|---|---|---|---|---|", ...sliceRows] : []),
+    ...(unlogged ? ["", `**Slices merged by an unlogged session:** ${unlogged} (only a status or retro step was running then: the session that built them left no transcript in this project, so their cost is only in the BUILD-LOG helper tokens).`] : []),
     ...(planRows.length ? ["", "**Planning cost per planned slice** (improve and test steps that added slices to the roadmap)", "",
       "| # | Step start | Step | Slices planned | ≈ equiv | ≈ equiv per planned slice |", "|---|---|---|---|---|---|", ...planRows] : []),
     "", `**Conductor-built slices:** ${conductorBuilt}${conductorBuilt ? ` (${Object.entries(byDay).sort().map(([d, n]) => `${d} ${n}`).join(" · ")})` : ""}.`,
