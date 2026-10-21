@@ -71,6 +71,7 @@ Conventions:
 - Each figure function takes a tidy table and returns a `ggplot`; the `main/` script saves it. No data wrangling inside figure functions beyond ordering.
 - Facets and panels share scales when values are compared; "n =" and effort shown on the figure when the comparison depends on it.
 - A `outputs/figures.csv` registry (file, script, data table, caption) is written by the pipeline and read by the report.
+- **A style change covers its whole figure kind.** A change to how figures look (season marks, labels, subtitles, colours, point layers) names the figure kind it applies to (every boxplot, every PCA biplot, every point figure) and lists every figure of that kind from `figures.csv`, so one slice changes them all. Rule from the waste-study project (2026-10-21), where 11 slices reworked the season marks and the PCA figures because each test found figures the previous slice had missed.
 
 ## 6. Report (Quarto)
 - Header: title, subtitle, author (institution), `date: today`, `lang: fr`, `format: html: embed-resources: true, toc: true`.
@@ -83,6 +84,7 @@ Conventions:
 - `tests/testthat/`: every function in `R/` with a non-trivial rule has a test on toy data (conservation of totals, factor levels, date parsing, edge cases).
 - `tests/regression/snapshot.csv`: key numbers of the real run (row counts per table, sums of main variables, list of output files). `check` compares the current run with the snapshot and fails on any difference; a slice that changes numbers on purpose updates the snapshot in its commit and says why in its brief.
 - `tests/run_tests.R` runs both; `check` = lintr + tests.
+- **Speed recipe (set up in M0, not after the first slow build).** An R slice costs mostly R start-up, the pipeline run, lintr on the whole project, the pixel comparison and the render, not the model's work. So: lintr counts are cached per file by md5 (with `.lintr`) and only changed files are linted again; `check --rapide` runs testthat and lintr only, for slices that touch no pipeline code (docs, tests, report wording); a helper runs only the `step` scripts its slice touches, never the whole `run`, then the regression once; a figure-only slice reruns only the figure scripts from the processed tables; builder helpers run at effort `medium`. In the waste-study project this brought the median time per slice from about 7–8 min (M1) to 4–5 min (M5–M7), against about 3 min for a Next.js app.
 
 ## 8. Logbook
 `docs/LOGBOOK.md`: dated entries (ISO date, `HH:MM` Europe/Paris) of what was decided and found while analysing: data problems and how they were handled, method choices, numbers that surprised. Written by the slices (one line each) and by the user. This is the scientific memory of the project; PLAN holds the decisions, QUESTIONS the open points.
@@ -90,7 +92,7 @@ Conventions:
 ## 9. Commands (what the skills run)
 | Name | Command | Notes |
 |---|---|---|
-| `check` | `Rscript --vanilla tests/run_tests.R` (lintr + testthat + regression) | every slice, before merge |
+| `check` | `Rscript --vanilla tests/run_tests.R` (lintr + testthat + regression; `--rapide`: lintr + testthat only) | every slice, before merge; `--rapide` for slices that touch no pipeline code |
 | `run` | `Rscript --vanilla main/run_all.R` | the whole pipeline from raw data; counts only on stdout |
 | `step` | `Rscript --vanilla main/<script>.R` | one step while building it |
 | `render` | `quarto render report/<project>_report.qmd` | after `run` |
@@ -100,13 +102,13 @@ On Windows the R binary may not be on PATH: CLAUDE.md names it (`& "C:\Program F
 
 ## 10. Verification (what "done" means here)
 - Per slice: `check` passes; `step` of the touched script runs clean with counts printed; new figures opened by the helper (Read on the PNG) and described in one line in the report ("verified: 12 bars, legend ordered, no overlapping labels").
-- Per milestone: the `stareso-slice-checker` helper runs `run` from scratch, compares the regression snapshot, opens every new or changed figure and reports a table `figure · ok / problem`; `render` must succeed. Problems become fix slices.
+- Per milestone: the `stareso-slice-checker` helper runs `run` from scratch, compares the regression snapshot, opens every new or changed figure and reports a table `figure · ok / problem`; `render` must succeed. Problems become fix slices. For a style change, the checker opens **every figure of the kind** the brief names (a contact sheet, not a sample) and reports the ones the change missed.
 - Per test round ("test time"): the user reads the rendered report and the figures in the browser, and talks; feedback is logged as in every stareso project.
 
 ## 11. Default roadmap (adapt in setup)
 Slices are vertical: a slice goes from data to an output someone can look at. Never "all imports, then all figures".
 
-**M0. Scaffold:** renv + lockfile · `config/paths.yml` with the raw files · `run_all.R` skeleton · `.lintr`, `tests/run_tests.R`, toy data · `describe_data.R` run by the user, structure recorded in `docs/PLAN.md` §4 · LOGBOOK.
+**M0. Scaffold:** renv + lockfile · `config/paths.yml` with the raw files · `run_all.R` skeleton · `.lintr`, `tests/run_tests.R` with the lint cache and `--rapide` (§7 speed recipe), toy data · `describe_data.R` run by the user, structure recorded in `docs/PLAN.md` §4 · LOGBOOK.
 **M1. Import and controls:** one slice per raw table: import, column renaming from the lookup, controls table, processed rds/csv, README of columns, regression snapshot.
 **M2. Derived tables:** effort, densities, derived classes; each with conservation checks and a test.
 **M3. Figures per family:** one slice per figure family (coverage, top-N, densities by zone, composition…), theme and palette first.
@@ -118,4 +120,5 @@ Slices are vertical: a slice goes from data to an output someone can look at. Ne
 ## 12. Slice brief shape (pack-specific lines)
 - Files: `R/<module>.R` to extend (never a copy), `main/<step>.R`, `config/…`, `tests/testthat/test-<module>.R`.
 - Done when: `check` passes, `step` prints the expected counts, the output files exist with the names from `paths.yml`, the figure was opened and described, the LOGBOOK line is written.
+- Style change: a `Figures:` line names the figure kind and lists every figure of that kind (from `figures.csv`); done when each listed figure was opened and shows the change.
 - Risk: `opus` for a slice that chooses a statistical method or reinterprets a protocol hypothesis; `haiku` for labels, palettes, report wording.
