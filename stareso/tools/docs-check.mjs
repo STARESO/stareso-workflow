@@ -48,7 +48,7 @@ for (const m of ms) {
 // PLAN header.
 const plan = read(path.join(docs, "PLAN.md"));
 if (plan && !/^Phase: /m.test(plan)) findings.push("PLAN.md: no `Phase:` line");
-if (plan && !/^Pack: /m.test(plan)) findings.push("PLAN.md: no `Pack:` line (app-next | analysis-r | …)");
+if (plan && !/^Pack: /m.test(plan)) findings.push("PLAN.md: no `Pack:` line (app-next | analysis-r | godot-game | …)");
 
 // docs/README.md lists every doc.
 const readme = read(path.join(docs, "README.md"));

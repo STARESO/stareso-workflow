@@ -1,6 +1,6 @@
 ---
 name: stareso-deploy
-description: Put a stareso project online or deliver it - pre-flight checks, prepared files, docs/DEPLOY.md, then the provider steps of the pack (app-next - GitHub, Supabase, Vercel, subdomain, keep-alive, phones) one at a time, or the delivery of an analysis (rendered report, figures, hand-over).
+description: Put a stareso project online or deliver it - pre-flight checks, prepared files, docs/DEPLOY.md, then the provider steps of the pack (app-next - GitHub, Supabase, Vercel, subdomain, keep-alive, phones) one at a time, or the delivery of an analysis (rendered report, figures, hand-over), or the release of a game (builds, store pages, signing by the user).
 disable-model-invocation: true
 ---
 
@@ -21,12 +21,12 @@ Talk in English unless the user switches to French. The process below is the sam
 Send the pack's pre-flight list as **one message**; the user answers yes / no per item. Anything "no" is fixed before step 2.
 
 ## 2. Prepare (Claude, on a branch `deploy-prep`, then merge)
-The files the pack's `deploy.md` lists (app: region file, health route, keep-alive workflow, `.env.example`, online scripts; analysis: `render` to the final HTML, exports the plan asks for, a `README` of the deliverable), then `docs/DEPLOY.md`: the pack's steps with this project's names and checkboxes, and a "Lessons" section. Run `check`, `test`, and the pack's final command (`build` with the dev server stopped; `run` + `render`).
+The files the pack's `deploy.md` lists (app: region file, health route, keep-alive workflow, `.env.example`, online scripts; analysis: `render` to the final HTML, exports the plan asks for, a `README` of the deliverable; game: `CREDITS.md`, release notes, store texts, export presets checked, debug builds), then `docs/DEPLOY.md`: the pack's steps with this project's names and checkboxes, and a "Lessons" section. Run `check`, `test`, and the pack's final command (`build` with the dev server stopped; `run` + `render`).
 
 ## 3. The user's steps
 Follow `deploy.md` of the pack, section by section, one step per message. For an analysis the "steps" are: where the report goes (folder, mail, drive the user names), which files (HTML, PDF or Word export, figures folder, tables), and the version tag (`git tag report-yyyy-mm-dd`).
 
 ## 4. After
 - Write the "After going online / after delivery" block at the end of `docs/DEPLOY.md` and the status line in `CLAUDE.md` (address and date, or delivery date).
-- `Phase: deployed` (app) or `Phase: delivered` (analysis) in PLAN.md; new lessons learned during the steps go to `docs/DEPLOY.md` "Lessons" **and** to the pack's `deploy.md` pre-flight (with a CHANGELOG line), so the next project does not meet them again.
-- Next: phone or reader feedback through `/stareso-test` (Sonnet, new session) on the online app or the delivered report.
+- `Phase: deployed` (app), `Phase: delivered` (analysis) or `Phase: released` (game) in PLAN.md; new lessons learned during the steps go to `docs/DEPLOY.md` "Lessons" **and** to the pack's `deploy.md` pre-flight (with a CHANGELOG line), so the next project does not meet them again.
+- Next: phone or reader feedback through `/stareso-test` (Sonnet, new session) on the online app, the delivered report or the released game.

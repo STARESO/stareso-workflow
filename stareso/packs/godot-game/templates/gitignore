@@ -1,0 +1,38 @@
+# private material and secrets: never committed
+private/
+.env*
+!.env.example
+
+# Godot
+.godot/
+/android/
+exports/
+*.tmp
+override.cfg
+translations/*.translation
+
+# tools and tests
+.test_user/
+tools/art/out/
+__pycache__/
+node_modules/
+.claude/worktrees/
+
+# signing: never committed
+*.keystore
+*.jks
+
+# Binary assets, when the grilling decided they stay out of git (guide §3b): uncomment
+# *.png
+# *.jpg
+# *.webp
+# *.svg
+# *.wav
+# *.ogg
+# *.mp3
+# *.ttf
+# *.otf
+*.apk
+*.aab
+*.pck
+*.zip

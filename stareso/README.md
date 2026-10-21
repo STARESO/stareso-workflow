@@ -52,6 +52,7 @@ The steps write `<stareso>` for the `stareso/` folder and `<stareso-repo>` for t
 |---|---|---|
 | **eco** (default) | one fresh helper at a time, in the project checkout; no browser per slice; one checker helper per milestone | you are away, no hurry: cheapest, and it never drains the usage window at once |
 | **fast** | up to 3 helpers in parallel on independent slices (no `after:`, no shared file), each in its own worktree | you need it this afternoon; costs more (worktree setup, conflicts resolved by the conductor, duplicated code, faster limit) |
+| **night** `<limit>` | fast's helpers for a long unattended run: deadline and wrap-up time, paced on the usage window, never stops early, takes slices from milestone `Q` (Kind: queue) when its range is done | you sleep and want the whole usage window used; born with project E's overnight runs |
 
 The tier is chosen **per slice in the brief** (`tier: light | standard | strong`, which Claude Code briefs write as `model: haiku | sonnet | opus`), not by the profile: eco still uses the strong tier on a slice the brief marks as risky. A harness without helpers runs each slice in a fresh session instead (`capabilities/helpers.md`, mode session).
 
@@ -114,6 +115,7 @@ A pack = a folder `packs/<name>/` with `README.md`, `guide.md` (conventions by n
 |---|---|
 | `app-next` | small team web app: Next.js, Postgres (Supabase), Vercel, PWA, browser-pane verification |
 | `analysis-r` | data analysis in R: `config/paths.yml`, `R/` modules, `main/` steps, tests + regression snapshot, figures, Quarto HTML report |
+| `godot-game` | 2D game in Godot 4 for PC and tablets: data-driven entities, the gate (`check.sh`), off-screen and silent windowed runs, content recipes, tunables and the playtest checklist, slice kinds (spike, tune, content, art), release steps |
 
 A new kind of work (a model, a document review, another stack) gets its pack written from its first real project, as these two were: copy the closest pack, keep the section layout, change the content. The steps do not change.
 

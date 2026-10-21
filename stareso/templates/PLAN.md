@@ -2,9 +2,9 @@
 
 Phase: discussion
 
-Pack: app-next | analysis-r (one of the folders of ~/.claude/stareso/packs/)
+Pack: app-next | analysis-r | godot-game (one of the folders of ~/.claude/stareso/packs/)
 
-<!-- Phase: discussion | grilling | setup | build | deployed (apps) | delivered (analyses). Pack: a folder of ~/.claude/stareso/packs/. Updated by the stareso-* skills. -->
+<!-- Phase: discussion | grilling | setup | build | deployed (apps) | delivered (analyses) | released (games). Pack: a folder of ~/.claude/stareso/packs/. Updated by the stareso-* skills. -->
 
 The decided version of the project: single source of truth. Raw ideas live in IDEAS.md;
 the roadmap is built from this file, never directly from ideas.

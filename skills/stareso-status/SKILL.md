@@ -26,7 +26,7 @@ description: Where is this stareso project in its workflow, what is the current 
 | an open slice says "waits on /stareso-improve", or an open question blocks every remaining slice, or PLAN has "(open: …)" | a decision is missing | `/stareso-improve` (Opus, new session) |
 | only `[human]` slices are open | waiting for you | the human steps, one by one (name them), then `/stareso-build` |
 | every milestone before `H` done and tested, `Phase: build` | ready to publish or deliver | `/stareso-deploy` (Opus, new session) |
-| `Phase: deployed` / `delivered` and nothing open | in use | `/stareso-improve` for new ideas; `/stareso-test` for feedback from phones or readers |
+| `Phase: deployed` / `delivered` / `released` and nothing open | in use | `/stareso-improve` for new ideas; `/stareso-test` for feedback from phones or readers |
 
 ## 3. Retro
 A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: never suggest it after a test or from status. Mention it only if the user asks what is left to improve in the workflow.

@@ -12,23 +12,23 @@ description: After the grilling of a stareso project - write the short CLAUDE.md
 Talk in English unless the user switches to French.
 
 ## 1. Read
-`docs/PLAN.md` (`Pack:` line first), `docs/GLOSSARY.md`, `docs/decisions/`, then the pack guide `~/.claude/stareso/packs/<pack>/guide.md`: the sections on structure, commands, verification and the default roadmap (app-next: §2, §3, §18–20; analysis-r: §3, §9–12); others only when a slice needs them. If PLAN.md has gaps that block the roadmap, list them and ask (grilling style). If the walkthrough of `grilling.md` was not done, do it now.
+`docs/PLAN.md` (`Pack:` line first), `docs/GLOSSARY.md`, `docs/decisions/`, then the pack guide `~/.claude/stareso/packs/<pack>/guide.md`: the sections on structure, commands, verification and the default roadmap (app-next: §2, §3, §18–20; analysis-r: §3, §9–12; godot-game: §3, §4, §10, §15–17); others only when a slice needs them. If PLAN.md has gaps that block the roadmap, list them and ask (grilling style). If the walkthrough of `grilling.md` was not done, do it now.
 
 ## 2. CLAUDE.md
 Fill `~/.claude/stareso/packs/<pack>/templates/CLAUDE.md`: short, rules plus pointers, the **Commands table** (names `check`, `test`, `dev`/`run`, `rebuild`/`step`, `build`/`render`, `structure`: the skills and helpers only ever use these names), approved dependencies, differences from the pack decided in PLAN §10. Do not copy the plan into it.
 
 ## 3. Roadmap
 - `docs/ROADMAP.md` from `templates/ROADMAP.md` (numbering rules, slice format, the overview markers).
-- One file per milestone `docs/roadmap/M1.md`, `M2.md`… from `templates/roadmap-milestone.md` (`Kind:` line: feature | fixes | tidy | security | release; a title that says what the user gets), starting from the pack's default milestones adapted to the plan. `H.md` (Kind: human) for slices waiting on human input, `P.md` (Kind: after-delivery) for after the first delivery; no other lettered milestones.
-- **Milestones** each end with something worth testing (a screen that works, a figure family, a report section).
-- **Slices** small enough for a Sonnet-class model from the brief alone: at most one table, one route and one screen change (app) or one step, one module and one figure family (analysis); usually 1 to 5 files. Split anything bigger.
+- One file per milestone `docs/roadmap/M1.md`, `M2.md`… from `templates/roadmap-milestone.md` (`Kind:` line: feature | fixes | tidy | security | release; a title that says what the user gets), starting from the pack's default milestones adapted to the plan. `H.md` (Kind: human) for slices waiting on human input, `P.md` (Kind: after-delivery) for after the first delivery; `Q.md` (Kind: queue) only when the plan foresees `night` builds (a creative queue of small slices, at least five); no other lettered milestones.
+- **Milestones** each end with something worth testing (a screen that works, a figure family, a report section, a playable build of the game).
+- **Slices** small enough for a Sonnet-class model from the brief alone: at most one table, one route and one screen change (app) or one step, one module and one figure family (analysis) or one scene, its script and one data file (game, plus the zone scene and the translation keys); usually 1 to 5 files. Game briefs name their `kind:` (system, content, tune, spike, art, facts: guide §10) in the title line. Split anything bigger.
 - Each brief is **self-contained**: goal, files, 2 to 5 steps, "done when", guide sections. No "as discussed": write the fact.
 - **Module ownership:** Files names the module to extend or create (one feature = one module); two open slices never both edit the same file unless one says `after:` the other.
 - `after: M3.1` when a slice needs another merged first (shared file or data). No `independent:` flag: independence is derived from `after:` and Files.
 - `model: haiku` for trivial slices (copy, config, a token); `sonnet` by default; `opus` only with a real risk written in the brief (security, legal records, migrations on real data, a statistical method); such slices also get `check: now`.
 - Slices that need the user (secrets, accounts, online database, a real data file, a library not yet approved) are marked **[human]**, with what the user must do.
 - Every milestone ends with its **tidy slice** (`M<n>.tidy`, from the template).
-- Also create `docs/QUESTIONS.md` (template, then one `(grilling)` line per "(open: …)" point of PLAN, each with the slices it blocks), `docs/FEEDBACK.md`, `docs/BUILD-LOG.md`, `docs/USAGE.md` from the templates, and (app-next) the access-matrix test skeleton named in the Commands table if the pack guide asks for it.
+- Also create `docs/QUESTIONS.md` (template, then one `(grilling)` line per "(open: …)" point of PLAN, each with the slices it blocks), `docs/FEEDBACK.md`, `docs/BUILD-LOG.md`, `docs/USAGE.md` from the templates, (godot-game) `docs/PLAYTEST.md` if init did not create it, and (app-next) the access-matrix test skeleton named in the Commands table if the pack guide asks for it.
 - Run `node ~/.claude/stareso/tools/roadmap-overview.mjs` to fill the overview table, then `node ~/.claude/stareso/tools/docs-check.mjs`.
 
 ## 4. Review with the user

@@ -1,6 +1,6 @@
 ---
 name: stareso-init
-description: Start a new STARESO project (web app or data analysis) in the current folder - creates the private-safe folder structure from the chosen pack, moves any existing files to private/sources/locked without reading them, sets up git. First step of the stareso workflow.
+description: Start a new STARESO project (web app, data analysis or game) in the current folder - creates the private-safe folder structure from the chosen pack, moves any existing files to private/sources/locked without reading them, sets up git. First step of the stareso workflow.
 ---
 
 # stareso-init
@@ -12,18 +12,19 @@ description: Start a new STARESO project (web app or data analysis) in the curre
 Talk to the user in English unless they ask for French. Shared material: `<stareso>/` (`README.md` = the manual, `templates/`, `packs/<pack>/`). Keep this step cheap: no exploring, no reading of user files.
 
 ## 1. Check the folder and choose the pack
-- Run `ls -A` (names only). If it already looks like a project (`package.json`, `src/`, `R/`, `.git` with commits, `docs/PLAN.md`), stop: this is `/stareso-retrofit` (existing project) or `/stareso-status` (already a stareso project), not init.
+- Run `ls -A` (names only). If it already looks like a project (`package.json`, `src/`, `R/`, `project.godot`, `.git` with commits, `docs/PLAN.md`), stop: this is `/stareso-retrofit` (existing project) or `/stareso-status` (already a stareso project), not init.
 - Name: from the argument, or ask for a short working name.
-- Pack: from the argument, or ask in one question: **`app-next`** (small team web app: Next.js, Postgres/Supabase, Vercel) or **`analysis-r`** (data analysis in R, figures, HTML report). Other kinds of work: say that no pack exists yet and that the pack is written from the first project of its kind (`<stareso>/README.md` "Packs").
+- Pack: from the argument, or ask in one question: **`app-next`** (small team web app: Next.js, Postgres/Supabase, Vercel) or **`analysis-r`** (data analysis in R, figures, HTML report) or **`godot-game`** (2D game in Godot 4 for PC and tablets). Other kinds of work: say that no pack exists yet and that the pack is written from the first project of its kind (`<stareso>/README.md` "Packs").
 
 ## 2. Protect before anything else
-1. <!-- harness:read-guard-install -->Read guard: make the harness deny reading `private/sources/locked/`, `private/data/`, `private/backups/` and `.env*` (for `analysis-r` also `data/raw/` and `data/processed/`); a harness without a guard keeps only the `AGENTS.md` rule. Copy <!-- /harness -->`packs/<pack>/templates/gitignore` to `.gitignore`, `templates/gitattributes` to `.gitattributes`, `templates/editorconfig` to `.editorconfig`.
+1. <!-- harness:read-guard-install -->Read guard: make the harness deny reading `private/sources/locked/`, `private/data/`, `private/backups/` and `.env*` (for `analysis-r` also `data/raw/` and `data/processed/`); a harness without a guard keeps only the `AGENTS.md` rule. Copy <!-- /harness -->`packs/<pack>/templates/gitignore` to `.gitignore`, `templates/gitattributes` to `.gitattributes`, `templates/editorconfig` to `.editorconfig` (for `godot-game` append `packs/godot-game/templates/gitattributes-extra` to `.gitattributes`).
 2. If files are present: create `private/sources/locked/` and **move** every existing file and folder into it with `mv`, keeping names and sub-folders. Do **not** open, read, preview or grep them. Say that you see the file names only.
 
 ## 3. Create the structure
 Core (every pack): `AGENTS.md` (pack template, name filled in, rest left for setup) · `docs/PLAN.md` (template, `Phase: discussion`, `Pack: <pack>`) · `docs/IDEAS.md` · `docs/GLOSSARY.md` · `docs/decisions/` · `docs/README.md` (template `README-docs.md`) · `private/sources/locked/`, `private/sources/readable/`, `private/sources/INDEX.md`, `private/data/`, `private/backups/`.
 Pack `app-next`: the browser's launch file (port 3100 unless another app uses it).
 Pack `analysis-r`: `config/paths.yml`, `main/run_all.R`, `R/helpers.R`, `.lintr` (pack templates), `data/raw/`, `data/processed/`, `outputs/`, `dev/`, `tests/toy/`, `report/`, `docs/LOGBOOK.md` (template).
+Pack `godot-game`: the folders of guide §3, `tools/` from `packs/godot-game/templates/tools/` (the gate and the off-screen wrappers), `docs/PLAYTEST.md` (pack template), and the Godot console binary path in `AGENTS.md` (ask for it, and for the Godot version and renderer, in one question). The project itself (`project.godot`, `screenshot.gd`, the test runner) is built by the M0 scaffold slices, which end with `verify-offscreen` passing.
 ROADMAP, QUESTIONS, FEEDBACK and BUILD-LOG are created by setup. Doc files are named in capitals; decision records `NNNN-slug.md`.
 **Canary:** create `private/backups/CANARY` (one word), read it with the file-reading tool and expect a refusal. Under `Pack:` in `docs/PLAN.md` write `Guard: verified (<harness>, yyyy-mm-dd)`, or `Guard: not enforced (<harness>, yyyy-mm-dd)` and tell the user.
 

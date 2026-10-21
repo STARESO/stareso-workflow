@@ -1,0 +1,16 @@
+# Appended to the core .gitattributes for godot-game projects.
+# Godot text resources: LF everywhere, so scripted edits and diffs stay clean.
+*.gd text eol=lf
+*.tscn text eol=lf
+*.tres text eol=lf
+*.godot text eol=lf
+*.import text eol=lf
+*.cfg text eol=lf
+# Append-only shared files: parallel slices merge without conflicts.
+translations/*.csv text eol=lf merge=union
+*.ogg binary
+*.wav binary
+*.mp3 binary
+*.ttf binary
+*.otf binary
+*.svg binary

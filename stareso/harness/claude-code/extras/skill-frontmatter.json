@@ -1,7 +1,7 @@
 {
   "stareso-build": [
     "disable-model-invocation: true",
-    "argument-hint: \"[M1 | M3.2-M3.6 | all] [eco | fast]\""
+    "argument-hint: \"[M1 | M3.2-M3.6 | all] [eco | fast | night <limit>]\""
   ],
   "stareso-deploy": [
     "disable-model-invocation: true"
@@ -11,14 +11,14 @@
   "stareso-improve": [],
   "stareso-init": [
     "disable-model-invocation: true",
-    "argument-hint: \"<name> [app-next | analysis-r]\""
+    "argument-hint: \"<name> [app-next | analysis-r | godot-game]\""
   ],
   "stareso-retro": [
     "argument-hint: \"[quick | deep]\""
   ],
   "stareso-retrofit": [
     "disable-model-invocation: true",
-    "argument-hint: \"[app-next | analysis-r]\""
+    "argument-hint: \"[app-next | analysis-r | godot-game]\""
   ],
   "stareso-setup": [],
   "stareso-status": [],
