@@ -1,6 +1,5 @@
 {
   "stareso-build": [
-    "disable-model-invocation: true",
     "argument-hint: \"[M1 | M3.2-M3.6 | all] [eco | fast | night <limit> | day <limit>]\""
   ],
   "stareso-deploy": [

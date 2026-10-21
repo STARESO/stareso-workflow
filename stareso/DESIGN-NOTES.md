@@ -50,7 +50,7 @@ Measured on the transcripts: Project C cost about the same tokens as project A f
 
 ## Proposed 2026-10-21 (Claude Code harness: manager session)
 
-Not applied yet. Origin: a build typed straight into the session that had just run `status` worked, but the user prefers the top session as a manager and each step in its own launched session. Raise at the next retro and measure on one build (conductor context per turn, "Carried" of the later steps).
+Applied on 2026-10-21 at the user's request, before a retro (status §5, `capabilities/invocation.md`, build's "Started by" line, the Claude Code manager-launch block and capability row). Origin: a build typed straight into the session that had just run `status` worked, but the user prefers the top session as a manager and each step in its own launched session. Raise at the next retro and measure on one build (conductor context per turn, "Carried" of the later steps).
 
 1. **Manager pattern.** The `Session:` line of build, test and improve says: when a manager session exists (the one that runs `status`), it launches the step in a sub-session (`start_session`, or `clear_session` on an idle child then `send_message` with the command) instead of running it inline. The skill text stays valid when run directly.
 2. **Status offers the launch.** In a manager, `status` ends with the exact launch (skill, model, mode, profile) as a card or a one-line offer, not only the command to type.

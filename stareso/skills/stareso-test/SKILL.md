@@ -7,6 +7,8 @@ description: Test time for a stareso project - open the app in the browser pane 
 
 **Session:** standard tier · **new session** (the build context is not needed: the roadmap markers say what is new) · normal mode. If this session runs another model, say so in one line.
 
+**Started by a manager:** when the first message is a manager session's launch naming this step (status §5), run it as if the user had typed it. From then on the user talks to this session directly, and the last line says `STEP DONE: test · next: <the next step>` for the manager.
+
 **Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (USAGE "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
 
 Talk in English unless the user switches to French. Mark the switch: chapter "Test" if available, first line **"— Test time —"**.

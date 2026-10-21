@@ -1,6 +1,6 @@
 # Claude Code capabilities
 
-Levels and statuses are defined in `capabilities/README.md`. Every row is adopted: the workflow was built and measured here.
+Levels and statuses are defined in `capabilities/README.md`. Every row is adopted, because the workflow was built and measured here, except the manager launch, proposed on 2026-10-21.
 
 | Capability | Implementation | Level | Status | Evidence |
 |---|---|---|---|---|
@@ -10,7 +10,8 @@ Levels and statuses are defined in `capabilities/README.md`. Every row is adopte
 | Model tiers | `models.md`: strong Opus, standard Sonnet, light Haiku; the agents' `model:` line; `model:` in briefs | native | adopted | Project A M5 (2026-10-20): Sonnet conductor and helpers, 8.8 turns and 335k per slice |
 | Browser | the desktop app's browser pane (`preview_start`, `preview_stop`, page tools), `.claude/launch.json` | native | adopted | one checker per milestone since 2026-10-19, on projects A and C |
 | Questions | the question tool (choices as buttons) | native | adopted | init sorting, grilling rounds, the build's one start question |
-| Step invocation | skills in `~/.claude/skills/`; `disable-model-invocation: true` on init, build, deploy and retrofit; `argument-hint` | native | adopted | in use since 2026-10-17 |
+| Step invocation | skills in `~/.claude/skills/`; `disable-model-invocation: true` on init, deploy and retrofit (build lost it on 2026-10-21 for the manager launch); `argument-hint` | native | adopted | in use since 2026-10-17 |
+| Step invocation: manager launch | `start_session` from the status session, child reused with `clear_session` and `SendMessage`, the child's last line read with `wake_when_done` | native | proposed | to measure on one build: conductor context per turn and "Carried" against project A M5 |
 | Usage reader | `tools/session-stats.mjs` reads the transcripts in `~/.claude/projects/` into `docs/USAGE.md`: tokens by kind (input, cache read, cache write, output) and by model, turns per model, and the frozen ≈ equiv summary (below) | native | adopted | USAGE tables of projects C, A and B (2026-10-20) |
 
 ## Usage reader and the "≈ equiv" unit

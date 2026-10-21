@@ -36,5 +36,15 @@ A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: n
 1. The workflow line with the current step in **bold**: `init → discuss → grill → setup → build ⇄ test → improve → deploy` (manual: `~/.claude/stareso/README.md`).
 2. Phase, pack, progress (milestones done / open, open slices count), open questions and debt, what waits for you.
 3. Cost so far from the USAGE Totals table (project row: sessions, turns, ≈ equiv), one line.
-4. **The one next step**: the skill, the **model**, **new or same session**, **permission mode** (auto for build only), the profile for a build (eco unless speed matters), and the exact command to type.
+4. **The one next step**: the skill, the **model**, **new or same session**, **permission mode** (auto for build only), the profile for a build (eco unless speed matters), and the exact command to type, or the launch question of §5.
 5. The workflow review line of step 3 when due; otherwise nothing.
+
+## 5. Launch from this session (manager)
+The session that runs status can act as the project's manager: it stays open, and each step runs in its own new session. This applies to build, test and improve. Init, retrofit and deploy stay typed by the user in a session they open.
+1. End the answer with one question: launch the next step in a new session? For a build, the same question offers the relay (start the test, then the next milestone, without asking again).
+2. Before launching a build, refresh the records (`node ~/.claude/stareso/tools/session-stats.mjs --log`, commit `docs/USAGE.md`), so that earlier sessions are logged and the tree is clean for `slice-done`.
+3. One writer per checkout: never launch a step while another session or a helper works in the same folder.
+4. On the user's yes, start the step in the project folder without a worktree, with the step's tier and permission mode. The launch message names the step and its arguments and says that the manager launched it on the user's go. It carries nothing else, because the step reads the files.
+5. An idle child that finished its step is reused for the next one when the folder, tier and mode are the same, which keeps the list of sessions short.
+6. When a child ends with `MILESTONE DONE` or `STEP DONE`, tell the user in one line, and launch the step it names only when the user accepted the relay. On `RUN STOPPED`, report the reason and launch nothing.
+7. In Claude Code, start the child with `start_session`: `initiation` "user_asked", `context` "fresh", `use_worktree` false, `model` from the step's tier, `permission_mode` "auto" for a build and "default" otherwise, a short `name` such as `build-m3`, `wake_when_done` true. The `prompt` is the launch message, for example "Run the skill stareso-build with arguments `M3 eco`. Launched by the manager session on the user's go.", and `background` names the project folder and the step. A child gets at most the manager's model and permission mode: when the manager runs a cheaper model than the step's tier, or a lower mode than auto for a build, start the child anyway and show the card that raises it (`set_session_permission_mode`, `set_session_model`), or give the command to type when the card is refused. To reuse an idle child, `clear_session`, then `SendMessage` with the same launch message.
