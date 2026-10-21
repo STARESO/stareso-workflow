@@ -257,15 +257,17 @@ async function logMode(dryRun) {
       .map(([, date]) => new Date(date).getTime());
   } catch { /* not a git repository: no cost-per-slice table */ }
   // Windows can overlap (one session ends as the next starts, a manager's status runs while the build it launched
-  // merges): a merge goes to the latest-started step holding it, never to a status or retro step, which do not build.
+  // merges): a merge goes to a build step holding it, else to the latest-started step holding it, never to a status
+  // or retro step, which do not build. An improve or test launched during a build only plans slices, so the build wins.
   // A merge only such a step holds was made by a session with no transcript here (deleted, or run in another folder).
   const allSteps = rows.flatMap((r) => r.steps.map((st) => ({ r, st, from: new Date(st.first).getTime(), to: new Date(st.last).getTime() + 5 * 60e3 })));
   const managerKind = (x) => /^(status|retro|workflow)/.test(x.st.kind);
+  const buildKind = (x) => /^build/.test(x.st.kind);
   const merged = new Map();
   let unlogged = 0;
   for (const m of merges) {
     const holding = allSteps.filter((x) => m >= x.from && m <= x.to);
-    const owner = holding.filter((x) => !managerKind(x)).sort((a, b) => b.from - a.from)[0];
+    const owner = holding.filter((x) => !managerKind(x)).sort((a, b) => buildKind(b) - buildKind(a) || b.from - a.from)[0];
     if (!owner) { if (holding.length) unlogged++; continue; }
     merged.set(owner.st, { r: owner.r, n: (merged.get(owner.st)?.n || 0) + 1 });
   }
@@ -275,7 +277,7 @@ async function logMode(dryRun) {
   });
   // Planning cost per planned slice: the slices an improve or test step added to the roadmap, counted from the
   // `- [ ] **<id> · …` lines its commits added (an id also removed in the same commit is a tick or a move, not new).
-  // A commit goes to the latest-started step running then, as merges do; only improve and test steps keep theirs.
+  // A commit goes to the latest-started step running then (no build priority here); only improve and test steps keep theirs.
   // A step that never writes slices (status, retro) hands its commit back to the session's last improve or test
   // before it: the test's records are often committed just after the user typed the next command.
   let planCommits = [];
