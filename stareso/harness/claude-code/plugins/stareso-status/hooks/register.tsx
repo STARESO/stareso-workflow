@@ -24,7 +24,7 @@ const USAGE_STALE_MS = 5 * 60_000
 const WIDE = 110
 const EMPTY: PanelView = {
   project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'text', selected: '',
-  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, chats: [],
+  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [],
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
 
@@ -667,6 +667,8 @@ const KIND: Record<string, string> = {
 const TIER: Record<string, string> = { light: 'success', standard: 'suggestion', strong: 'claude' }
 const BUILT: Record<string, string> = { helpers: 'suggestion', chat: 'warning' }
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
+// chart 4 shows the last sessions only, until the person asks for all of them
+const RECENT_SESSIONS = 12
 
 function fmt(n: number | null | undefined): string {
   return n == null || isNaN(n) ? 'n/a' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(Math.round(n))
@@ -696,14 +698,16 @@ function usageView(ui: UI, p: PanelView, cols: number, act: Act) {
       {!c && p.usageError === '' && <Text dimColor>reading the usage report… (a few seconds)</Text>}
       {c && (
         <Box flexDirection="column" gap={1}>
-          <Text dimColor>{`read ${clock(p.usageAt)}, from the transcripts as they are now · ${c.unit}`}</Text>
-          <Box flexDirection="row" flexWrap="wrap" gap={1}>
-            {c.tiles.map(t => (
-              <Box flexDirection="column" borderStyle="round" paddingX={1}>
-                <Text dimColor size="caption">{t.label}</Text>
-                <Text bold size="heading">{t.value}</Text>
-              </Box>
-            ))}
+          <Box flexDirection="column">
+            <Box flexDirection="row" flexWrap="wrap" gap={1}>
+              {c.tiles.map(t => (
+                <Box flexDirection="column" borderStyle="round" paddingX={1}>
+                  <Text dimColor size="footnote">{t.label}</Text>
+                  <Text bold size="heading" tabular>{t.value}</Text>
+                </Box>
+              ))}
+            </Box>
+            <Text dimColor size="footnote">{`read ${clock(p.usageAt)}, live from the transcripts · ${c.unit}`}</Text>
           </Box>
           {chart(ui, '1. Share of the workflow cost by step type', 'Where the tokens go: build should lead; a large chat bar is work done outside the steps.',
             c.shareByType.map((t, i) => ({
@@ -712,14 +716,24 @@ function usageView(ui: UI, p: PanelView, cols: number, act: Act) {
             })), L, n)}
           {cumulativeChart(ui, c, n, L)}
           {milestoneChart(ui, c, n, L)}
-          {sessionChart(ui, c, n, L)}
+          {sessionChart(ui, c, n, L, p.allSessions)}
+          {c.sessions.filter(s => s.ctx != null).length > RECENT_SESSIONS && (
+            <Box flexDirection="row">
+              <Button key="sessions" dimColor onPress={act(q => ({ ...q, allSessions: !q.allSessions }))}>
+                {p.allSessions ? `Only the last ${RECENT_SESSIONS} sessions` : `All ${c.sessions.filter(s => s.ctx != null).length} sessions`}
+              </Button>
+            </Box>
+          )}
           {scatterChart(ui, c, cols)}
           {chart(ui, '6. Conductor against helpers, per step that merged slices', 'A launched build should be mostly helpers; a bar all conductor is a chat or a test that built itself.',
             c.conductorVsHelpers.filter(b => b.conductor != null || b.helpers != null).map((b, i, all) => {
               const max = Math.max(...all.map(x => (x.conductor ?? 0) + (x.helpers ?? 0)))
-              const cs = bar(b.conductor ?? 0, max, n)
-              const hs = bar(b.helpers ?? 0, max, n)
+              // whole cells, the helpers' part being what the total adds to the conductor's: two parts rounded on their
+              // own could pass the track and push the value out of its column
               const total = (b.conductor ?? 0) + (b.helpers ?? 0)
+              const cc = Math.round(((b.conductor ?? 0) / max) * n)
+              const cs = '█'.repeat(cc)
+              const hs = '█'.repeat(Math.max(0, Math.round((total / max) * n) - cc))
               return {
                 scope: `u6:${i}`, label: `#${b.session}`, segs: [{ text: cs, color: 'warning' }, { text: hs, color: 'suggestion' }],
                 value: `${b.merged} slices · ${total ? Math.round((100 * (b.conductor ?? 0)) / total) : 0} %`,
@@ -749,7 +763,7 @@ function chart(ui: UI, title: string, caption: string, rows: Row[], L: number, n
   return (
     <Box flexDirection="column">
       <Text bold>{title}</Text>
-      <Text dimColor>{caption}</Text>
+      <Text dimColor size="footnote">{caption}</Text>
       {rows.map((r, i) => {
         const used = r.segs.reduce((k, s) => k + s.text.length, 0)
         return (
@@ -763,7 +777,7 @@ function chart(ui: UI, title: string, caption: string, rows: Row[], L: number, n
       })}
       {legend.length > 0 && (
         <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          {legend.map(s => <Text {...(s.color ? { color: s.color } : { dimColor: true })}>{s.text}</Text>)}
+          {legend.map(s => <Text size="footnote" {...(s.color ? { color: s.color } : { dimColor: true })}>{s.text}</Text>)}
         </Box>
       )}
       {rows.map(r => <Box display="none" hover={{ scope: r.scope, display: 'flex' }}><Text>{r.detail}</Text></Box>)}
@@ -782,7 +796,9 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
       {rows.map(([name, w]) => {
         const win = w!
         const used = bar(win.pct, 100, n)
-        const marks = win.reach.map(r => Math.round((r.cap / 100) * n))
+        // one mark, at the lowest cap: two caps a few points apart drew as a double mark
+        const lowest = Math.min(...win.reach.map(r => r.cap))
+        const marks = win.reach.length ? [Math.round((lowest / 100) * n)] : []
         // red at a cap, amber within 10 points of one
         const level = win.reach.some(r => r.at === 'reached' || win.pct >= r.cap) ? 'error' : win.reach.some(r => win.pct >= r.cap - 10) ? 'warning' : ''
         return (
@@ -792,13 +808,15 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
               <Text mono color={level || 'suggestion'}>{used}</Text>
               <Text mono dimColor>{rest(used.length, n, marks)}</Text>
               <Text mono bold {...(level ? { color: level } : {})}>{`${String(win.pct).padStart(4)} %`}</Text>
-              {win.ratePerHour != null && <Text mono dimColor>{`  +${win.ratePerHour} %/h`}</Text>}
             </Box>
-            <Box marginLeft={L} flexDirection="column">
-              {win.reach.map(r => (
-                <Text dimColor>{`${r.name} cap ${r.cap} % · ${r.at === 'reached' ? 'reached' : r.at ? `at about ${r.at}` : 'not before the reset'}`}</Text>
-              ))}
-              <Text dimColor>{`resets ${win.resets}`}</Text>
+            <Box marginLeft={L}>
+              <Text dimColor size="footnote" tabular>
+                {[
+                  win.ratePerHour != null ? `+${win.ratePerHour} %/h` : '',
+                  ...win.reach.map(r => `${r.name} ${r.cap} % ${r.at === 'reached' ? 'reached' : r.at ? `≈ ${r.at}` : 'after the reset'}`),
+                  `resets ${win.resets}`,
+                ].filter(Boolean).join(' · ')}
+              </Text>
             </Box>
           </Box>
         )
@@ -840,8 +858,10 @@ function milestoneChart(ui: UI, c: UsageCharts, n: number, L: number) {
   }] : []
   const rows: Row[] = c.milestones.map((m, i) => ({
     scope: `u3:${i}`, label: m.id, segs: [{ text: m.equivPerSlice == null ? '' : bar(m.equivPerSlice, max, n), color: BUILT[m.built] ?? 'claude' }],
-    value: m.equivPerSlice == null ? 'no transcript' : fmt(m.equivPerSlice), marks: mark,
-    detail: `${m.id}: ${fmt(m.equivPerSlice)} per slice, built by ${m.built}, measured ${m.measured}, ${m.slices} slices`,
+    value: m.equivPerSlice == null ? 'n/a' : fmt(m.equivPerSlice), marks: mark,
+    detail: m.equivPerSlice == null
+      ? `${m.id}: no cost per slice yet (no slice merged with a transcript), ${m.slices} slices`
+      : `${m.id}: ${fmt(m.equivPerSlice)} per slice, built by ${m.built}, measured ${m.measured}, ${m.slices} slices`,
   }))
   return chart(ui, '3. Cost per slice by milestone', 'Launched builds should sit near the reference; chat-built milestones sit far above it.', [...refRow, ...rows], L, n,
     [{ text: '█ helpers', color: 'suggestion' }, { text: '█ chat', color: 'warning' }, { text: '█ mixed', color: 'claude' },
@@ -849,8 +869,8 @@ function milestoneChart(ui: UI, c: UsageCharts, n: number, L: number) {
 }
 
 // 4. context per turn by session (cache read ÷ turns), red past 300 turns, with the base of a launched session marked
-function sessionChart(ui: UI, c: UsageCharts, n: number, L: number) {
-  const list = c.sessions.filter(s => s.ctx != null).slice(-30)
+function sessionChart(ui: UI, c: UsageCharts, n: number, L: number, all: boolean) {
+  const list = c.sessions.filter(s => s.ctx != null).slice(all ? 0 : -RECENT_SESSIONS)
   const BASE = 100e3
   const max = Math.max(BASE, ...list.map(s => s.ctx ?? 0))
   const baseRow: Row = { scope: 'u4:base', label: 'base', segs: [{ text: bar(BASE, max, n), color: 'inactive' }], value: fmt(BASE), detail: 'a launched session re-reads about 100k per turn' }
@@ -868,7 +888,7 @@ function scatterChart(ui: UI, c: UsageCharts, cols: number) {
   const { Box, Text } = ui
   const pts = c.slices.filter(s => s.tokens > 0 && s.lines > 0)
   if (!pts.length) return null
-  const W = Math.max(24, Math.min(80, cols - 10)), H = 10
+  const W = Math.max(24, Math.min(56, cols - 12)), H = 10
   const lx = pts.map(s => Math.log10(s.lines)), ly = pts.map(s => Math.log10(s.tokens))
   const [x0, x1, y0, y1] = [Math.min(...lx), Math.max(...lx), Math.min(...ly), Math.max(...ly)]
   const xi = (v: number) => Math.min(W - 1, Math.max(0, x1 > x0 ? Math.round(((Math.log10(v) - x0) / (x1 - x0)) * (W - 1)) : 0))
@@ -905,14 +925,14 @@ function scatterChart(ui: UI, c: UsageCharts, cols: number) {
   return (
     <Box flexDirection="column">
       <Text bold>5. Helper tokens against lines changed, one point per slice</Text>
-      <Text dimColor>Both scales logarithmic. Compare a point with its own tier's cloud, never across tiers; a ringed point cost over twice its tier's median.</Text>
+      <Text dimColor size="footnote">Both scales logarithmic. Compare a point with its own tier's cloud, never across tiers; a ringed point cost over twice its tier's median.</Text>
       {rows}
       <Text mono dimColor>{`${' '.repeat(6)} └${'─'.repeat(W)}`}</Text>
       <Text mono dimColor>{`${' '.repeat(8)}${`${minL} lines`.padEnd(Math.max(0, W - String(maxL).length - 6))}${maxL} lines`}</Text>
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-        {c.tierMedians.map(m => <Text color={TIER[m.tier] ?? 'inactive'}>{`● ${m.tier} (${m.model}) median ${fmt(m.tokens)} · ${m.lines ?? 'n/a'} lines · ${fmt(m.per100)} per 100 lines`}</Text>)}
-        <Text color="error">◉ over twice its tier median</Text>
-        <Text dimColor>◆ several slices · + a tier median</Text>
+        {c.tierMedians.map(m => <Text size="footnote" color={TIER[m.tier] ?? 'inactive'}>{`● ${m.tier} (${m.model}) ${fmt(m.per100)} per 100 lines`}</Text>)}
+        <Text size="footnote" color="error">◉ over twice its tier median</Text>
+        <Text size="footnote" dimColor>◆ several slices · + a tier median</Text>
       </Box>
       {cells.map(([k, cell]) => (
         <Box display="none" hover={{ scope: `u5:${k}`, display: 'flex' }}>
