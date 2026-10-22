@@ -390,7 +390,8 @@ const STATE: Record<SliceState, { color: string; label: string; mark: string }> 
   // teal and purple: the theme's two blues for these looked alike on the desktop
   ready: { color: 'planMode', label: 'could start now', mark: '■' },
   you: { color: 'merged', label: 'waits on you', mark: '■' },
-  waiting: { color: 'inactive', label: 'waiting', mark: '□' },
+  // the same full square as the others, in the theme's middle grey: □ drew smaller than ■
+  waiting: { color: 'inactive', label: 'waiting', mark: '■' },
 }
 
 // ---------- the brief: the tool's sections as aligned columns, every slice in the colour of its state ----------
@@ -497,7 +498,8 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
 
   // each number is its state's coloured mark, then a plain Button (press for the slice's card, as a helper's): a
   // desktop draws a Button natively and drops the colour of a Text inside it, so the colour sits beside it, as in the
-  // legend. Once a slice is picked, the numbers it is not linked to go dim
+  // legend. Once a slice is picked, the numbers it is not linked to go dim, so the picked one and its links stand out
+  // with their marks unchanged
   const cell = (id: string) => {
     const s = g.slices[id]
     if (!s) return null
@@ -505,7 +507,7 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
     const label = (id.split('.')[1] ?? id).replace(/^tidy(\d*)$/, 't$1')
     return (
       <Box flexDirection="row" flexShrink={0}>
-        <Text color={STATE[s.state].color} {...(id === sel ? { inverse: true } : {})}>{STATE[s.state].mark}</Text>
+        <Text color={STATE[s.state].color}>{STATE[s.state].mark}</Text>
         <Button key={`c:${id}`} plain onPress={pick(id)} hover={{ scope: `g:${id}`, inverse: true }}
           {...(linked ? {} : { dimColor: true })}>{label}</Button>
       </Box>
