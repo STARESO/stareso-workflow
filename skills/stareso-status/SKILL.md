@@ -11,7 +11,7 @@ argument-hint: "[graph]"
 ## 1. Read (fast: status is the most used step)
 Argument: none (fast status, a text graph) or `graph` (the same, plus the drawn graph of §4).
 1. Call `get_usage` first: each plan window gives `percentUsed` and `resetsAt`.
-2. `node ~/.claude/stareso/tools/progress-graph.mjs --brief` with `--five <pct>@<reset>` and `--week <pct>@<reset>` from step 1 when there are readings, and `--caps <start>/<pause>/<weekly>` only when the user gave stop caps in this conversation (a build writes its own in BUILD-LOG). It prints, in about fifteen short lines: the head line (project, Phase, Pack, branch and tree, 💭 ideas, debt, open points of PLAN), the text graph (one line per milestone with open slices) and the items `running`, `usage` (with the burn rate and when each cap is reached), `pace`, `waits`, `ready`. Records and git only. Detail: README, "The progress graph".
+2. `node ~/.claude/stareso/tools/progress-graph.mjs --brief` with `--five <pct>@<reset>` and `--week <pct>@<reset>` from step 1 when there are readings, and `--caps <start>/<pause>/<weekly>` only when the user gave stop caps in this conversation (a build writes its own in BUILD-LOG). It prints the brief: the head line (project, Phase, Pack, branch and tree, 💭 ideas, debt, open points of PLAN), then short sections: Progress (the text graph, one line per milestone with open slices), Helpers (one line each), Usage (burn rate, when each cap is reached, resets), Pace, Waits for you, Could start now. Records and git only. Detail: README, "The progress graph".
 3. Only what the brief does not give, and only when the rule table needs it: `docs/FEEDBACK.md` (date of the newest block, points without "→ slice"), the overview's Tested column in `docs/ROADMAP.md`, the Totals row and the last `### Retro` of `docs/USAGE.md`. Say if the folder is a worktree.
 
 ## 2. Work out the current step and the next one (first rule that matches)
@@ -33,16 +33,12 @@ Argument: none (fast status, a text graph) or `graph` (the same, plus the drawn 
 A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: never suggest it after a test or from status. Mention it only if the user asks what is left to improve in the workflow.
 
 
-## 4. Answer, at most twelve lines, then the graph
-1. The workflow line with the current step in **bold**: `init → discuss → grill → setup → build ⇄ test → improve → deploy` (manual: `~/.claude/stareso/README.md`).
-2. Phase, pack, progress (milestones done / open, open slices count), open questions and debt, what waits for you.
-3. Cost so far from the USAGE Totals table (project row: sessions, turns, ≈ equiv), one line.
-4. **The one next step**: the skill, the **model**, **new or same session**, **permission mode** (auto for build only), the profile for a build (eco unless speed matters), and the exact command to type, or the launch question of §5.
-5. The workflow review line of step 3 when due; otherwise nothing.
-
-Then the brief's items as printed, **one line each, only those it gives** (they count in the twelve): running now (with the build mode), usage, pace, waits for you, could start now. Do not recompute them.
-
-**The text graph** of the brief goes in a code block after the answer, as it is (■ done, ▶ a helper is running, □ waiting). It is not counted in the twelve lines.
+## 4. Answer: the brief, then at most six lines
+1. **The brief** in a code block, exactly as the tool printed it: the head line, then the sections Progress (the text graph), Helpers (one line each: slice, model, minutes, title), Usage, Pace, Waits for you, Could start now. Never recompute or reword it, and drop nothing.
+2. Then, under it, at most six lines:
+   - the workflow line with the current step in **bold**: `init → discuss → grill → setup → build ⇄ test → improve → deploy` (manual: `~/.claude/stareso/README.md`);
+   - what the brief cannot say, one line each and only when it applies: a FEEDBACK block not yet segmented, a milestone built but untested, the cost so far from the USAGE Totals row, the workflow review line of §3;
+   - **the one next step**: the skill, the **model**, **new or same session**, **permission mode** (auto for build only), the profile for a build (eco unless speed matters), and the exact command to type, or the launch question of §5.
 **With the argument `graph`** only: run the tool again with `--widget` (same flags) and pass its output as it is to `mcp__visualize__show_widget` (`widget_code`, title `build_progress`, no text of its own inside, `mcp__visualize__read_me` loaded once per session first). Without the visualize tool, run it with `--write` and publish `files.html` with the Artifact tool, then give its link.
 
 ## 5. Launch from this session (manager)

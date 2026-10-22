@@ -38,7 +38,8 @@ const lettered = (m) => !/^M\d+$/.test(m.id);
 const numOf = (id) => Number(id.replace(/\D/g, "")) || 0;
 const afterOf = (s) => (((/after: ([A-Za-z0-9., ]+?)(?: ·|$)/.exec(s.rest) || [])[1]) || "").split(/[ ,]+/).filter((x) => /^[A-Za-z]+\d*\.\w+$/.test(x));
 const opusOf = (s) => /(?:model: opus|tier: strong)/.test(s.rest);
-const byId = new Map(ms.flatMap((m) => m.slices.map((s) => [s.id, { ...s, ms: m.id, after: afterOf(s), opus: opusOf(s) }])));
+const modelOf = (s) => (/(?:model|tier): (\w+)/.exec(s.rest) || [])[1] || "";
+const byId = new Map(ms.flatMap((m) => m.slices.map((s) => [s.id, { ...s, ms: m.id, after: afterOf(s), opus: opusOf(s), model: modelOf(s) }])));
 
 // running helpers: worktrees (or the main folder) on a branch slice/<id>-…
 const running = [];
@@ -352,8 +353,58 @@ const result = {
 };
 
 if (opt.text) { console.log(text.join("\n")); process.exit(0); }
-// the fast status: the head line, the text graph and the one-line items, nothing else
-if (opt.brief) { console.log([head, ...text, ...Object.entries(lines).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)].join("\n")); process.exit(0); }
+// the fast status, in sections that read at a glance: progress, helpers (one line each), usage, pace, what waits, what could start
+function brief() {
+  const out = [head, ""];
+  const pad = (s, n) => String(s).padEnd(n);
+  const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+  out.push("Progress   ■ done  ▶ running  □ waiting");
+  if (bannerText) out.push(`  ${bannerText}`);
+  for (const l of shown) {
+    const body = l.block
+      ? [l.human ? `${l.total - l.done} for you` : `${l.total - l.done} open`, l.running ? "running" : "", l === qLane ? qText : ""].filter(Boolean).join(" · ")
+      : l.nodes.map((n) => mark[n.s]).join("");
+    out.push(`  ${pad(l.id, 5)} ${pad(`${l.done}/${l.total}`, 6)} ${body}`);
+  }
+  if (hidden.length) out.push(`  + ${hidden.length} more open: ${hidden.join(", ")}`);
+
+  out.push("", runningNow.length ? `Helpers   ${mode.last || "build"} profile, ${runningNow.length} running` : `Helpers   none running (${mode.label})`);
+  for (const r of [...runningNow].sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0))) {
+    const s = byId.get(r.id);
+    out.push(`  ${pad(r.id, 8)} ${pad(s.model || "?", 7)} ${pad(r.minutes != null ? `${r.minutes} min` : "", 8)} ${cut(s.title, 52)}`);
+  }
+
+  if (usage.five || usage.week || caps) {
+    out.push("", "Usage");
+    const win = (name, w) => {
+      if (!w) return;
+      out.push(`  ${pad(name, 8)} ${pad(`${w.pct} %`, 6)} ${w.ratePerHour != null ? `+${w.ratePerHour} %/h (${w.basis})` : ""}`.trimEnd());
+      for (const r of w.reach) out.push(`           ${r.name} cap ${r.cap} %: ${r.at === "reached" ? "reached" : r.at ? `at about ${r.at}` : "not before the reset"}`);
+      out.push(`           resets ${w.resets}`);
+    };
+    win("5-hour", usage.five);
+    win("weekly", usage.week);
+    if (!usage.five && !usage.week) out.push(`  ${usageParts.join(" · ")}`);
+    else if (caps?.deadline) out.push(`  deadline ${caps.deadline}`);
+  }
+
+  if (pace && remaining) {
+    out.push("", "Pace");
+    out.push(`  ${pace.perSliceMinutes ?? pace.medianMinutes} min per slice, ${remaining} slices left, ${helpers} helper${helpers > 1 ? "s" : ""}`);
+    out.push(`  about ${hours(pace.etaHours)} (${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
+    out.push(`  at most ${hours(pace.inARowHours)} if run one after the other`);
+  }
+
+  if (humanSlices.length || questions.length) {
+    out.push("", "Waits for you");
+    if (humanSlices.length) out.push(`  ${humanSlices.length} slice${humanSlices.length > 1 ? "s" : ""}: ${humanSlices.join(", ")}`);
+    if (questions.length) out.push(`  ${questions.length} open question${questions.length > 1 ? "s" : ""}, ${blocking.length} blocking a slice${blocking.length ? `: ${blocking.map((q) => q.blocks.join(", ")).join("; ")}` : ""}`);
+  }
+
+  out.push("", "Could start now", `  ${ready.length ? ready.join(", ") : remaining ? "none: every open slice waits on a chain, a helper or the user" : "nothing for a helper: what is left waits on you"}`);
+  return out.join("\n");
+}
+if (opt.brief) { console.log(brief()); process.exit(0); }
 // the widget SVG alone, passed as it is to the host's widget tool
 if (opt.widget) { process.stdout.write(svg(false)); process.exit(0); }
 if (opt.write) {
