@@ -914,14 +914,57 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
   }
   const rows = all ? t.rows : t.rows.slice(-FOLDED.u7)
   const miss = (r: EtaTrack['rows'][number]) => Math.round(((r.actual - r.predicted) / Math.max(1, r.predicted)) * 100)
-  return chart(ui, title,
-    `Times now ×${t.factor}, learned from ${t.samples} slice${t.samples > 1 ? 's' : ''}${t.medianMissPct != null ? `, median miss ${t.medianMissPct > 0 ? '+' : ''}${t.medianMissPct} %` : ''}. The bar is what it took, ┆ what was predicted.`,
-    rows.map((r, i) => ({
-      scope: `u7:${i}`, label: r.id, segs: [{ v: r.actual, color: Math.abs(miss(r)) > 25 ? 'warning' : 'suggestion' }], marks: [r.predicted],
-      value: all ? `${r.predicted} → ${r.actual} min · ${miss(r) > 0 ? '+' : ''}${miss(r)} % · ${r.at}` : `${r.predicted} → ${r.actual} min`,
-      detail: `${r.id} merged ${r.at}: predicted ${r.predicted} min, took ${r.actual} min (${miss(r) > 0 ? '+' : ''}${miss(r)} %)`,
-    })), L, room, Math.max(...rows.map(r => Math.max(r.actual, r.predicted))),
-    [{ text: '█ within 25 %', color: 'suggestion' }, { text: '█ missed by more', color: 'warning' }, { text: '┆ predicted' }])
+  const signed = (m: number) => `${m > 0 ? '+' : ''}${m} %`
+  // on time (within 25 %) green, late by more amber, early by more teal
+  const tone = (m: number) => (m > 25 ? 'warning' : m < -25 ? 'planMode' : 'success')
+  // the value's parts in columns of their own, as chart() aligns them
+  const parts = rows.map(r => [`${r.predicted} → ${r.actual} min`, ...(all ? [signed(miss(r)), r.at] : [])])
+  const widths = parts.reduce<number[]>((w, ps) => ps.map((x, i) => Math.max(w[i] ?? 0, x.length)), [])
+  const values = parts.map(ps => ps.map((x, i) => x.padStart(widths[i] ?? 0)).join(' · '))
+  const n = Math.max(10, room - L - 1 - Math.max(...values.map(v => v.length)))
+  const max = Math.max(...rows.map(r => Math.max(r.actual, r.predicted)))
+  const at = (v: number) => Math.min(n - 1, Math.round((Math.max(0, v) / Math.max(1, max)) * (n - 1)))
+  // a dumbbell: ○ the prediction, ● what it took, joined by a line in the colour of the miss; ◉ when both fall on
+  // one cell
+  const dumbbell = (r: EtaTrack['rows'][number]) => {
+    const p = at(r.predicted)
+    const a = at(r.actual)
+    const lo = Math.min(p, a)
+    const hi = Math.max(p, a)
+    const mid = p === a ? '◉' : Array.from({ length: hi - lo + 1 }, (_, k) => (lo + k === p ? '○' : lo + k === a ? '●' : '─')).join('')
+    return { before: ' '.repeat(lo), mid, after: ' '.repeat(n - 1 - hi) }
+  }
+  return (
+    <Box flexDirection="column">
+      <Text bold>{title}</Text>
+      <Text dimColor size="footnote">
+        {`Times now ×${t.factor}, learned from ${t.samples} slice${t.samples > 1 ? 's' : ''}${t.medianMissPct != null ? `, median miss ${signed(t.medianMissPct)}` : ''}. ○ predicted, ● what it took: right of ○ is late, left is early.`}
+      </Text>
+      {rows.map((r, i) => {
+        const d = dumbbell(r)
+        const m = miss(r)
+        return (
+          <Box flexDirection="row" hover={{ scope: `u7:${i}` }}>
+            <Text mono hover={{ scope: `u7:${i}`, underline: true }}>{r.id.slice(0, L).padEnd(L)}</Text>
+            <Text mono>{d.before}</Text>
+            <Text mono color={tone(m)} bold>{d.mid}</Text>
+            <Text mono>{d.after}</Text>
+            <Text mono color={tone(m)}>{` ${values[i]}`}</Text>
+          </Box>
+        )
+      })}
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+        <Text size="footnote" color="success">{'○─● on time ±25 %'}</Text>
+        <Text size="footnote" color="warning">{'○──● late'}</Text>
+        <Text size="footnote" color="planMode">{'●──○ early'}</Text>
+      </Box>
+      {rows.map((r, i) => (
+        <Box display="none" hover={{ scope: `u7:${i}`, display: 'flex' }}>
+          <Text>{`${r.id} merged ${r.at}: predicted ${r.predicted} min, took ${r.actual} min (${signed(miss(r))})`}</Text>
+        </Box>
+      ))}
+    </Box>
+  )
 }
 
 function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {

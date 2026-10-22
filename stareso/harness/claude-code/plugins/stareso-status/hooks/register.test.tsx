@@ -31,6 +31,11 @@ const SNAPSHOT = {
   running: [{ id: 'M1.2', minutes: 5 }],
   perSliceMinutes: 30,
   usage: { five: { pct: 42, resets: '21:00', ratePerHour: 8, basis: 'last readings', reach: [{ name: 'pause', cap: 90, at: '19:10' }] }, week: null },
+  etaTrack: { factor: 1.2, samples: 4, medianMissPct: 10, rows: [
+    { id: 'M0.1', predicted: 30, actual: 32, at: '2026-10-21' },
+    { id: 'M0.2', predicted: 20, actual: 41, at: '2026-10-21' },
+    { id: 'M0.3', predicted: 40, actual: 24, at: '2026-10-22' },
+  ] },
 }
 
 test('the panel draws the progress view from the tool, on every surface', async ($, on) => {
@@ -224,6 +229,10 @@ test('the usage view draws the plan windows, the tiles and the seven charts', as
     // chart 3 leaves out a planned milestone with no cost per slice yet
     expect(await ui.find({ type: 'Text', text: /^M1 +$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^M2 +$/ })).toBeFalsy()
+    // chart 7 a dumbbell per slice: ○ predicted, ● what it took, in the colour of the miss
+    // (chart 5's scatter points use the same glyphs, so chart 7's are the last three)
+    const tones = (await ui.findAll({ type: 'Text', text: /^[○●◉][─○●]*$/ })).map(x => x.props.color).slice(-3)
+    expect(tones).toEqual(['success', 'warning', 'planMode'])
     await ui.unmount()
   }
 })
