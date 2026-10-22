@@ -341,7 +341,8 @@ export const register: Register = on => {
         {p.error !== '' && <Text color="error">{p.error}</Text>}
         {p.view === 'text' && (p.graph ? briefView(ui, p, p.graph, cols) : p.brief !== '' && <Code source={p.brief} language="text" />)}
         {p.view === 'graph' && (p.graph ? graphView(ui, p, p.graph, act) : <Text dimColor>reading the graph…</Text>)}
-        {p.view === 'usage' && usageView(ui, p, cols, act)}
+        {/* a desktop's monospaced face runs wider than the pane's columns: the charts keep a margin so no row overflows */}
+        {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.85), act)}
         {p.view === 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
       </Box>
     )
@@ -519,25 +520,30 @@ function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const selSlice = g.slices[sel] as PanelSlice | undefined
   const selLane = [...g.lanes, ...g.finished].find(l => l.id === sel)
 
-  // plain Text, not a Button: a desktop draws a Button natively and drops the colour of the Text inside it
+  // one monospaced Text per lane, each number a nested Text in the colour of its state: plain Text, not a Button (a
+  // desktop draws a Button natively and drops the colour inside it), and not a Box per number (a desktop spaces and
+  // wraps the boxes); the lane's columns have fixed widths and its ETA is cut at the edge rather than wrapped
+  const idW = Math.max(3, ...lanes.map(l => l.id.length)) + 2
+  const cntW = Math.max(4, ...lanes.map(l => `${l.done}/${l.total}`.length)) + 2
+  const cellsW = 3 * Math.max(1, ...lanes.map(l => l.slices.length)) + 1
   const cell = (id: string) => {
     const s = g.slices[id]
     if (!s) return null
     const linked = !!selSlice && (selSlice.after.includes(id) || s.after.includes(sel))
     const label = `${(id.split('.')[1] ?? id).replace(/^tidy(\d*)$/, 't$1').padStart(2)} `
     return (
-      <Box hover={{ scope: `g:${id}` }}>
-        <Text mono color={STATE[s.state].color} bold={s.state !== 'waiting'} hover={{ scope: `g:${id}`, inverse: true }}
-          {...(id === sel ? { inverse: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
-      </Box>
+      <Text color={STATE[s.state].color} bold={s.state !== 'waiting'} hover={{ scope: `g:${id}`, inverse: true }}
+        {...(id === sel ? { inverse: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
     )
   }
   const laneRow = (l: PanelLane) => (
-    <Box flexDirection="row" gap={1}>
-      <Button key={`l:${l.id}`} plain onPress={pick(l.id)}><Text mono bold {...(l.id === sel ? { inverse: true } : {})}>{l.id.padEnd(4)}</Text></Button>
-      <Text mono dimColor>{`${l.done}/${l.total}`.padEnd(6)}</Text>
-      <Box flexDirection="row" flexWrap="wrap" flexShrink={1}>{l.slices.filter(id => g.slices[id]).map(cell)}</Box>
-      {l.eta !== '' && <Text dimColor>{l.eta}</Text>}
+    <Box flexDirection="row">
+      <Box width={idW} flexShrink={0}>
+        <Button key={`l:${l.id}`} plain onPress={pick(l.id)}><Text bold {...(l.id === sel ? { inverse: true } : {})}>{l.id}</Text></Button>
+      </Box>
+      <Box width={cntW} flexShrink={0}><Text dimColor tabular>{`${l.done}/${l.total}`}</Text></Box>
+      <Box width={cellsW} flexShrink={0}><Text mono>{l.slices.filter(id => g.slices[id]).map(cell)}</Text></Box>
+      <Box flexGrow={1} flexShrink={1}><Text dimColor tabular wrap="truncate-end">{l.eta}</Text></Box>
     </Box>
   )
   // the coloured mark beside the Button, for the same reason
@@ -736,18 +742,22 @@ type Row = { scope: string; label: string; segs: Seg[]; value: string; detail: s
 function chart(ui: UI, title: string, caption: string, rows: Row[], L: number, n: number, legend: Seg[] = []) {
   const { Box, Text } = ui
   if (!rows.length) return null
+  // the value's parts ("47 %", "168.4M") right-aligned in columns of their own, so the numbers line up down the chart
+  const parts = rows.map(r => r.value.split(' · '))
+  const widths = parts.reduce<number[]>((w, ps) => ps.map((x, i) => Math.max(w[i] ?? 0, x.length)), [])
+  const aligned = parts.map(ps => ps.map((x, i) => (/^[\d.,≈~<>+−-]/.test(x) ? x.padStart(widths[i] ?? 0) : x.padEnd(widths[i] ?? 0))).join(' · ').trimEnd())
   return (
     <Box flexDirection="column">
       <Text bold>{title}</Text>
       <Text dimColor>{caption}</Text>
-      {rows.map(r => {
+      {rows.map((r, i) => {
         const used = r.segs.reduce((k, s) => k + s.text.length, 0)
         return (
           <Box flexDirection="row" hover={{ scope: r.scope }}>
             <Text mono hover={{ scope: r.scope, underline: true }}>{r.label.slice(0, L).padEnd(L)}</Text>
             {r.segs.filter(s => s.text !== '').map(s => <Text mono {...(s.color ? { color: s.color } : {})}>{s.text}</Text>)}
             <Text mono dimColor>{rest(used, n, r.marks)}</Text>
-            <Text mono {...(r.valueColor ? { color: r.valueColor } : { dimColor: true })}>{` ${r.value}`}</Text>
+            <Text mono {...(r.valueColor ? { color: r.valueColor } : { dimColor: true })}>{` ${aligned[i] ?? r.value}`}</Text>
           </Box>
         )
       })}
