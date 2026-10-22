@@ -80,8 +80,8 @@ export type PanelView = {
   usageError: string;
   showTables: boolean;
   allSessions: boolean;
-  // the app's chats working in the project now (a manager, a build, a side chat), shown for information
-  chats: { title: string; at: string }[];
+  // the app's chats in the project (a manager, a build, a side chat), working or idle, shown for information
+  chats: { title: string; at: string; working: boolean }[];
   // the address of the project's dashboard server the mod started, linked in the header while it runs
   dashboard: string;
 };

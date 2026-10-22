@@ -22,6 +22,9 @@ const EVERY_MS = 60_000
 // the usage report (a few seconds) is read again while its view is open once it is older than this, or a slice merged
 const USAGE_STALE_MS = 5 * 60_000
 const WIDE = 110
+// the project's chats listed in Progress: those idle for less than a day, at most this many
+const CHATS_RECENT_MS = 24 * 3600_000
+const MAX_CHATS = 8
 const EMPTY: PanelView = {
   project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'graph', selected: '',
   showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [], dashboard: '',
@@ -38,7 +41,7 @@ type Snapshot = {
   perSliceMinutes: number | null
   usage: { five: UsageWindow; week: UsageWindow }
 }
-type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Markdown' | 'Code' | 'Link'>
+type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Markdown' | 'Code'>
 type Act = (fn: (p: PanelView) => PanelView) => () => void
 type Seg = { text: string; color?: string }
 
@@ -79,18 +82,22 @@ async function usageFlags($: EngineInterface): Promise<string[]> {
   }
 }
 
-// The app's chats that are working now in the project folder or below it (its worktrees), from its own session list;
-// none when the app does not give it. The session the panel draws in is not listed.
-async function activeChats($: EngineInterface, root: string): Promise<PanelView['chats']> {
+// The app's chats in the project folder or below it (its worktrees), working or idle, those idle for over a day left
+// out, from its own session list; none when the app does not give it. The session the panel draws in is not listed.
+async function projectChats($: EngineInterface, root: string): Promise<PanelView['chats']> {
   const norm = (f: string) => f.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   try {
     const res = await $.mcp.call('ccd_session_mgmt', 'list_sessions', { limit: 40 })
     const block = res.content.find(c => c.type === 'text') as { text?: string } | undefined
     const rows = JSON.parse(block?.text ?? '[]') as { title?: string; cwd?: string; isRunning?: boolean; lastActivityAt?: string }[]
     const r = norm(root)
+    const since = Date.now() - CHATS_RECENT_MS
     return (Array.isArray(rows) ? rows : [])
-      .filter(x => x.isRunning && x.cwd && (norm(x.cwd) === r || norm(x.cwd).startsWith(`${r}/`)))
-      .map(x => ({ title: x.title || 'untitled chat', at: x.lastActivityAt ? clock(Date.parse(x.lastActivityAt)) : '' }))
+      .filter(x => x.cwd && (norm(x.cwd) === r || norm(x.cwd).startsWith(`${r}/`)))
+      .filter(x => x.isRunning || !x.lastActivityAt || Date.parse(x.lastActivityAt) >= since)
+      .map(x => ({ title: x.title || 'untitled chat', at: x.lastActivityAt ? clock(Date.parse(x.lastActivityAt)) : '', working: !!x.isRunning }))
+      // the working ones first; the list comes most recent first
+      .sort((a, b) => Number(b.working) - Number(a.working))
   } catch {
     return []
   }
@@ -186,7 +193,7 @@ async function readOnce($: EngineInterface) {
     await $.store.set('project', s.root)
     latestMerge = s.recentMerges[0]?.id ?? ''
     alerts($, s)
-    const chats = await activeChats($, s.root)
+    const chats = await projectChats($, s.root)
     await update($, panel, p => ({
       ...p, project: s.project, root: s.root, brief: s.brief, graph: s.graph, windows: s.usage, chats, updated: clock(), error: '',
       usageNote: flags.length ? '' : 'usage windows not readable here',
@@ -274,17 +281,36 @@ async function ensureDashboard($: EngineInterface): Promise<string> {
   return url
 }
 
-// /stareso-panel dashboard: the address, and the page opened in the side browser when the app lets a mod do it
+// The Dashboard button and /stareso-panel dashboard: the page in the app's side browser when the app lets a mod reach
+// it, else in the system's own browser (a link to a local address does nothing on a click in the desktop app)
 async function openDashboard($: EngineInterface): Promise<string> {
   const url = await ensureDashboard($)
   if (!url) return 'the dashboard did not start (node ~/.claude/stareso/tools/dashboard.mjs --root <project> says why)'
   try {
     const res = await $.mcp.call('Claude_Browser', 'preview_start', { url })
-    if (res.isError) throw new Error('not opened')
-    return `dashboard open in the side browser: ${url}`
+    if (!res.isError) return `dashboard open in the side browser: ${url}`
   } catch {
-    return `dashboard running: ${url} (the Dashboard link in the panel opens it)`
+    // no side browser for a mod: the system's browser below
   }
+  try {
+    const windows = (await $.env.get('OS')) === 'Windows_NT'
+    const mac = !windows && ((await $.env.get('HOME')) ?? '').startsWith('/Users/')
+    const argv = windows ? ['cmd', '/c', 'start', '', url] : [mac ? 'open' : 'xdg-open', url]
+    const run = await $.process.run(argv, { timeoutMs: 10_000 })
+    if (run.exitCode === 0) return `dashboard open in the browser: ${url}`
+  } catch {
+    // said below
+  }
+  return `dashboard running at ${url}: open it in a browser`
+}
+
+// Opens the panel (the command, or the stareso button in the prompt footer): the minute timer, a read, the view, and
+// the dashboard's server, so the Dashboard button opens the page at once.
+async function openPanel($: EngineInterface, view?: PanelView['view']) {
+  startTicking($)
+  await refresh($)
+  await show($, view ?? (await read($, panel)).view)
+  void ensureDashboard($).catch(() => undefined)
 }
 
 async function show($: EngineInterface, view: PanelView['view']) {
@@ -318,24 +344,31 @@ export const register: Register = on => {
       await update($, panel, p => ({ ...p, root: arg, selected: '', usage: null, usageMd: '', usageAt: 0, usageError: '', dashboard: '' }))
       seen = null
     }
-    startTicking($)
-    await refresh($)
-    await show($, views[arg] ?? (await read($, panel)).view)
-    // the dashboard's server starts with the panel, so its link in the header opens the page at once
-    void ensureDashboard($).catch(() => undefined)
+    await openPanel($, views[arg])
     const p = await panelState($)
 
     return { text: p.error ? `stareso panel: ${p.error}` : `stareso panel open on ${p.project}: /stareso-panel again hides it.` }
   })
 
+  // a stareso button among the mode labels at the right of the prompt footer: opens the panel, or hides it
+  on('ui.render', { component: 'SessionMode' }, async ($, e) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const modes = e.props.modes
+    const toggle = async () => ((await isOpen($)) ? $.ui.close({ id: PANE }) : openPanel($))
+    return (
+      <Box flexDirection="row" gap={1}>
+        {modes.length > 0 && <Text dimColor>{modes.join(' & ')}</Text>}
+        <Button key="stareso-toggle" plain dimColor onPress={() => void toggle().catch(() => undefined)}>◧ stareso</Button>
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
-    const { Box, Text, Button, Code, Link } = ui
+    const { Box, Text, Button, Code } = ui
     const p = await panelState($)
     const cols = Math.max(48, e.props.bodyColumns ?? 80)
     const act: Act = fn => () => void update($, panel, fn).catch(() => undefined)
-    // the state keeps the address across reloads, the server does not outlive the module: only a live one is linked
-    const dashboardUrl = p.dashboard !== '' && [...dashboards.values()].includes(p.dashboard) ? p.dashboard : ''
     // the Brief and Graph tabs are one Progress tab: an older 'text' view reads as it
     const tab = (view: PanelView['view'], label: string) => (
       <Button key={`view-${view}`} variant={(p.view === 'usage') === (view === 'usage') ? 'primary' : 'secondary'} onPress={() => void show($, view).catch(() => undefined)}>{label}</Button>
@@ -350,10 +383,7 @@ export const register: Register = on => {
         <Box flexDirection="row" gap={1} alignItems="center">
           <Text dimColor size="footnote">{p.updated ? `updated ${p.updated}` : 'reading…'}</Text>
           <Button key="refresh" onPress={() => void refresh($, true).catch(() => undefined)}>Refresh</Button>
-          {/* a link the surface opens on a click, once the mod's own server answers; until then a button that starts it */}
-          {dashboardUrl
-            ? <Link href={dashboardUrl} label="Dashboard ↗" />
-            : <Button key="dashboard" onPress={() => void ensureDashboard($).then(u => $.ui.toast(u ? `dashboard ready: ${u}` : 'the dashboard did not start')).catch(() => undefined)}>Dashboard</Button>}
+          <Button key="dashboard" onPress={() => void openDashboard($).then(t => $.ui.toast(t)).catch(() => undefined)}>Dashboard ↗</Button>
           <Button key="hide" role="dismiss" dimColor onPress={() => void $.ui.close({ id: PANE }).catch(() => undefined)}>Hide</Button>
         </Box>
         <Box flexDirection="row" gap={1}>
@@ -363,7 +393,7 @@ export const register: Register = on => {
         {p.error !== '' && <Text color="error">{p.error}</Text>}
         {p.view !== 'usage' && (p.graph ? progressView(ui, p, p.graph, act) : p.brief !== '' ? <Code source={p.brief} language="text" /> : <Text dimColor>reading…</Text>)}
         {/* a desktop's monospaced face runs wider than the pane's columns: the charts keep a margin so no row overflows */}
-        {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.85), act)}
+        {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.9), act)}
         {p.view === 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
       </Box>
     )
@@ -432,15 +462,19 @@ function heading(ui: UI, name: string, head = '') {
 function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
   const { Box, Text } = ui
   if (!chats.length) return null
+  const working = chats.filter(c => c.working).length
   return (
     <Box flexDirection="column">
-      {heading(ui, 'Chats computing', 'outside the roadmap')}
-      {chats.map(c => (
+      {heading(ui, 'Chats', `${working} working, ${chats.length - working} idle`)}
+      {chats.slice(0, MAX_CHATS).map(c => (
         <Box flexDirection="row">
-          <Box width={w} flexShrink={0}><Text color="claude">{c.at !== '' ? `◐ ${c.at}` : '◐'}</Text></Box>
-          <Box flexShrink={1}><Text wrap="truncate-end">{c.title}</Text></Box>
+          <Box width={2} flexShrink={0}><Text {...(c.working ? { color: 'claude' } : { dimColor: true })}>{c.working ? '◐' : '○'}</Text></Box>
+          <Box width={w - 2} flexShrink={0}><Text dimColor={!c.working} {...(c.working ? { color: 'claude' } : {})}>{c.working ? 'working' : 'idle'}</Text></Box>
+          <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end" dimColor={!c.working}>{c.title}</Text></Box>
+          {c.at !== '' && <Box flexShrink={0} marginLeft={1}><Text dimColor tabular>{c.at}</Text></Box>}
         </Box>
       ))}
+      {chats.length > MAX_CHATS && <Text dimColor size="footnote">{`and ${chats.length - MAX_CHATS} more`}</Text>}
     </Box>
   )
 }
@@ -468,7 +502,6 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
 
   const idW = Math.max(3, ...lanes.map(l => l.id.length)) + 2
   const cntW = Math.max(4, ...lanes.map(l => `${l.done}/${l.total}`.length)) + 2
-  const cellsW = 3 * Math.max(1, ...lanes.map(l => l.slices.length)) + 1
   const indent = idW + cntW
   // after the numbers: the milestone's ETA, or for a human or queue lane the brief's own words ("9 for you · …")
   const tail = (l: PanelLane) => (l.block ? (progress.find(x => x.startsWith(`${l.id} `))?.replace(/^\S+\s+\d+\/\d+\s+/, '') ?? '') : l.eta)
@@ -486,19 +519,26 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
         {...(id === sel ? { inverse: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
     )
   }
-  const lane = (l: PanelLane) => {
+  // the graph row holds the numbers alone, so it fits a narrow dock: the title and the ETA are in the list below it
+  const lane = (l: PanelLane) => (
+    <Box flexDirection="row">
+      <Box width={idW} flexShrink={0}>
+        <Button key={`l:${l.id}`} plain onPress={pick(l.id)}><Text bold {...(l.id === sel ? { inverse: true } : {})}>{l.id}</Text></Button>
+      </Box>
+      <Box width={cntW} flexShrink={0}><Text dimColor tabular>{`${l.done}/${l.total}`}</Text></Box>
+      <Box flexShrink={0}><Text mono>{l.slices.filter(id => g.slices[id]).map(cell)}</Text></Box>
+    </Box>
+  )
+  // a milestone in the list, as a helper is: name (press for its card), title, ETA; a human or queue lane's own
+  // words ("9 for you · 12 questions") follow its title
+  const milestone = (l: PanelLane) => {
     const t = tail(l)
+    const eta = t.startsWith('≈') || t === 'waits on you'
     return (
-      <Box flexDirection="column">
-        <Box flexDirection="row">
-          <Box width={idW} flexShrink={0}>
-            <Button key={`l:${l.id}`} plain onPress={pick(l.id)}><Text bold {...(l.id === sel ? { inverse: true } : {})}>{l.id}</Text></Button>
-          </Box>
-          <Box width={cntW} flexShrink={0}><Text dimColor tabular>{`${l.done}/${l.total}`}</Text></Box>
-          <Box width={cellsW} flexShrink={0}><Text mono>{l.slices.filter(id => g.slices[id]).map(cell)}</Text></Box>
-          <Box flexGrow={1} flexShrink={1}><Text tabular wrap="truncate-end" {...tailStyle(t)}>{t}</Text></Box>
-        </Box>
-        <Box marginLeft={indent}><Text dimColor size="footnote" wrap="truncate-end">{l.title}</Text></Box>
+      <Box flexDirection="row">
+        <Box width={indent} flexShrink={0}><Button key={`m:${l.id}`} plain onPress={pick(l.id)}>{l.id}</Button></Box>
+        <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end">{eta || !t ? l.title : `${l.title} · ${t}`}</Text></Box>
+        {eta && <Box flexShrink={0} marginLeft={1}><Text tabular {...tailStyle(t)}>{t}</Text></Box>}
       </Box>
     )
   }
@@ -549,6 +589,11 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
         )}
       </Box>
       {card && selSlice?.state !== 'running' && card}
+
+      <Box flexDirection="column">
+        {heading(ui, 'Milestones')}
+        {lanes.map(milestone)}
+      </Box>
 
       {running.length > 0 && (
         <Box flexDirection="column">
@@ -660,14 +705,13 @@ function rest(used: number, cells: number, marks: number[] = []): string {
   return Array.from({ length: Math.max(0, cells - used) }, (_, i) => (marks.includes(used + i) ? '┆' : ' ')).join('')
 }
 
-function usageView(ui: UI, p: PanelView, cols: number, act: Act) {
+function usageView(ui: UI, p: PanelView, room: number, act: Act) {
   const { Box, Text, Button, Markdown } = ui
   const c = p.usage
-  const L = 9, V = 22
-  const n = Math.max(12, cols - L - V - 4)
+  const L = 9
   return (
     <Box flexDirection="column" gap={1}>
-      {windowsView(ui, p.windows, n, L)}
+      {windowsView(ui, p.windows, Math.max(12, room - L - 7), L)}
       {p.usageError !== '' && <Text color="error">{p.usageError}</Text>}
       {!c && p.usageError === '' && <Text dimColor>reading the usage report… (a few seconds)</Text>}
       {c && (
@@ -685,12 +729,12 @@ function usageView(ui: UI, p: PanelView, cols: number, act: Act) {
           </Box>
           {chart(ui, '1. Share of the workflow cost by step type', 'Where the tokens go: build should lead; a large chat bar is work done outside the steps.',
             c.shareByType.map((t, i) => ({
-              scope: `u1:${i}`, label: t.type, segs: [{ text: bar(t.share, Math.max(...c.shareByType.map(x => x.share)), n), color: KIND[t.type] ?? 'inactive' }],
+              scope: `u1:${i}`, label: t.type, segs: [{ v: t.share, color: KIND[t.type] ?? 'inactive' }],
               value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns`,
-            })), L, n)}
-          {cumulativeChart(ui, c, n, L)}
-          {milestoneChart(ui, c, n, L)}
-          {sessionChart(ui, c, n, L, p.allSessions)}
+            })), L, room, Math.max(...c.shareByType.map(x => x.share)))}
+          {cumulativeChart(ui, c, room, L)}
+          {milestoneChart(ui, c, room, L)}
+          {sessionChart(ui, c, room, L, p.allSessions)}
           {c.sessions.filter(s => s.ctx != null).length > RECENT_SESSIONS && (
             <Box flexDirection="row">
               <Button key="sessions" dimColor onPress={act(q => ({ ...q, allSessions: !q.allSessions }))}>
@@ -698,22 +742,20 @@ function usageView(ui: UI, p: PanelView, cols: number, act: Act) {
               </Button>
             </Box>
           )}
-          {scatterChart(ui, c, cols)}
-          {chart(ui, '6. Conductor against helpers, per step that merged slices', 'A launched build should be mostly helpers; a bar all conductor is a chat or a test that built itself.',
-            c.conductorVsHelpers.filter(b => b.conductor != null || b.helpers != null).map((b, i, all) => {
-              const max = Math.max(...all.map(x => (x.conductor ?? 0) + (x.helpers ?? 0)))
-              // whole cells, the helpers' part being what the total adds to the conductor's: two parts rounded on their
-              // own could pass the track and push the value out of its column
-              const total = (b.conductor ?? 0) + (b.helpers ?? 0)
-              const cc = Math.round(((b.conductor ?? 0) / max) * n)
-              const cs = '█'.repeat(cc)
-              const hs = '█'.repeat(Math.max(0, Math.round((total / max) * n) - cc))
-              return {
-                scope: `u6:${i}`, label: `#${b.session}`, segs: [{ text: cs, color: 'warning' }, { text: hs, color: 'suggestion' }],
-                value: `${b.merged} slices · ${total ? Math.round((100 * (b.conductor ?? 0)) / total) : 0} %`,
-                detail: `#${b.session} ${b.type} ${b.date}: conductor ${fmt(b.conductor)}, helpers ${fmt(b.helpers)} (${b.helperCount} helpers), ${b.merged} slices merged`,
-              }
-            }), L, n, [{ text: '█ conductor', color: 'warning' }, { text: '█ helpers', color: 'suggestion' }, { text: 'value: slices merged · conductor share (target under 50 %)' }])}
+          {scatterChart(ui, c, room)}
+          {(() => {
+            const steps = c.conductorVsHelpers.filter(b => b.conductor != null || b.helpers != null)
+            return chart(ui, '6. Conductor against helpers, per step that merged slices', 'A launched build should be mostly helpers; a bar all conductor is a chat or a test that built itself.',
+              steps.map((b, i) => {
+                const total = (b.conductor ?? 0) + (b.helpers ?? 0)
+                return {
+                  scope: `u6:${i}`, label: `#${b.session}`, segs: [{ v: b.conductor ?? 0, color: 'warning' }, { v: b.helpers ?? 0, color: 'suggestion' }],
+                  value: `${b.merged} slices · ${total ? Math.round((100 * (b.conductor ?? 0)) / total) : 0} %`,
+                  detail: `#${b.session} ${b.type} ${b.date}: conductor ${fmt(b.conductor)}, helpers ${fmt(b.helpers)} (${b.helperCount} helpers), ${b.merged} slices merged`,
+                }
+              }), L, room, Math.max(...steps.map(x => (x.conductor ?? 0) + (x.helpers ?? 0))),
+              [{ text: '█ conductor', color: 'warning' }, { text: '█ helpers', color: 'suggestion' }, { text: 'value: slices merged · conductor share (target under 50 %)' }])
+          })()}
           <Box flexDirection="row">
             <Button key="tables" dimColor onPress={act(q => ({ ...q, showTables: !q.showTables }))}>{p.showTables ? 'Hide the tables' : 'Show the tables'}</Button>
           </Box>
@@ -724,27 +766,48 @@ function usageView(ui: UI, p: PanelView, cols: number, act: Act) {
   )
 }
 
-type Row = { scope: string; label: string; segs: Seg[]; value: string; detail: string; marks?: number[]; valueColor?: string }
+// a row's bar is given in the data's own units (one part, or stacked parts) and its marks too: the chart turns them
+// into cells once it knows how wide its values are
+type Row = { scope: string; label: string; segs: { v: number; color: string }[]; value: string; detail: string; marks?: number[]; valueColor?: string }
 
-// one chart of horizontal bars: label, bar (segments), value; hovering a row reveals its detail line under the chart
-function chart(ui: UI, title: string, caption: string, rows: Row[], L: number, n: number, legend: Seg[] = []) {
+// One chart of horizontal bars: label, bar, value; hovering a row reveals its detail line under the chart. The bars
+// take every column the labels and the values leave in `room`, so they are as long as the dock allows.
+function chart(ui: UI, title: string, caption: string, rows: Row[], L: number, room: number, max: number, legend: Seg[] = []) {
   const { Box, Text } = ui
   if (!rows.length) return null
   // the value's parts ("47 %", "168.4M") right-aligned in columns of their own, so the numbers line up down the chart
   const parts = rows.map(r => r.value.split(' · '))
   const widths = parts.reduce<number[]>((w, ps) => ps.map((x, i) => Math.max(w[i] ?? 0, x.length)), [])
   const aligned = parts.map(ps => ps.map((x, i) => (/^[\d.,≈~<>+−-]/.test(x) ? x.padStart(widths[i] ?? 0) : x.padEnd(widths[i] ?? 0))).join(' · ').trimEnd())
+  const n = Math.max(10, room - L - 1 - Math.max(...aligned.map(a => a.length)))
+  const cells = (v: number) => (max > 0 ? (Math.max(0, v) / max) * n : 0)
+  // one part to the eighth of a cell; stacked parts in whole cells, each the total so far rounded, so they never pass
+  // the track
+  const drawn = (segs: Row['segs']): Seg[] => {
+    const first = segs[0]
+    if (segs.length === 1 && first) return [{ text: bar(first.v, max, n), color: first.color }]
+    let sum = 0
+    let done = 0
+    return segs.map(s => {
+      sum += s.v
+      const upto = Math.min(n, Math.round(cells(sum)))
+      const text = '█'.repeat(Math.max(0, upto - done))
+      done = Math.max(done, upto)
+      return { text, color: s.color }
+    })
+  }
   return (
     <Box flexDirection="column">
       <Text bold>{title}</Text>
       <Text dimColor size="footnote">{caption}</Text>
       {rows.map((r, i) => {
-        const used = r.segs.reduce((k, s) => k + s.text.length, 0)
+        const segs = drawn(r.segs)
+        const used = segs.reduce((k, s) => k + s.text.length, 0)
         return (
           <Box flexDirection="row" hover={{ scope: r.scope }}>
             <Text mono hover={{ scope: r.scope, underline: true }}>{r.label.slice(0, L).padEnd(L)}</Text>
-            {r.segs.filter(s => s.text !== '').map(s => <Text mono {...(s.color ? { color: s.color } : {})}>{s.text}</Text>)}
-            <Text mono dimColor>{rest(used, n, r.marks)}</Text>
+            {segs.filter(s => s.text !== '').map(s => <Text mono {...(s.color ? { color: s.color } : {})}>{s.text}</Text>)}
+            <Text mono dimColor>{rest(used, n, (r.marks ?? []).map(m => Math.round(cells(m))))}</Text>
             <Text mono {...(r.valueColor ? { color: r.valueColor } : { dimColor: true })}>{` ${aligned[i] ?? r.value}`}</Text>
           </Box>
         )
@@ -800,7 +863,7 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
 }
 
 // 2. the running total of each step type at the end of each day, stacked (the stacked variant of the skill's chart 2)
-function cumulativeChart(ui: UI, c: UsageCharts, n: number, L: number) {
+function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number) {
   const pts = [...c.cumulative.points].sort((a, b) => a.day - b.day)
   if (!pts.length) return null
   const total = (q: { [key: string]: number }) => c.cumulative.kinds.reduce((k, kind) => k + (q[kind] ?? 0), 0)
@@ -809,51 +872,48 @@ function cumulativeChart(ui: UI, c: UsageCharts, n: number, L: number) {
   const today = new Date()
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const days = c.cumulative.days.filter(d => d.date <= iso).map(d => ({ d, q: [...pts].reverse().find(q => q.day < d.day + 1) })).filter(x => x.q).slice(-14)
-  const rows: Row[] = days.map(({ d, q }, i) => {
-    const segs = c.cumulative.kinds.map(kind => ({ text: '█'.repeat(Math.round(((q![kind] ?? 0) / max) * n)), color: KIND[kind] ?? 'inactive' }))
-    return {
-      scope: `u2:${i}`, label: d.date.slice(5), segs, value: `${total(q!).toFixed(1)}M`,
-      detail: `${d.date}, total so far: ${c.cumulative.kinds.map(k => `${k} ${(q![k] ?? 0).toFixed(1)}M`).join(' · ')}`,
-    }
-  })
+  const rows: Row[] = days.map(({ d, q }, i) => ({
+    scope: `u2:${i}`, label: d.date.slice(5), segs: c.cumulative.kinds.map(kind => ({ v: q![kind] ?? 0, color: KIND[kind] ?? 'inactive' })),
+    value: `${total(q!).toFixed(1)}M`,
+    detail: `${d.date}, total so far: ${c.cumulative.kinds.map(k => `${k} ${(q![k] ?? 0).toFixed(1)}M`).join(' · ')}`,
+  }))
   return chart(ui, '2. Cumulative cost by step type, at the end of each day', 'A row that grows a lot is a day of big steps; the colours show which type made it (≈ equiv, millions).',
-    rows, L, n, c.cumulative.kinds.map(k => ({ text: `█ ${k}`, color: KIND[k] ?? 'inactive' })))
+    rows, L, room, max, c.cumulative.kinds.map(k => ({ text: `█ ${k}`, color: KIND[k] ?? 'inactive' })))
 }
 
 // 3. cost per slice by milestone, coloured by who built it, with the reference slice cost as a ┆ mark
-function milestoneChart(ui: UI, c: UsageCharts, n: number, L: number) {
+function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number) {
   const ref = c.referencePerSlice?.equiv ?? 0
   const max = Math.max(ref, ...c.milestones.map(m => m.equivPerSlice ?? 0))
-  const mark = ref ? [Math.round((ref / max) * n)] : []
   // the reference as a row of its own too: the ┆ mark hides under bars that pass it
   const refRow: Row[] = ref ? [{
-    scope: 'u3:ref', label: 'ref', segs: [{ text: bar(ref, max, n), color: 'inactive' }], value: fmt(ref),
+    scope: 'u3:ref', label: 'ref', segs: [{ v: ref, color: 'inactive' }], value: fmt(ref),
     detail: `reference: ${c.referencePerSlice!.label}, ${fmt(ref)} per slice`,
   }] : []
   const rows: Row[] = c.milestones.map((m, i) => ({
-    scope: `u3:${i}`, label: m.id, segs: [{ text: m.equivPerSlice == null ? '' : bar(m.equivPerSlice, max, n), color: BUILT[m.built] ?? 'claude' }],
-    value: m.equivPerSlice == null ? 'n/a' : fmt(m.equivPerSlice), marks: mark,
+    scope: `u3:${i}`, label: m.id, segs: [{ v: m.equivPerSlice ?? 0, color: BUILT[m.built] ?? 'claude' }],
+    value: m.equivPerSlice == null ? 'n/a' : fmt(m.equivPerSlice), marks: ref ? [ref] : [],
     detail: m.equivPerSlice == null
       ? `${m.id}: no cost per slice yet (no slice merged with a transcript), ${m.slices} slices`
       : `${m.id}: ${fmt(m.equivPerSlice)} per slice, built by ${m.built}, measured ${m.measured}, ${m.slices} slices`,
   }))
-  return chart(ui, '3. Cost per slice by milestone', 'Launched builds should sit near the reference; chat-built milestones sit far above it.', [...refRow, ...rows], L, n,
+  return chart(ui, '3. Cost per slice by milestone', 'Launched builds should sit near the reference; chat-built milestones sit far above it.', [...refRow, ...rows], L, room, max,
     [{ text: '█ helpers', color: 'suggestion' }, { text: '█ chat', color: 'warning' }, { text: '█ mixed', color: 'claude' },
       ...(ref ? [{ text: `ref: ${c.referencePerSlice!.label}` }] : [])])
 }
 
 // 4. context per turn by session (cache read ÷ turns), red past 300 turns, with the base of a launched session marked
-function sessionChart(ui: UI, c: UsageCharts, n: number, L: number, all: boolean) {
+function sessionChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
   const list = c.sessions.filter(s => s.ctx != null).slice(all ? 0 : -RECENT_SESSIONS)
   const BASE = 100e3
   const max = Math.max(BASE, ...list.map(s => s.ctx ?? 0))
-  const baseRow: Row = { scope: 'u4:base', label: 'base', segs: [{ text: bar(BASE, max, n), color: 'inactive' }], value: fmt(BASE), detail: 'a launched session re-reads about 100k per turn' }
+  const baseRow: Row = { scope: 'u4:base', label: 'base', segs: [{ v: BASE, color: 'inactive' }], value: fmt(BASE), detail: 'a launched session re-reads about 100k per turn' }
   const rows: Row[] = [baseRow, ...list.map((s, i) => ({
-    scope: `u4:${i}`, label: `#${s.n}`, segs: [{ text: bar(s.ctx ?? 0, max, n), color: s.over300 ? 'error' : 'suggestion' }],
-    value: `${fmt(s.ctx)} · ${s.turns} turns`, marks: [Math.round((BASE / max) * n)], ...(s.over300 ? { valueColor: 'error' } : {}),
+    scope: `u4:${i}`, label: `#${s.n}`, segs: [{ v: s.ctx ?? 0, color: s.over300 ? 'error' : 'suggestion' }],
+    value: `${fmt(s.ctx)} · ${s.turns} turns`, marks: [BASE], ...(s.over300 ? { valueColor: 'error' } : {}),
     detail: `#${s.n} ${s.date}: ${fmt(s.ctx)} re-read per turn, ${s.turns} turns, ${fmt(s.equiv)} ≈ equiv, ${s.helpers} helpers${s.over300 ? ': should have been split' : ''}`,
   }))]
-  return chart(ui, '4. Context per turn by session', 'Launched sessions sit near the base; long mixed sessions climb past 200k. Red: over 300 turns.', rows, L, n,
+  return chart(ui, '4. Context per turn by session', 'Launched sessions sit near the base; long mixed sessions climb past 200k. Red: over 300 turns.', rows, L, room, max,
     [{ text: 'base: a launched session, 100k' }, { text: '█ over 300 turns', color: 'error' }])
 }
 

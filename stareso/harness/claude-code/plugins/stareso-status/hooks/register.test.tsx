@@ -221,19 +221,34 @@ test('the usage view draws the plan windows, the tiles and the six charts', asyn
   }
 })
 
-test('the progress view lists the chats working in the project, outside the roadmap', async ($, on) => {
+test('the progress view lists the chats of the project, working or idle', async ($, on) => {
+  const recent = new Date(Date.now() - 3600_000).toISOString()
+  const old = new Date(Date.now() - 3 * 24 * 3600_000).toISOString()
   engine(on, false, [
-    { title: 'Build all open milestones (fast)', cwd: '\\work\\demo\\', isRunning: true, lastActivityAt: '2026-10-22T17:09:11.264Z' },
+    { title: 'Build all open milestones (fast)', cwd: '\\work\\demo\\', isRunning: true, lastActivityAt: recent },
     { title: 'Side question', cwd: '/work/demo/.claude/worktrees/x', isRunning: true },
-    { title: 'Idle manager', cwd: '/work/demo', isRunning: false },
+    { title: 'Idle manager', cwd: '/work/demo', isRunning: false, lastActivityAt: recent },
+    { title: 'Last week', cwd: '/work/demo', isRunning: false, lastActivityAt: old },
     { title: 'Other project', cwd: '/work/other', isRunning: true },
   ])
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'stareso-panel', args: 'brief' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /^Chats computing$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^Chats$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^2 working, 1 idle$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Build all open milestones \(fast\)$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Side question$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /Idle manager|Other project/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /^Idle manager$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Last week|Other project/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('a stareso button in the prompt footer opens the panel', async ($, on) => {
+  const seen = engine(on, false)
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'stareso-status', component: 'SessionMode', props: { modes: ['focus'] }, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^focus$/ })).toBeTruthy()
+  await ui.press({ key: 'stareso-toggle' })
+  expect(seen.opened).toBe(1)
   await ui.unmount()
 })
