@@ -5,9 +5,10 @@
 //   ~/.claude/stareso/data/plan-windows.jsonl   readings of the plan's 5-hour and weekly windows (per machine)
 //   ~/.claude/stareso/data/projects.jsonl       one summary per project and change, the cross-project reference
 //
-// A project is migrated when its data folder exists (migrate-records.mjs creates it). An unmigrated project keeps its
-// docs/BUILD-LOG.md and docs/usage-sessions.json, which the readers below parse as before. STARESO_DATA points the
-// project's data folder elsewhere (a read-only check against a scratch copy of the datasets).
+// A project is migrated when its data folder exists (migrate-records.mjs creates it, setup runs it). The old files
+// (docs/BUILD-LOG.md, docs/usage-sessions.json, docs/USAGE.md) are read by migrate-records alone: a project that still
+// has them is migrated first. STARESO_DATA points the project's data folder elsewhere (a read-only check against a
+// scratch copy of the datasets).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -62,10 +63,7 @@ export const writeJsonl = (file, objs) => { fs.mkdirSync(path.dirname(file), { r
 // inWorktree, wf, seeded? }. `at` is when the line was written.
 export function readSessions(root) {
   const byId = {};
-  if (migrated(root)) for (const e of readJsonl(sessionsFile(root))) { if (e?.id && e.s) byId[e.id] = plainChat(e); }
-  else {
-    try { const c = JSON.parse(fs.readFileSync(path.join(root, "docs", "usage-sessions.json"), "utf8")); for (const [id, e] of Object.entries(c.sessions || {})) byId[id] = { id, ...e }; } catch { /* none */ }
-  }
+  for (const e of readJsonl(sessionsFile(root))) { if (e?.id && e.s) byId[e.id] = plainChat(e); }
   return byId;
 }
 
@@ -126,12 +124,14 @@ export function parseLogLine(l) {
   };
 }
 
-// The build events of a project: builds.jsonl when migrated, else the dated lines of docs/BUILD-LOG.md.
-export function readBuilds(root) {
-  if (migrated(root)) return readJsonl(buildsFile(root)).filter((e) => e && e.type);
-  let text = "";
-  try { text = fs.readFileSync(path.join(root, "docs", "BUILD-LOG.md"), "utf8"); } catch { return []; }
-  return text.split(/\r?\n/).map(parseLogLine).filter(Boolean);
+// The build events of a project (docs/data/builds.jsonl).
+export const readBuilds = (root) => readJsonl(buildsFile(root)).filter((e) => e && e.type);
+
+// For the tools that write records: a project with no data folder is migrated first.
+export function needMigrated(root) {
+  if (migrated(root)) return;
+  console.error("This project has no docs/data/ records yet: run `node ~/.claude/stareso/tools/migrate-records.mjs` first.");
+  process.exit(1);
 }
 
 // An event back to its BUILD-LOG line (the retro and the dashboard's Builds table read them this way).

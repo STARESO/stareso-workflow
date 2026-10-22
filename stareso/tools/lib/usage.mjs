@@ -211,7 +211,7 @@ function writeCache({ version, sessions }) {
 // Every session entry of the project: { id, s, steps, h, inWorktree, wf, gone, rescued }. Live: read from the
 // transcripts (through the cache), the cache and then the records adding the sessions whose transcript is gone
 // (archiving or clearing a session deletes it). `rescued` marks a gone session the records do not hold yet (or hold
-// in an older state), which `--log` saves. Not live: the records only (sessions.jsonl, or docs/usage-sessions.json).
+// in an older state), which `--log` saves. Not live: the records only (sessions.jsonl).
 export async function collect(root, { live = true } = {}) {
   const stored = readSessions(root);
   const out = [];

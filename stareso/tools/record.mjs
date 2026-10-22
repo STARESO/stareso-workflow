@@ -5,11 +5,9 @@
 //   node ~/.claude/stareso/tools/record.mjs note "retrofit baseline: 102 commits before the workflow …"
 //        a dated line kept with the builds (a retrofit baseline, a run stopped by hand)
 //
-// A project not migrated yet (no docs/data/) gets the same line in docs/BUILD-LOG.md. Nothing is committed.
-import fs from "node:fs";
-import path from "node:path";
+// Nothing is committed.
 import { args, findRoot, stamp } from "./lib/roadmap.mjs";
-import { appendJsonl, buildsFile, logLine, migrated } from "./lib/records.mjs";
+import { appendJsonl, buildsFile, logLine, needMigrated } from "./lib/records.mjs";
 
 const a = args(process.argv.slice(2));
 const [type, text] = a._;
@@ -25,11 +23,6 @@ if (type === "caps") {
 else { console.error('usage: record.mjs caps --start <pct> --pause <pct> --weekly <pct> [--deadline HH:mm] [--note "…"]   |   record.mjs note "<text>"'); process.exit(1); }
 
 const root = findRoot();
-if (migrated(root)) appendJsonl(buildsFile(root), [event]);
-else {
-  const file = path.join(root, "docs", "BUILD-LOG.md");
-  const old = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-  const eol = old.includes("\r\n") ? "\r\n" : "\n";
-  fs.writeFileSync(file, old.replace(/(\r?\n)*$/, "") + (old ? eol : "") + logLine(event) + eol);
-}
+needMigrated(root);
+appendJsonl(buildsFile(root), [event]);
 console.log(logLine(event));

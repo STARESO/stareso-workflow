@@ -1,6 +1,6 @@
 // Usage report of a stareso project, from its own records only: docs/data/sessions.jsonl (written by
 // `session-stats --log`), docs/data/builds.jsonl (slice-done), the roadmap and the git merges. Never reads transcripts
-// or code. A project not migrated yet (no docs/data/) is read from docs/USAGE.md and docs/BUILD-LOG.md as before.
+// or code. A project with no docs/data/ is migrated first (migrate-records.mjs), or read live with --live.
 //
 //   node usage-report.mjs            markdown tables on stdout (the 30 most recent milestones)
 //   node usage-report.mjs --all      every milestone (and every build with --builds)
@@ -36,7 +36,7 @@ const root = findRoot(opt.root ? path.resolve(opt.root) : process.cwd());
 const read = (rel) => (fs.existsSync(path.join(root, rel)) ? fs.readFileSync(path.join(root, rel), "utf8") : "");
 const MIGRATED = migrated(root);
 const builds = readBuilds(root);
-const lastRetro = () => { const m = [...(read("docs/RETROS.md") + "\n" + read("docs/USAGE.md")).matchAll(/^### Retro (\d{4}-\d\d-\d\d)[^\r\n]*/gm)].at(-1); return m ? m[0].replace(/^### /, "") : null; };
+const lastRetro = () => { const m = [...read("docs/RETROS.md").matchAll(/^### Retro (\d{4}-\d\d-\d\d)[^\r\n]*/gm)].at(-1); return m ? m[0].replace(/^### /, "") : null; };
 
 // ---------- number helpers
 // "204.4M" / "907k" / "41k" → tokens; "" → null.
@@ -75,7 +75,7 @@ if (argv.includes("--projects")) {
   process.exit(0);
 }
 
-// ---------- sessions and steps: from the records (or the transcripts with --live), else from the old USAGE.md tables
+// ---------- sessions and steps: from the records, or the transcripts with --live
 let sessions, steps, workflowSteps, planRows;
 const SUMMARY = argv.includes("--summary");
 if (LIVE || MIGRATED) {
@@ -94,63 +94,10 @@ if (LIVE || MIGRATED) {
   workflowSteps = m.wfRows.flatMap(stepsOf);
   planRows = m.planList.map(({ st, r, n, se }) => [r.n, `${st.first.slice(0, 10)} ${st.first.slice(11, 16)}`, st.kind, n, se, se / n]);
 } else {
-  const usage = read("docs/USAGE.md");
-  if (!usage.includes("<!-- usage:start -->")) {
-    console.error("No usage records: run `node ~/.claude/stareso/tools/session-stats.mjs --log` first (or pass --live).");
-    process.exit(1);
-  }
-  ({ sessions, steps, workflowSteps, planRows } = fromUsageMd(usage));
+  console.error("No records: run `node ~/.claude/stareso/tools/migrate-records.mjs` once, then `session-stats.mjs --log` (or pass --live).");
+  process.exit(1);
 }
 
-// The old docs/USAGE.md: every markdown table with the heading or bold line above it, numbers as printed (rounded).
-function fromUsageMd(usage) {
-  const lines = usage.slice(usage.indexOf("<!-- usage:start -->"), usage.indexOf("<!-- usage:end -->")).split(/\r?\n/);
-  const T = [];
-  let label = "";
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (/^#+ |^\*\*/.test(l)) label = l;
-    if (l.startsWith("|") && lines[i + 1]?.startsWith("|---")) {
-      const head = l.split("|").slice(1, -1).map((c) => c.trim());
-      const rows = [];
-      let j = i + 2;
-      for (; j < lines.length && lines[j].startsWith("|"); j++) rows.push(lines[j].split("|").slice(1, -1).map((c) => c.trim()));
-      T.push({ label, head, rows });
-      i = j - 1;
-    }
-  }
-  // sessions (project table only; W rows are workflow improvement sessions)
-  const sessT = T.find((t) => t.head[1] === "Date (start–end)" && t.rows.some((r) => /^\d+$/.test(r[0])));
-  const sessions = sessT.rows.map((r) => {
-    const [d, rest] = r[1].split(" ");
-    return { n: Number(r[0]), date: d, start: new Date(`${d}T${rest.slice(0, 5)}`), hours: Number(r[3]), turns: Number(r[5]), you: Number(r[6]) || 0, helpers: Number(r[7]) || 0, equiv: eq(r[8]) };
-  });
-  const detT = T.find((t) => t.head[0] === "#" && t.head.includes("Ctx/turn"));
-  for (const r of detT?.rows || []) {
-    const se = sessions.find((x) => String(x.n) === r[0]);
-    if (!se) continue;
-    se.ctx = eq(r[2]); se.compact = Number(r[1]) || 0; se.output = eq(r[3]);
-    const h = /out (\S+) · cache (\S+)/.exec(r[6] || "");
-    se.helperEquiv = h ? eq(h[1]) * 5 + eq(h[2]) * 0.1 : 0; // about: helper cache writes are not in the table
-    se.conductorEquiv = se.equiv != null ? se.equiv - se.helperEquiv : null;
-  }
-  const year = sessions[0]?.date.slice(0, 4) || String(new Date().getFullYear());
-  // steps: "10-14 10:29–10-17 17:58" or "10-19 16:27–16:28"
-  const window = (s) => {
-    const m = /^(\d\d-\d\d) (\d\d:\d\d)–(?:(\d\d-\d\d) )?(\d\d:\d\d)$/.exec(s);
-    return m ? { a: new Date(`${year}-${m[1]}T${m[2]}`), b: new Date(`${year}-${m[3] || m[1]}T${m[4]}:59`) } : null;
-  };
-  const stepRows = (t) => t.rows.map((r) => ({
-    session: r[0], label: r[2], type: typeOf(r[2]), win: window(r[1]), hours: Number(r[3]), turns: Number(r[4]),
-    you: Number(r[5]) || 0, equiv: eq(r[7]), carried: r[8] || "",
-  }));
-  const stepT = T.filter((t) => t.head[1] === "Start–end" && t.head.includes("Carried"));
-  const planT = T.find((t) => t.head[0] === "#" && t.head.includes("Slices planned"));
-  return {
-    sessions, steps: stepRows(stepT[0]), workflowSteps: stepT[1] ? stepRows(stepT[1]) : [],
-    planRows: (planT?.rows || []).filter((r) => r[0]).map((r) => [r[0], r[1].slice(0, 16), r[2], Number(r[3]), eq(r[4]), eq(r[5])]),
-  };
-}
 // The workflow starts at the first init or retrofit step (project or workflow-improvement table);
 // sessions that started before it are shown but left out of the shares.
 // No init or retrofit step logged (a project set up before the logging began): the workflow starts with the first session.
@@ -182,7 +129,7 @@ const log = builds.filter((e) => e.type === "slice").map((e) => ({
 const merges = MIGRATED ? mergesFromRecords(builds) : mergesFromGit(root, log);
 
 // The step that merged a slice: a build step whose window holds the merge, else any non-status step. A slice that
-// BUILD-LOG says a helper built came from a build session: with no build step holding it, that session left no
+// the build records say a helper built came from a build session: with no build step holding it, that session left no
 // transcript (unlogged), and no test or chat step is charged for it.
 const helperBuilt = new Set(log.filter((x) => !x.inline && x.tokens).map((x) => x.id));
 function stepOf(time, id) {
@@ -284,7 +231,7 @@ if (SUMMARY) {
     workflowCost: Math.round(workflowTotal), before: Math.round(sum(steps.filter(before).map((s) => s.equiv))) || 0, sessions: sessions.length,
     activeHours: +sum(steps.filter((s) => !before(s)).map((s) => s.hours)).toFixed(1), slices: log.length,
     lastBuildPerSlice: Math.round(buildRows.filter((b) => b.type === "build").at(-1)?.equivPerSlice || 0) || null,
-    conductorBuilt: builds.filter((e) => e.type === "slice" && e.conductor).length, lastRetro: lastRetro(), records: MIGRATED ? "datasets" : "USAGE.md",
+    conductorBuilt: builds.filter((e) => e.type === "slice" && e.conductor).length, lastRetro: lastRetro(), records: MIGRATED ? "datasets" : "live",
   }));
   process.exit(0);
 }
@@ -352,7 +299,7 @@ out.push(md(["Milestone", "Kind", "Slices", "Built by", "Models", "Profile", "�
 ])));
 
 const unloggedSlices = merges.filter((m) => !m.step && helperBuilt.has(m.id)).length;
-if (unloggedSlices) out.push(`\n${unloggedSlices} helper-built slices have no ≈ equiv per slice: the session that built them left no transcript (archived or deleted before a \`session-stats --log\` kept it; \`usage-seed\` can bring it back from an older USAGE.md). Their helper tokens are in BUILD-LOG and in table 5.`);
+if (unloggedSlices) out.push(`\n${unloggedSlices} helper-built slices have no ≈ equiv per slice: the session that built them left no transcript (archived or deleted before a \`session-stats --log\` kept it; \`usage-seed\` can bring it back from an older USAGE.md). Their helper tokens are in the build records and in table 5.`);
 out.push("\n**4. Steps that merged slices**\n");
 out.push(md(["Session", "Date", "Step type", "Slices", "Turns", "Turns per slice", "≈ equiv", "≈ equiv per slice", "Helpers", "Conductor share"], buildRows.map((b) => [
   b.session, b.date, b.type, b.merged, b.turns, b.turnsPerSlice.toFixed(1), fmt(b.equiv), fmt(b.equivPerSlice), b.helpers || "", b.conductorShare == null ? "n/a" : pct(b.conductorShare, 1),

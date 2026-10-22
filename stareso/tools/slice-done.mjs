@@ -1,6 +1,6 @@
 // Closes one slice in one call: merge its branch into the current branch with --no-ff, delete the branch,
 // tick the roadmap box, switch the IDEAS lines naming it from 🛠 to ✅, append the build event (with the merge's time
-// and lines) to docs/data/builds.jsonl (the BUILD-LOG line in a project not migrated yet), regenerate the roadmap
+// and lines) to docs/data/builds.jsonl, regenerate the roadmap
 // overview and commit the docs. A helper's worktree on the slice branch is removed after the merge when it holds no
 // uncommitted work (kept with a warning otherwise, or with --keep-worktree), and the empty folders that removed
 // worktrees left beside it are deleted. Prints the one-line report for the user.
@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findRoot, findSlice, readText, writeText, writeOverview, stamp, args } from "./lib/roadmap.mjs";
-import { appendJsonl, buildsFile, migrated, parseLogLine } from "./lib/records.mjs";
+import { appendJsonl, buildsFile, needMigrated, parseLogLine } from "./lib/records.mjs";
 import { fmt, helperUsage } from "./lib/usage.mjs";
 
 const a = args(process.argv.slice(2));
@@ -25,6 +25,7 @@ const id = a._[0];
 if (!id) { console.error("usage: slice-done.mjs <slice-id> [--model m] [--tokens n] [--note text] [--result r] [--branch b|none] [--profile p] [--harness h] [--helper m] [--tier t]"); process.exit(1); }
 
 const root = findRoot();
+needMigrated(root);
 const git = (...cmd) => execFileSync("git", cmd, { cwd: root, encoding: "utf8" }).trim();
 
 const found = findSlice(root, id);
@@ -117,7 +118,7 @@ if (fs.existsSync(qFile)) {
   if (debtPaid) writeText(qFile, out, eol);
 }
 
-// 4. BUILD-LOG line. Harness, helper mode and tier let the retro compare harnesses (stareso/metrics.md).
+// 4. The build event. Harness, helper mode and tier let the retro compare harnesses (stareso/metrics.md).
 const instructions = ["CLAUDE.md", "AGENTS.md", "GEMINI.md"].map((f) => path.join(root, f)).filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f, "utf8")).join("\n");
 const harness = a.harness || (/\bHarness:\s*([\w-]+)/i.exec(instructions) || [])[1] || "claude-code";
 const helper = a.helper || (/\bHelpers?:\s*(subagent|session|inline)\b/i.exec(instructions) || [])[1] || "subagent";
@@ -133,7 +134,6 @@ if (!tier) {
     if (row) { tier = row[1]; break; }
   }
 }
-const logFile = path.join(root, "docs", "BUILD-LOG.md");
 // The helper that built the slice, measured from its own transcript: kept beside the figure the conductor passes, and
 // standing in for it when none was passed, so a helper-built slice never logs "tokens not shown".
 const usage = branch === "none" ? null : await helperUsage(root, id).catch(() => null);
@@ -144,14 +144,7 @@ if (a.profile) parts.push(a.profile);
 parts.push(harness, helper, tier || "tier ?");
 if (a.note) parts.push(a.note);
 const line = "- " + parts.join(" · ");
-// A migrated project keeps one event per line in docs/data/builds.jsonl (its BUILD-LOG.md is frozen in the archive).
-if (migrated(root)) appendJsonl(buildsFile(root), [{ ...parseLogLine(line), merge, ...(usage ? { usage } : {}) }]);
-else {
-  const { lines, eol } = readText(logFile);
-  while (lines.length && lines[lines.length - 1] === "") lines.pop();
-  lines.push(line, "");
-  writeText(logFile, lines, eol);
-}
+appendJsonl(buildsFile(root), [{ ...parseLogLine(line), merge, ...(usage ? { usage } : {}) }]);
 
 // 5. Overview and commit.
 const overview = writeOverview(root);

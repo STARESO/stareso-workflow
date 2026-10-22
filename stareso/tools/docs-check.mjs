@@ -21,9 +21,10 @@ const ms = milestones(root);
 const all = ms.flatMap((m) => m.slices.map((s) => ({ ...s, milestone: m.id })));
 const ids = new Set(all.map((s) => s.id));
 
-// Ticked slices need a build record (docs/data/builds.jsonl, or a BUILD-LOG line before the migration).
+// Ticked slices need a build record (docs/data/builds.jsonl). A project with no records yet is to migrate.
+if (!migrated(root)) findings.push("docs/data/: no records yet: run migrate-records.mjs");
 const log = readBuilds(root).filter((e) => e.type !== "merge").map(logLine).join("\n");
-const logName = migrated(root) ? "builds.jsonl" : "BUILD-LOG";
+const logName = "builds.jsonl";
 for (const s of all.filter((x) => x.done)) {
   const re = new RegExp(`(^|[^A-Za-z0-9.])${s.id.replace(/\./g, "\\.")}(?![0-9A-Za-z])`, "m");
   if (!re.test(log)) findings.push(`${logName}: no line for ticked slice ${s.id} (${s.milestone})`);

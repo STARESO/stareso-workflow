@@ -4,16 +4,14 @@
 //
 // Reads the session, step and detail rows of that session number in `git show <rev>:docs/USAGE.md`, rebuilds the
 // aggregates session-stats keeps (numbers only, rounded as USAGE.md printed them; helper tokens split by model in
-// proportion to their turns) and adds them to docs/data/sessions.jsonl (docs/usage-sessions.json in a project not
-// migrated yet), where `session-stats` and `usage-report` read them
-// as "(transcript gone)". Use it when a session was archived before a `--log` run had kept it. Never reads transcripts.
-import fs from "node:fs";
-import path from "node:path";
+// proportion to their turns) and adds them to docs/data/sessions.jsonl, where `session-stats` and `usage-report` read
+// them as "(transcript gone)". Use it when a session was archived before a `--log` run had kept it. Never reads transcripts.
 import { execFileSync } from "node:child_process";
 import { findRoot } from "./lib/roadmap.mjs";
-import { appendJsonl, migrated, readSessions, sessionsFile } from "./lib/records.mjs";
+import { appendJsonl, needMigrated, readSessions, sessionsFile } from "./lib/records.mjs";
 
 const root = findRoot();
+needMigrated(root);
 const args = process.argv.slice(2);
 if (args.length < 2 || args.length % 2) { console.error("usage: node usage-seed.mjs <git-rev> <session-number> [<git-rev> <session-number> …]"); process.exit(1); }
 
@@ -36,11 +34,7 @@ function range(text, yearFrom) {
   return { first: ts(`${year}-${m[2]}`, m[3]), last: ts(`${year}-${m[4] || m[2]}`, m[5]), year };
 }
 
-const cacheFile = path.join(root, "docs", "usage-sessions.json");
-let cache = { version: 1, note: "Written by session-stats --log: per-session aggregates, numbers only. A session whose transcript was deleted keeps its last entry here (shown as transcript gone). Delete an entry to drop that session.", sessions: {} };
-const MIGRATED = migrated(root);
-if (MIGRATED) cache.sessions = readSessions(root);
-else try { const c = JSON.parse(fs.readFileSync(cacheFile, "utf8")); if (c && c.sessions) cache = c; } catch { /* first seed */ }
+const cache = { sessions: readSessions(root) };
 const added = [];
 
 for (let i = 0; i < args.length; i += 2) {
@@ -96,5 +90,4 @@ for (let i = 0; i < args.length; i += 2) {
   added.push(id);
   console.log(`seeded ${id}: ${kind}, ${assistant} turns, ${hN} helpers, ≈ ${session[8]}`);
 }
-if (MIGRATED) appendJsonl(sessionsFile(root), added.map((id) => ({ id, ...cache.sessions[id], at: new Date().toISOString().slice(0, 16) })));
-else fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1) + "\n");
+appendJsonl(sessionsFile(root), added.map((id) => ({ id, ...cache.sessions[id], at: new Date().toISOString().slice(0, 16) })));

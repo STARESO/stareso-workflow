@@ -13,7 +13,7 @@
 //         --caps <start>/<pause>/<weekly>   stop caps in percent, when the build records hold no caps event
 //         --panel            for the stareso-status panel: the brief, every lane and slice (state, deps, ETA, helper),
 //                            and the alert data, as one JSON line (pass --max-lanes 99 for every open lane)
-//         --status           the answer of /stareso-status: 3 to 5 short lines, the rule table applied, the next step
+//         --status           the answer of /stareso-status: 3 to 6 short lines, the rule table applied, the next step
 //                            (`--models opus/sonnet/haiku` names the tiers; nothing written but the plan readings)
 //         `lines` holds the one-line status items ready to print: running, usage, pace, waits, ready.
 import fs from "node:fs";
@@ -22,7 +22,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { args, findRoot, milestones, stamp } from "./lib/roadmap.mjs";
-import { appendJsonl, migrated, planWindowsFile, readBuilds, readJsonlTail } from "./lib/records.mjs";
+import { appendJsonl, planWindowsFile, readBuilds, readJsonlTail } from "./lib/records.mjs";
 
 const opt = args(process.argv.slice(2));
 
@@ -268,14 +268,14 @@ for (const k of ["five", "week"]) {
 }
 try { appendJsonl(planWindowsFile(), fresh); } catch { /* the readings are a convenience */ }
 
-// stop caps: --caps, else the newest caps event of the build records (record.mjs caps, or a BUILD-LOG caps line), 36 h at most
+// stop caps: --caps, else the newest caps event of the build records (record.mjs caps), 36 h at most
 let caps = null;
 const capEvent = builds.filter((e) => e.type === "caps" && e.t.length > 10).at(-1);
 if (opt.caps) {
   const [start, pause, weekly] = String(opt.caps).split("/").map((x) => Number(x) || null);
   caps = { start, pause, weekly, deadline: null, source: "given" };
 } else if (capEvent && now - new Date(capEvent.t.replace(" ", "T") + ":00").getTime() < 36 * 3600e3) {
-  caps = { start: capEvent.start, pause: capEvent.pause, weekly: capEvent.weekly, deadline: capEvent.deadline, source: `${migrated(root) ? "build records" : "BUILD-LOG"} ${capEvent.t}` };
+  caps = { start: capEvent.start, pause: capEvent.pause, weekly: capEvent.weekly, deadline: capEvent.deadline, source: `build records ${capEvent.t}` };
 }
 
 // rate from the oldest reading of the window (at least 10 min back), else the average since the window opened
@@ -499,8 +499,8 @@ function brief() {
 }
 if (opt.brief) { console.log(brief()); process.exit(0); }
 
-// The rule table of the status step (stareso-status §2), first match wins, then 3 to 5 short lines: the head (project,
-// step, mode, the number that matters), ⚠ one blocker or cap, □ what waits on the user, ▶ the next step. Everything
+// The rule table of the status step (stareso-status §2), first match wins, then 3 to 6 short lines: the head (project,
+// step, mode, the number that matters), ⚠ a blocking question and one line per usage window, □ what waits on the user, ▶ the next step. Everything
 // else is left to the panel.
 function status() {
   const gitDir = git("rev-parse", "--git-dir").trim(), common = git("rev-parse", "--git-common-dir").trim();
@@ -550,16 +550,20 @@ function status() {
   }
   const out = [`${name} · ${head}`];
 
-  // ⚠ one line at most: a cap reached, a question that blocks slices, then the cap the run reaches first
-  const reach = [["5-hour", usage.five], ["weekly", usage.week]].flatMap(([w, u]) => (u ? u.reach.map((r) => ({ ...r, w, u })) : []));
-  const hit = reach.find((r) => r.at === "reached");
-  const soon = reach.filter((r) => r.at && r.at !== "reached").sort((a, b) => a.t - b.t)[0];
-  const full = [["5-hour", usage.five], ["weekly", usage.week]].find(([, u]) => u && u.pct >= 90);
+  // ⚠ a question that blocks slices, then one line per usage window (5-hour, weekly) when it matters now: a cap
+  // reached, the first cap the run reaches before the reset, or a window past 90 %. Each line names its window.
   const blockedNumbered = openNumbered.filter((s) => blockedByQuestion.has(s.id)).map((s) => s.id);
-  if (hit) out.push(`⚠ ${hit.w} ${hit.u.pct} %: ${hit.name} cap ${hit.cap} % reached`);
-  else if (blockedNumbered.length) out.push(`⚠ ${blockedNumbered.length} slice${blockedNumbered.length > 1 ? "s wait" : " waits"} on a question: ${blockedNumbered.slice(0, 3).join(", ")}${blockedNumbered.length > 3 ? " …" : ""}`);
-  else if (soon && (runningNow.length || ready.length)) out.push(`⚠ ${soon.name === "weekly" ? "weekly" : soon.w} cap ${soon.cap} % ≈ ${soon.at}`);
-  else if (full) out.push(`⚠ ${full[0]} ${full[1].pct} %, resets ${full[1].resets}`);
+  if (blockedNumbered.length) out.push(`⚠ ${blockedNumbered.length} slice${blockedNumbered.length > 1 ? "s wait" : " waits"} on a question: ${blockedNumbered.slice(0, 3).join(", ")}${blockedNumbered.length > 3 ? " …" : ""}`);
+  const active = runningNow.length || ready.length;
+  for (const [w, u] of [["5-hour", usage.five], ["weekly", usage.week]]) {
+    if (!u) continue;
+    const hit = u.reach.find((r) => r.at === "reached");
+    const soon = u.reach.filter((r) => r.at && r.at !== "reached").sort((a, b) => a.t - b.t)[0];
+    const cap = (r) => (w === "weekly" ? `cap ${r.cap} %` : `${r.name} cap ${r.cap} %`);
+    if (hit) out.push(`⚠ ${w} ${u.pct} %: ${cap(hit)} reached`);
+    else if (soon && active) out.push(`⚠ ${w} ${u.pct} %: ${cap(soon)} ≈ ${soon.at}`);
+    else if (u.pct >= 90) out.push(`⚠ ${w} ${u.pct} %, resets ${u.resets}`);
+  }
 
   const you = [humanSlices.length && `${humanSlices.length} human slice${humanSlices.length > 1 ? "s" : ""}`, questions.length && `${questions.length} question${questions.length > 1 ? "s" : ""}`].filter(Boolean);
   if (youLine && you.length) out.push(`□ ${you.join(", ")} wait${you.length > 1 || humanSlices.length > 1 || questions.length > 1 ? "" : "s"} on you`);
