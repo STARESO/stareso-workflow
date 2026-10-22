@@ -1,5 +1,5 @@
 // Live stareso status: a pane beside the chat that runs ~/.claude/stareso/tools/progress-graph.mjs every minute while
-// it is open and draws its brief (text), its graph (one row of slices per milestone, to hover and press) or the
+// it is open and draws its brief (aligned columns, slices in the colour of their state), its graph (one row of slices per milestone, to hover and press) or the
 // project's usage (the plan windows, then the tiles and six charts of the stareso-usage skill from usage-report.mjs
 // --live), with toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage
 // cap comes within 15 minutes. Everything is drawn with the surface's own elements, so the terminal draws it too.
@@ -320,7 +320,7 @@ export const register: Register = on => {
           {tab('usage', 'Usage')}
         </Box>
         {p.error !== '' && <Text color="error">{p.error}</Text>}
-        {p.view === 'text' && p.brief !== '' && <Code source={p.brief} language="text" />}
+        {p.view === 'text' && (p.graph ? briefView(ui, p, p.graph, cols) : p.brief !== '' && <Code source={p.brief} language="text" />)}
         {p.view === 'graph' && (p.graph ? graphView(ui, p, p.graph, act) : <Text dimColor>reading the graph…</Text>)}
         {p.view === 'usage' && usageView(ui, p, cols, act)}
         {p.view !== 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
@@ -329,8 +329,6 @@ export const register: Register = on => {
   })
 }
 
-// ---------- the graph: one row of slices per milestone; hover a slice for its line, press it for its card ----------
-
 const STATE: Record<SliceState, { color: string; label: string; mark: string }> = {
   done: { color: 'success', label: 'done', mark: '■' },
   running: { color: 'warning', label: 'running', mark: '▶' },
@@ -338,6 +336,149 @@ const STATE: Record<SliceState, { color: string; label: string; mark: string }> 
   you: { color: 'permission', label: 'waits on you', mark: '■' },
   waiting: { color: 'inactive', label: 'waiting', mark: '□' },
 }
+
+// ---------- the brief: the tool's sections as aligned columns, every slice in the colour of its state ----------
+
+const SECTION = /^(Progress|Helpers|Usage|Pace|Waits for you|Could start now)\b\s*(.*)$/
+const SLICE_ID = /\b([A-Z][A-Za-z]*\d*\.(?:\d+|tidy))\b/
+
+// the brief's sections by heading: the rest of the heading line, then its lines without their indent
+function sections(brief: string): Map<string, { head: string; lines: string[] }> {
+  const out = new Map<string, { head: string; lines: string[] }>()
+  let cur: { head: string; lines: string[] } | null = null
+  for (const line of brief.split('\n').slice(1)) {
+    const m = SECTION.exec(line)
+    if (m) out.set(m[1] ?? '', (cur = { head: m[2] ?? '', lines: [] }))
+    else if (cur && line.trim()) cur.lines.push(line.trim())
+  }
+  return out
+}
+
+// a line of the brief with each slice id it names in the colour of its state
+function sliceText(ui: UI, g: PanelGraph, text: string, style: { dimColor?: boolean; bold?: boolean } = {}) {
+  const { Text } = ui
+  const parts = text.split(new RegExp(SLICE_ID.source, 'g'))
+  return (
+    <Text {...style}>
+      {parts.map((t, i) => {
+        const s = i % 2 ? g.slices[t] : undefined
+        return s ? <Text color={STATE[s.state].color} dimColor={false}>{t}</Text> : t
+      })}
+    </Text>
+  )
+}
+
+function heading(ui: UI, name: string, head = '') {
+  const { Box, Text } = ui
+  return (
+    <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+      <Text bold>{name}</Text>
+      {head !== '' && <Text dimColor>{head}</Text>}
+    </Box>
+  )
+}
+
+function briefView(ui: UI, p: PanelView, g: PanelGraph, cols: number) {
+  const { Box, Text } = ui
+  const sec = sections(p.brief)
+  const progress = sec.get('Progress')?.lines ?? []
+  const idW = Math.max(4, ...g.lanes.map(l => l.id.length)) + 2
+  const cntW = Math.max(5, ...g.lanes.map(l => `${l.done}/${l.total}`.length)) + 2
+  const sqW = Math.min(Math.max(1, ...g.lanes.map(l => l.slices.length)), Math.max(8, cols - idW - cntW - 18)) + 2
+  // what follows the squares: the milestone's ETA, or for a human or queue lane the brief's own words
+  const tail = (l: PanelLane) => (l.block ? (progress.find(x => x.startsWith(`${l.id} `))?.replace(/^\S+\s+\d+\/\d+\s+/, '') ?? '') : l.eta)
+  const marks = (l: PanelLane) => {
+    const runs: { state: SliceState; n: number }[] = []
+    for (const id of l.slices.filter(x => g.slices[x]).slice(0, sqW - 2)) {
+      const state = g.slices[id]?.state ?? 'waiting'
+      const last = runs.at(-1)
+      if (last?.state === state) last.n += 1
+      else runs.push({ state, n: 1 })
+    }
+    return { runs, n: runs.reduce((k, r) => k + r.n, 0) }
+  }
+  const finished = progress.find(x => x.includes('every slice done'))
+  const used = new Set(Object.values(g.slices).map(s => s.state))
+
+  const running = Object.entries(g.slices).filter(([, s]) => s.state === 'running')
+    .sort(([, a], [, b]) => (a.started ?? '').localeCompare(b.started ?? ''))
+  const slW = Math.max(7, ...running.map(([id]) => id.length + 2)) + 2
+  const helperRow = (cells: string[], title: string, header: boolean, id = '') => (
+    <Box flexDirection="row">
+      {id !== '' ? <Text mono color={STATE.running.color}>{`▶ ${id}`.padEnd(slW)}</Text> : <Text mono dimColor>{(cells[0] ?? '').padEnd(slW)}</Text>}
+      <Text mono {...(header ? { dimColor: true } : {})}>{(cells[1] ?? '').padEnd(8)}</Text>
+      <Text mono dimColor>{(cells[2] ?? '').padEnd(9)}</Text>
+      <Text mono {...(header ? { dimColor: true } : {})}>{(cells[3] ?? '').padEnd(9)}</Text>
+      <Text mono {...(header ? { dimColor: true } : {})}>{(cells[4] ?? '').padEnd(9)}</Text>
+      <Box flexShrink={1}><Text wrap="truncate-end" {...(header ? { dimColor: true } : {})}>{title}</Text></Box>
+    </Box>
+  )
+
+  const L = 9
+  const n = Math.max(10, Math.min(30, cols - L - 24))
+  const etaColor = (t: string) => (t === 'waits on you' ? { color: STATE.you.color } : t.startsWith('≈') ? {} : { dimColor: true })
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text dimColor>{p.brief.split('\n')[0] ?? ''}</Text>
+
+      <Box flexDirection="column">
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          <Text bold>Progress</Text>
+          {(Object.keys(STATE) as SliceState[]).filter(k => used.has(k)).map(k => <Text color={STATE[k].color}>{`${STATE[k].mark} ${STATE[k].label}`}</Text>)}
+        </Box>
+        {finished && (
+          <Box flexDirection="row">
+            <Text mono color={STATE.done.color}>{'✓'.padEnd(idW)}</Text>
+            <Text dimColor>{finished}</Text>
+          </Box>
+        )}
+        {g.lanes.map(l => {
+          const m = marks(l)
+          const t = tail(l)
+          return (
+            <Box flexDirection="row">
+              <Text mono bold>{l.id.padEnd(idW)}</Text>
+              <Text mono dimColor>{`${l.done}/${l.total}`.padEnd(cntW)}</Text>
+              {m.runs.map(r => <Text mono color={STATE[r.state].color}>{STATE[r.state].mark.repeat(r.n)}</Text>)}
+              <Text mono>{' '.repeat(Math.max(1, sqW - m.n))}</Text>
+              <Box flexShrink={1}><Text wrap="truncate-end" {...etaColor(t)}>{t}</Text></Box>
+            </Box>
+          )
+        })}
+      </Box>
+
+      <Box flexDirection="column">
+        {heading(ui, 'Helpers', sec.get('Helpers')?.head)}
+        {running.length > 0 && helperRow(['Slice', 'Model', 'Started', 'Running', 'ETA'], 'Title', true)}
+        {running.map(([id, s]) => helperRow(['', s.model ?? '', s.started ?? '', s.minutes != null ? `${s.minutes} min` : '', s.eta ? `≈ ${s.eta}` : ''], s.title, false, id))}
+      </Box>
+
+      {p.windows && (p.windows.five || p.windows.week)
+        ? windowsView(ui, p.windows, n, L, 'Usage')
+        : sec.get('Usage') && (
+          <Box flexDirection="column">
+            {heading(ui, 'Usage')}
+            {sec.get('Usage')?.lines.map(x => <Text dimColor>{x}</Text>)}
+          </Box>
+        )}
+
+      {(['Pace', 'Waits for you', 'Could start now'] as const).map(name => {
+        const s = sec.get(name)
+        if (!s) return null
+        return (
+          <Box flexDirection="column">
+            {heading(ui, name, s.head)}
+            {s.lines.map((x, i) => sliceText(ui, g, x, name === 'Pace' && i > 0 ? { dimColor: true } : {}))}
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
+// ---------- the graph: one row of slices per milestone, each number in the colour of its state; hover a slice for
+// its line, press a milestone for its slices and a slice there (or in a chip row) for its card ----------
 
 function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const { Box, Text, Button } = ui
@@ -349,17 +490,17 @@ function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const selSlice = g.slices[sel] as PanelSlice | undefined
   const selLane = [...g.lanes, ...g.finished].find(l => l.id === sel)
 
+  // plain Text, not a Button: a desktop draws a Button natively and drops the colour of the Text inside it
   const cell = (id: string) => {
     const s = g.slices[id]
     if (!s) return null
-    const filled = s.state !== 'waiting'
     const linked = !!selSlice && (selSlice.after.includes(id) || s.after.includes(sel))
-    const label = ` ${(id.split('.')[1] ?? id).replace(/^tidy$/, 't').padStart(2)} `
+    const label = `${(id.split('.')[1] ?? id).replace(/^tidy(\d*)$/, 't$1').padStart(2)} `
     return (
-      <Button key={`s:${id}`} plain hover={{ scope: `g:${id}`, bold: true }} onPress={pick(id)}>
-        <Text mono {...(filled ? { backgroundColor: STATE[s.state].color, color: 'inverseText' } : { color: 'inactive' })}
-          {...(id === sel ? { inverse: true, bold: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
-      </Button>
+      <Box hover={{ scope: `g:${id}` }}>
+        <Text mono color={STATE[s.state].color} bold={s.state !== 'waiting'} hover={{ scope: `g:${id}`, inverse: true }}
+          {...(id === sel ? { inverse: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
+      </Box>
     )
   }
   const laneRow = (l: PanelLane) => (
@@ -370,10 +511,12 @@ function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
       {l.eta !== '' && <Text dimColor>{l.eta}</Text>}
     </Box>
   )
+  // the coloured mark beside the Button, for the same reason
   const chips = (where: string, list: string[]) => list.map(id => (
-    <Button key={`${where}:${id}`} plain onPress={pick(id)}>
-      <Text color={STATE[g.slices[id]?.state ?? 'waiting'].color}>{STATE[g.slices[id]?.state ?? 'waiting'].mark} </Text>{id}
-    </Button>
+    <Box flexDirection="row">
+      <Text color={STATE[g.slices[id]?.state ?? 'waiting'].color}>{`${STATE[g.slices[id]?.state ?? 'waiting'].mark} `}</Text>
+      <Button key={`${where}:${id}`} plain onPress={pick(id)}>{id}</Button>
+    </Box>
   ))
   const chipRow = (label: string, where: string, list: string[]) => list.length > 0 && (
     <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
@@ -407,7 +550,7 @@ function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
         ))}
       </Box>
       {selSlice && sliceCard(ui, g, sel, act, chips)}
-      {!selSlice && selLane && laneCard(ui, g, selLane, act)}
+      {!selSlice && selLane && laneCard(ui, g, selLane, act, pick)}
       {chipRow('Running', 'run', of('running'))}
       {chipRow('Could start now', 'ready', of('ready'))}
       {chipRow('For you', 'you', of('you').filter(id => !g.finished.some(l => l.slices.includes(id))))}
@@ -447,14 +590,29 @@ function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: s
   )
 }
 
-function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act) {
+// a milestone's card: its counts, then one row per slice (mark, id to press for the slice's card, title, state)
+function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act, pick: (id: string) => () => void) {
   const { Box, Text, Button } = ui
   const count = (state: SliceState) => l.slices.filter(id => g.slices[id]?.state === state).length
+  const w = Math.max(4, ...l.slices.map(id => id.length)) + 1
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>{`${l.id} · ${l.title}`}</Text>
       <Text>{`${l.done} of ${l.total} done${l.eta ? ` · ${l.eta}` : ''}`}</Text>
       <Text dimColor>{(['running', 'ready', 'you', 'waiting'] as const).filter(k => count(k)).map(k => `${count(k)} ${STATE[k].label}`).join(' · ') || 'every slice done'}</Text>
+      <Box flexDirection="column" marginTop={1}>
+        {l.slices.filter(id => g.slices[id]).map(id => {
+          const s = g.slices[id]!
+          return (
+            <Box flexDirection="row" columnGap={1}>
+              <Text color={STATE[s.state].color}>{STATE[s.state].mark}</Text>
+              <Button key={`s:${id}`} plain onPress={pick(id)}>{id.padEnd(w)}</Button>
+              <Box flexShrink={1}><Text wrap="truncate-end">{s.title}</Text></Box>
+              <Text color={STATE[s.state].color}>{s.state === 'running' && s.eta ? `≈ ${s.eta}` : s.state === 'done' ? '' : STATE[s.state].label}</Text>
+            </Box>
+          )
+        })}
+      </Box>
       <Box flexDirection="row"><Button key="close-card" dimColor onPress={act(q => ({ ...q, selected: '' }))}>Close</Button></Box>
     </Box>
   )
@@ -569,27 +727,34 @@ function chart(ui: UI, title: string, caption: string, rows: Row[], L: number, n
 }
 
 // the plan's 5-hour and weekly windows from the minute reads, with the stop caps as ┆ marks
-function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number) {
+function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number, title = 'Plan usage now') {
   const { Box, Text } = ui
   const rows = ([['5-hour', windows?.five], ['weekly', windows?.week]] as const).filter(([, w]) => w)
   if (!rows.length) return null
   return (
     <Box flexDirection="column">
-      <Text bold>Plan usage now</Text>
+      <Text bold>{title}</Text>
       {rows.map(([name, w]) => {
         const win = w!
         const used = bar(win.pct, 100, n)
         const marks = win.reach.map(r => Math.round((r.cap / 100) * n))
-        const near = win.reach.some(r => r.at === 'reached')
+        // red at a cap, amber within 10 points of one
+        const level = win.reach.some(r => r.at === 'reached' || win.pct >= r.cap) ? 'error' : win.reach.some(r => win.pct >= r.cap - 10) ? 'warning' : ''
         return (
           <Box flexDirection="column">
             <Box flexDirection="row">
               <Text mono>{name.padEnd(L)}</Text>
-              <Text mono color={near ? 'error' : 'suggestion'}>{used}</Text>
+              <Text mono color={level || 'suggestion'}>{used}</Text>
               <Text mono dimColor>{rest(used.length, n, marks)}</Text>
-              <Text mono>{` ${win.pct} %${win.ratePerHour != null ? ` +${win.ratePerHour} %/h` : ''}`}</Text>
+              <Text mono bold {...(level ? { color: level } : {})}>{`${String(win.pct).padStart(4)} %`}</Text>
+              {win.ratePerHour != null && <Text mono dimColor>{`  +${win.ratePerHour} %/h`}</Text>}
             </Box>
-            <Text dimColor>{`${' '.repeat(L)}${[...win.reach.map(r => `${r.name} cap ${r.cap} % ${r.at === 'reached' ? 'reached' : r.at ? `at about ${r.at}` : 'not before the reset'}`), `resets ${win.resets}`].join(' · ')}`}</Text>
+            <Box marginLeft={L} flexDirection="column">
+              {win.reach.map(r => (
+                <Text dimColor>{`${r.name} cap ${r.cap} % · ${r.at === 'reached' ? 'reached' : r.at ? `at about ${r.at}` : 'not before the reset'}`}</Text>
+              ))}
+              <Text dimColor>{`resets ${win.resets}`}</Text>
+            </Box>
           </Box>
         )
       })}

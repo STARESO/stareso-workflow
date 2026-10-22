@@ -54,6 +54,11 @@ test('the panel draws the brief from the tool, on every surface', async ($, on) 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /demo/ })).toBeTruthy()
+    // the brief drawn natively: a helper row in the running colour, the milestone's squares by state, its ETA
+    expect((await ui.find({ type: 'Text', text: /^▶ M1\.2/ }))?.props.color).toBe('warning')
+    expect((await ui.find({ type: 'Text', text: /^■$/ }))?.props.color).toBe('success')
+    expect(await ui.find({ type: 'Text', text: /^≈ 19:00$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^Second step$/ })).toBeTruthy()
     await ui.unmount()
   }
 })
@@ -156,7 +161,7 @@ test('the same command hides an open panel', async ($, on) => {
   expect(ran.text).toContain('hidden')
 })
 
-test('the graph view draws a row per milestone, and a pressed slice opens its card', async ($, on) => {
+test('the graph view draws a row per milestone, a pressed milestone lists its slices, and a pressed slice opens its card', async ($, on) => {
   engine(on, false)
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'stareso-panel', args: 'graph' })
@@ -164,6 +169,10 @@ test('the graph view draws a row per milestone, and a pressed slice opens its ca
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /≈ 19:00/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^M1\.2 · Second step$/ })).toBeFalsy()
+    // each slice number in the colour of its state, outside any Button
+    expect((await ui.find({ type: 'Text', text: /^ 2 $/ }))?.props.color).toBe('warning')
+    await ui.press({ key: 'l:M1' })
+    expect(await ui.find({ type: 'Text', text: /^M1 · First steps$/ })).toBeTruthy()
     await ui.press({ key: 's:M1.2' })
     expect(await ui.find({ type: 'Text', text: /^M1\.2 · Second step$/ })).toBeTruthy()
     expect((await ui.find({ type: 'Text', text: /^running since/ }))?.text).toContain('16:55')
