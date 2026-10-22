@@ -577,10 +577,11 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
         </Box>
         {lanes.map(lane)}
         {/* hovering a number previews its card just under the grid, over what follows (an open card too), so nothing
-            moves: a hover reaches no hook, so each card is drawn hidden on a background and revealed by its number */}
+            moves: a hover reaches no hook, so each card is drawn hidden and revealed by its number. The overlay is a
+            transparent row, so the card takes the width of its text and keeps its background inside its border */}
         <Box position="relative" height={0}>
           {ids.filter(id => id !== sel).map(id => (
-            <Box position="absolute" top={0} left={0} right={0} backgroundColor="inverseText" display="none" hover={{ scope: `g:${id}`, display: 'flex' }}>
+            <Box position="absolute" top={0} left={0} right={0} flexDirection="row" alignItems="flex-start" display="none" hover={{ scope: `g:${id}`, display: 'flex' }}>
               {sliceCard(ui, g, id, act, marks, true)}
             </Box>
           ))}
@@ -645,7 +646,7 @@ function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: s
   if (!s) return null
   const unblocks = Object.entries(g.slices).filter(([, x]) => x.after.includes(id)).map(([k]) => k)
   return (
-    <Box flexDirection="column" borderStyle="round" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" paddingX={1} {...(preview ? { backgroundColor: 'inverseText', flexShrink: 1 } : {})}>
       <Text bold>{`${id} · ${s.title}`}</Text>
       <Text color={STATE[s.state].color}>{stateLine(g, id)}</Text>
       {s.branch && <Text dimColor>{`on ${s.branch}`}</Text>}
