@@ -770,7 +770,7 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
           <Text dimColor size="footnote">{`read ${clock(p.usageAt)}, live from the transcripts · ${c.unit}`}</Text>
         </Box>
       )}
-      {windowsView(ui, p.windows, Math.max(12, room - L - 8), L)}
+      {windowsView(ui, p.windows, Math.max(12, room - L - 7), L)}
       {c && (
         <Box flexDirection="column" gap={2}>
           {chart(ui, '1. Share of the workflow cost by step type', 'Where the tokens go: build should lead; a large chat bar is work done outside the steps.',
@@ -866,7 +866,10 @@ function chart(ui: UI, title: string, caption: string, rows: Row[], L: number, r
             <Text mono hover={{ scope: r.scope, underline: true }}>{r.label.slice(0, L).padEnd(L)}</Text>
             {segs.filter(s => s.text !== '').map(s => <Text mono {...(s.color ? { color: s.color } : {})}>{s.text}</Text>)}
             <Text mono dimColor>{rest(used, n, (r.marks ?? []).map(m => Math.round(cells(m))))}</Text>
-            <Text mono {...(r.valueColor ? { color: r.valueColor } : { dimColor: true })}>{` ${aligned[i] ?? r.value}`}</Text>
+            {/* pushed to the right edge, so the values line up whatever width the font gives the bar's glyphs */}
+            <Box flexGrow={1} flexShrink={0} justifyContent="flex-end">
+              <Text mono {...(r.valueColor ? { color: r.valueColor } : { dimColor: true })}>{` ${aligned[i] ?? r.value}`}</Text>
+            </Box>
           </Box>
         )
       })}
@@ -904,7 +907,9 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
               <Text mono dimColor>{rest(used.length, n, marks)}</Text>
               {/* the track's end, 100 % */}
               <Text mono dimColor>│</Text>
-              <Text mono bold {...(level ? { color: level } : {})}>{`${String(win.pct).padStart(4)} %`}</Text>
+              <Box flexGrow={1} flexShrink={0} justifyContent="flex-end">
+                <Text mono bold {...(level ? { color: level } : {})}>{`${String(win.pct).padStart(4)} %`}</Text>
+              </Box>
             </Box>
             <Box marginLeft={L}>
               <Text dimColor size="footnote" tabular>
@@ -975,7 +980,7 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
             <Text mono>{d.before}</Text>
             <Text mono color={tone(m)} bold>{d.mid}</Text>
             <Text mono>{d.after}</Text>
-            <Text mono color={tone(m)}>{` ${values[i]}`}</Text>
+            <Box flexGrow={1} flexShrink={0} justifyContent="flex-end"><Text mono color={tone(m)}>{` ${values[i]}`}</Text></Box>
           </Box>
         )
       })}
