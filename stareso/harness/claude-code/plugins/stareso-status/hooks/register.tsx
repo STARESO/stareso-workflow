@@ -470,8 +470,8 @@ function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
 //
 // One row of slice numbers per milestone, each number in the colour of its state, its title on a dim line under it;
 // hover a number for a preview of the slice's card, press it for the slice's card, press a milestone for its card (its slices, each
-// pressable). Then the running helpers folded to one line each (press one for its card), the chats of the project, the
-// pace and what waits for the person. Each number is its state's coloured mark beside a plain Button, in a wrapping
+// pressable). Then the running helpers folded to one line each (press one for its card), the milestones, the chats of
+// the project, the pace and what waits for the person. Each number is its state's coloured mark beside a plain Button, in a wrapping
 // row, so a press opens its card as a helper's does.
 
 function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
@@ -594,11 +594,6 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
       </Box>
       {card && selSlice?.state !== 'running' && card}
 
-      <Box flexDirection="column">
-        {heading(ui, 'Milestones')}
-        {lanes.map(milestone)}
-      </Box>
-
       {running.length > 0 && (
         <Box flexDirection="column">
           {heading(ui, 'Helpers', sec.get('Helpers')?.head)}
@@ -606,6 +601,11 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
         </Box>
       )}
       {selSlice?.state === 'running' && card}
+
+      <Box flexDirection="column">
+        {heading(ui, 'Milestones')}
+        {lanes.map(milestone)}
+      </Box>
 
       {chatsView(ui, p.chats ?? [], indent)}
 
