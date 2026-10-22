@@ -1,12 +1,14 @@
 // Closes one slice in one call: merge its branch into the current branch with --no-ff, delete the branch,
 // tick the roadmap box, switch the IDEAS lines naming it from 🛠 to ✅, append the build event (with the merge's time
 // and lines) to docs/data/builds.jsonl (the BUILD-LOG line in a project not migrated yet), regenerate the roadmap
-// overview and commit the docs. Prints the one-line report for the user.
+// overview and commit the docs. A helper's worktree on the slice branch is removed after the merge when it holds no
+// uncommitted work (kept with a warning otherwise, or with --keep-worktree), and the empty folders that removed
+// worktrees left beside it are deleted. Prints the one-line report for the user.
 //
 // Usage (from the project folder, on main):
 //   node ~/.claude/stareso/tools/slice-done.mjs M23.4 --model sonnet --tokens 42k --note "three dropdowns; checked at 280 px"
 //   options: --result "ok" (default) | "ok after 1 fix" · --branch <name> (default: the slice/<id>-* branch) | none (built in chat)
-//            --profile eco|fast (written in the log line) · --no-commit
+//            --profile eco|fast (written in the log line) · --no-commit · --keep-worktree
 //            --harness <h> · --helper subagent|session|inline · --tier strong|standard|light (written in the log line;
 //            defaults: the `Harness:` and `Helpers:` lines of the project instructions, else claude-code and subagent,
 //            and the brief's `tier:`, or its `model:` looked up in stareso/harness/<h>/models.md)
@@ -34,14 +36,48 @@ if (slice.done && !a.force) { console.error(`Slice ${id} is already ticked (use 
 let branch = a.branch;
 if (branch !== "none") {
   if (!branch) {
-    const list = git("branch", "--list", `slice/${id}-*`).split("\n").map((s) => s.replace(/^\*?\s*/, "")).filter(Boolean);
+    // names only: `git branch` marks the current branch with "*" and one checked out in another worktree with "+"
+    const list = git("branch", "--list", "--format=%(refname:short)", `slice/${id}-*`).split("\n").map((s) => s.trim()).filter(Boolean);
     if (list.length !== 1) { console.error(list.length ? `Several branches match slice/${id}-*: ${list.join(", ")}` : `No branch slice/${id}-* (pass --branch <name> or --branch none)`); process.exit(1); }
     branch = list[0];
   }
   // Untracked files (dev logs, generated AGENTS.md) do not block a merge; modified tracked files do.
   if (git("status", "--porcelain", "--untracked-files=no")) { console.error("Working tree not clean (modified tracked files): commit or discard first."); process.exit(1); }
   git("merge", "--no-ff", branch, "-m", `Merge slice ${id}: ${slice.title}`);
-  git("branch", "-d", branch);
+  const kept = a["keep-worktree"] ? null : removeWorktree(branch);
+  if (kept) console.error(kept);
+  try { git("branch", "-d", branch); } catch { console.error(`Branch ${branch} kept: it is still checked out in a worktree.`); }
+}
+
+// The worktree a helper built the slice in (fast and night profiles), once merged: removed when it holds no
+// uncommitted work, so that a Godot import cache (about 800 MB) or a node_modules does not stay behind per slice.
+// Returns a warning when it is kept. Then the empty folders beside it, left by worktrees removed earlier, go too.
+function removeWorktree(name) {
+  let wt = null, cur = null;
+  for (const l of git("worktree", "list", "--porcelain").split("\n")) {
+    if (l.startsWith("worktree ")) cur = l.slice(9);
+    else if (l === `branch refs/heads/${name}`) wt = cur;
+  }
+  if (!wt || path.resolve(wt) === path.resolve(root)) return null;
+  let dirty = "";
+  try { dirty = execFileSync("git", ["-C", wt, "status", "--porcelain"], { encoding: "utf8" }).trim(); } catch { /* folder gone */ }
+  if (dirty) return `Worktree kept, it holds uncommitted work: ${wt}`;
+  try { git("worktree", "remove", "--force", wt); }
+  catch {
+    // a file still open (a Godot editor or a dev server) blocks git: remove what can go, then forget the worktree
+    try { fs.rmSync(wt, { recursive: true, force: true, maxRetries: 3 }); } catch { /* reported below */ }
+    git("worktree", "prune");
+    if (fs.existsSync(wt)) return `Worktree unregistered but its folder is still in use: ${wt}`;
+  }
+  // only inside the project (.claude/worktrees, .worktrees): never sweep folders that sit beside the project itself
+  const parent = path.dirname(wt);
+  if (!path.resolve(parent).toLowerCase().startsWith(path.resolve(root).toLowerCase() + path.sep)) return null;
+  const live = new Set(git("worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).map((l) => path.resolve(l.slice(9))));
+  for (const d of fs.readdirSync(parent, { withFileTypes: true })) {
+    const full = path.join(parent, d.name);
+    if (d.isDirectory() && !live.has(path.resolve(full))) { try { if (!fs.readdirSync(full).length) fs.rmdirSync(full); } catch { /* not empty or in use */ } }
+  }
+  return null;
 }
 // The merge as the usage report counts it: its time and the lines it changed outside docs/ (read once, here).
 let merge = { at: null, lines: null };

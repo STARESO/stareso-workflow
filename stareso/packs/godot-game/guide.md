@@ -140,7 +140,7 @@ For long unattended runs while the author sleeps (`/stareso-build M3-M5 night 4h
 | `test` | `"$G" --headless --path . --script res://tools/test_runner.gd -- --test-user-dir [--filter=test_x]` | one test file while building it |
 | `run` | `"$G" --headless --path . res://scenes/main/game.tscn --quit-after 600 -- --test-user-dir` | the world scene for 600 frames, errors only |
 | `shot` | `bash tools/screenshot.sh --scene=res://... --out=<ignored folder>/x.jpg [--size=WxH] [--setup=res://tools/shots/<setup>.gd]` | off-screen, silent. Look at the image |
-| `rebuild` | `"$G" --headless --path . --import` | after new assets, in a fresh worktree |
+| `rebuild` | `"$G" --headless --path . --import` | after new assets, in a fresh worktree (copy the main folder's `.godot/` into it first, so the import only redoes what changed) |
 | `build` | `"$G" --headless --path . --export-debug "<preset>" exports/<name>.<ext>` | playtest builds (section 12) |
 | `verify-offscreen` | `bash tools/verify_offscreen.sh` | once per machine and after changing the wrappers (section 5) |
 `$G` is the Godot console binary named in AGENTS.md.

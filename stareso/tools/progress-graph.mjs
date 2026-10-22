@@ -4,11 +4,10 @@
 //
 // Usage:  node ~/.claude/stareso/tools/progress-graph.mjs [--root <project>] [--max-lanes 8]
 //           (no other flag)  compact JSON: lanes, nodes, edges, running, ready, human, questions, pace, text lines
-//         --text             only the text fallback, one line per lane (■ done, ▶ running, □ waiting)
-//         --write [dir]      also writes progress.svg (standalone, light and dark, with a tooltip on every node),
-//                            progress-widget.svg (host color classes, for the visualize tool) and progress.html (page
-//                            that wraps the SVG); the default folder is the system temp folder, never the project.
-//                            Paths come back in `files`.
+//         --write [dir]      also writes progress.svg (standalone, light and dark, with a tooltip on every node) and
+//                            progress.html (a page that wraps it), for a harness with no panel; the default folder is
+//                            the system temp folder, never the project. Paths come back in `files`.
+//         --brief            the brief in sections: head, progress, helpers, usage, pace, waits, could start
 //         --five <pct>@<reset>  --week <pct>@<reset>   the usage windows the host shows (percent used, ISO reset time):
 //                            kept in ~/.claude/stareso/data/plan-windows.jsonl (per machine) to work out the burn rate
 //         --caps <start>/<pause>/<weekly>   stop caps in percent, when the build records hold no caps event
@@ -343,14 +342,13 @@ const NW = 34, NH = 26, GAP = 10, X0 = 120, W = 680, RIGHT = 640, ROW = NH + 8;
 const perRow = Math.floor((RIGHT - X0 + GAP) / (NW + GAP));
 const cls = { d: "c-teal", r: "c-amber", w: "c-gray" };
 
-// standalone SVG only: a tooltip per node (slice title, and for a running one its branch and minutes since its worktree started)
-const tip = (standalone, id) => {
-  if (!standalone) return "";
+// a tooltip per node (slice title, and for a running one its branch and minutes since its worktree started)
+const tip = (id) => {
   const s = byId.get(id), r = running.find((x) => x.id === id && runningIds.has(id));
   return `<title>${esc([`${id} ${s.title}`, s.opus ? "Opus slice" : "", r ? `${r.branch}${r.minutes != null ? `, ${r.minutes} min` : ""}` : "", eta.bySlice[id] ? `done ≈ ${eta.bySlice[id]}` : ""].filter(Boolean).join(" · "))}</title>`;
 };
 
-function svgBody(standalone) {
+function svgBody() {
   const out = [];
   let y = 16;
   const mw = mode.label.length * 6.4 + 36, bw = bannerText ? Math.min(RIGHT - 40, bannerText.length * 6.4 + 28) : 0;
@@ -379,7 +377,7 @@ function svgBody(standalone) {
       l.nodes.forEach((n, i) => {
         const r = Math.floor(i / perRow), x = X0 + (i % perRow) * (NW + GAP), ny = y + r * ROW;
         if (i % perRow && edges.some(([a, b]) => a === l.nodes[i - 1].id && b === n.id)) out.push(`<line x1="${x - GAP}" y1="${ny + NH / 2}" x2="${x}" y2="${ny + NH / 2}" stroke="var(--b)" stroke-width="1.5"/>`);
-        out.push(`<g class="${cls[n.s]}">${tip(standalone, n.id)}<rect x="${x}" y="${ny}" width="${NW}" height="${NH}" rx="6" stroke-width="0.5"${n.h ? ' stroke-dasharray="4 3"' : ""}/><text class="ts" x="${x + NW / 2}" y="${ny + NH / 2}" text-anchor="middle" dominant-baseline="central">${esc(n.short)}</text></g>`);
+        out.push(`<g class="${cls[n.s]}">${tip(n.id)}<rect x="${x}" y="${ny}" width="${NW}" height="${NH}" rx="6" stroke-width="0.5"${n.h ? ' stroke-dasharray="4 3"' : ""}/><text class="ts" x="${x + NW / 2}" y="${ny + NH / 2}" text-anchor="middle" dominant-baseline="central">${esc(n.short)}</text></g>`);
         if (n.o) out.push(`<circle cx="${x + NW - 4}" cy="${ny + 4}" r="2.5" fill="var(--t)"/>`);
       });
     }
@@ -411,10 +409,10 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--t)}
 :root:not([data-theme=light]) .c-gray>rect{fill:#444441;stroke:#B4B2A9}:root:not([data-theme=light]) .c-gray>text{fill:#D3D1C7}}
 </style>`;
 
-function svg(standalone) {
-  const { body, height } = svgBody(standalone);
+function svg() {
+  const { body, height } = svgBody();
   const desc = `Build progress: ${shown.map((l) => `${l.id} ${l.done} of ${l.total}`).join(", ")}${bannerText ? `, ${bannerText}` : ""}.`;
-  return `<svg ${standalone ? 'xmlns="http://www.w3.org/2000/svg" ' : ""}width="100%" viewBox="0 0 ${W} ${height}" role="img"><title>Build progress</title><desc>${esc(desc)}</desc>${standalone ? STYLE : ""}\n${body}\n</svg>\n`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${W} ${height}" role="img"><title>Build progress</title><desc>${esc(desc)}</desc>${STYLE}\n${body}\n</svg>\n`;
 }
 
 function html() {
@@ -428,7 +426,7 @@ body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:15px/1.5 sy
 main{max-width:680px;margin:0 auto}h1{font-size:18px;font-weight:500;margin:0 0 12px}h2{font-size:14px;font-weight:500;margin:16px 0 4px}ul{margin:0;padding-left:20px;color:var(--mut)}
 </style></head><body><main>
 <h1>Build progress · ${esc(path.basename(root))}</h1>
-${svg(true)}
+${svg()}
 ${runningNow.length ? `<h2>Running now</h2><ul>${li(runningNow.map((r) => `${r.id} ${byId.get(r.id).title}${r.minutes != null ? ` · ${r.minutes} min` : ""}`))}</ul>` : ""}
 ${ready.length ? `<h2>Could start now, no helper</h2><ul>${li(ready.slice(0, 8).map((id) => `${id} ${byId.get(id).title}`))}</ul>` : ""}
 ${lines.pace || lines.usage ? `<h2>Pace and usage</h2><ul>${li([lines.pace, lines.usage].filter(Boolean))}</ul>` : ""}
@@ -444,8 +442,6 @@ const result = {
   running: runningNow.map((r) => ({ id: r.id, title: byId.get(r.id).title, branch: r.branch, minutes: r.minutes, ...(byId.get(r.id).opus ? { opus: true } : {}) })),
   recentMerges: recent, ready, humanSlices, questions: { open: questions.length, blocking: blocking.map((q) => ({ text: q.text, blocks: q.blocks })) }, pace, eta, usage, lines, text,
 };
-
-if (opt.text) { console.log(text.join("\n")); process.exit(0); }
 // the fast status, in sections that read at a glance: progress, helpers (one line each), usage, pace, what waits, what could start
 function brief() {
   const out = [head, ""];
@@ -595,13 +591,11 @@ if (opt.panel) {
     running: runningNow.map((r) => ({ id: r.id, minutes: r.minutes })), perSliceMinutes: pace?.perSliceMinutes ?? null, usage }));
   process.exit(0);
 }
-// the widget SVG alone, passed as it is to the host's widget tool
-if (opt.widget) { process.stdout.write(svg(false)); process.exit(0); }
 if (opt.write) {
   const dir = outDir;
   fs.mkdirSync(dir, { recursive: true });
-  const files = { svg: path.join(dir, "progress.svg"), widget: path.join(dir, "progress-widget.svg"), html: path.join(dir, "progress.html") };
-  fs.writeFileSync(files.svg, svg(true)); fs.writeFileSync(files.widget, svg(false)); fs.writeFileSync(files.html, html());
+  const files = { svg: path.join(dir, "progress.svg"), html: path.join(dir, "progress.html") };
+  fs.writeFileSync(files.svg, svg()); fs.writeFileSync(files.html, html());
   result.files = files;
 }
 // one line per key, one line per lane or helper
