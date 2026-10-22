@@ -109,6 +109,9 @@ test('a side session outside the project reads the project another session read'
   await $.session.start({ cwd: '/home/me/.claude', surface: 'desktop', isInteractive: true })
   const ran = await $.command.run({ command: 'stareso-panel', args: '' })
   expect(ran.text).toContain('open on demo')
+  // a folder this session settled on that fails (as an older version kept one) still falls back
+  const again = await $.command.run({ command: 'stareso-panel', args: '/home/me/.claude' })
+  expect(again.text).toContain('open on demo')
 })
 
 const CHARTS = {

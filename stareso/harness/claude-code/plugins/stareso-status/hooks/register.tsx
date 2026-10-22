@@ -126,13 +126,13 @@ async function panelState($: EngineInterface): Promise<PanelView> {
 }
 
 // The folders to read, in order: the one this session settled on (a /stareso-panel <folder>, or the last good read),
-// else the session's own folder, then the last project any session read (a side session often starts outside it).
+// then the session's own folder, then the last project any session read (a side session often starts outside it).
+// The settled one does not stop the others: an older version of the mod kept a folder that had failed.
 async function projectRoots($: EngineInterface): Promise<string[]> {
   const state = await read($, panel)
-  if (state.root) return [state.root]
   const remembered = (await $.store.get('project')) as string | undefined
   const cwd = await $.session.cwd()
-  return [cwd, ...(remembered && remembered !== cwd ? [remembered] : [])]
+  return [...new Set([state.root, cwd, remembered].filter((r): r is string => !!r))]
 }
 
 async function projectRoot($: EngineInterface): Promise<string> {
