@@ -5,9 +5,14 @@
 // Usage:  node ~/.claude/stareso/tools/progress-graph.mjs [--root <project>] [--max-lanes 8]
 //           (no other flag)  compact JSON: lanes, nodes, edges, running, ready, human, questions, pace, text lines
 //         --text             only the text fallback, one line per lane (■ done, ▶ running, □ waiting)
-//         --write [dir]      also writes progress.svg (standalone, light and dark), progress-widget.svg (host color
-//                            classes, for the visualize tool) and progress.html (page that wraps the SVG); the default
-//                            folder is the system temp folder, never the project. Paths come back in `files`.
+//         --write [dir]      also writes progress.svg (standalone, light and dark, with a tooltip on every node),
+//                            progress-widget.svg (host color classes, for the visualize tool) and progress.html (page
+//                            that wraps the SVG); the default folder is the system temp folder, never the project.
+//                            Paths come back in `files`.
+//         --five <pct>@<reset>  --week <pct>@<reset>   the usage windows the host shows (percent used, ISO reset time):
+//                            kept in usage.json next to the graph files (last readings only) to work out the burn rate
+//         --caps <start>/<pause>/<weekly>   stop caps in percent, when they are not in the BUILD-LOG `caps` line
+//         `lines` holds the one-line status items ready to print: running, usage, pace, waits, ready.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -21,13 +26,19 @@ const maxLanes = Number(opt["max-lanes"]) || 8;
 
 const git = (...a) => { try { return execFileSync("git", ["-C", root, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return ""; } };
 const read = (rel) => { try { return fs.readFileSync(path.join(root, rel), "utf8").replace(/\r\n/g, "\n"); } catch { return ""; } };
+const now = Date.now();
+const p2 = (n) => String(n).padStart(2, "0");
+// "17:05", with "tomorrow" or the date when it is not today
+const clock = (t) => { const d = new Date(t), n = new Date(now); const day = d.toDateString() === n.toDateString() ? "" : d.getTime() - now < 36 * 3600e3 ? " tomorrow" : ` ${d.getMonth() + 1}/${d.getDate()}`; return `${p2(d.getHours())}:${p2(d.getMinutes())}${day}`; };
+const hours = (h) => (h < 1 ? `${Math.round(h * 60)} min` : `${+h.toFixed(1)} h`);
 
 // ---------- records ----------
 const ms = milestones(root).filter((m) => m.slices.length > 0);
 const lettered = (m) => !/^M\d+$/.test(m.id);
 const numOf = (id) => Number(id.replace(/\D/g, "")) || 0;
 const afterOf = (s) => (((/after: ([A-Za-z0-9., ]+?)(?: ·|$)/.exec(s.rest) || [])[1]) || "").split(/[ ,]+/).filter((x) => /^[A-Za-z]+\d*\.\w+$/.test(x));
-const byId = new Map(ms.flatMap((m) => m.slices.map((s) => [s.id, { ...s, ms: m.id, after: afterOf(s) }])));
+const opusOf = (s) => /(?:model: opus|tier: strong)/.test(s.rest);
+const byId = new Map(ms.flatMap((m) => m.slices.map((s) => [s.id, { ...s, ms: m.id, after: afterOf(s), opus: opusOf(s) }])));
 
 // running helpers: worktrees (or the main folder) on a branch slice/<id>-…
 const running = [];
@@ -36,7 +47,11 @@ for (const line of (git("worktree", "list", "--porcelain") + "\n").split("\n")) 
   if (line.startsWith("worktree ")) cur = { path: line.slice(9) };
   else if (line.startsWith("branch ")) {
     const m = /^refs\/heads\/slice\/([A-Za-z]+\d*\.\w+)(?:-|$)/.exec(line.slice(7));
-    if (m && byId.has(m[1])) running.push({ id: m[1], branch: line.slice(18), path: cur.path });
+    if (m && byId.has(m[1])) {
+      let minutes = null;
+      try { const b = fs.statSync(cur.path); minutes = Math.max(0, Math.round((now - (b.birthtimeMs || b.ctimeMs)) / 60000)); } catch { /* folder gone */ }
+      running.push({ id: m[1], branch: line.slice(18), path: cur.path, minutes });
+    }
   }
 }
 const runningIds = new Set(running.filter((r) => !byId.get(r.id).done).map((r) => r.id));
@@ -61,7 +76,7 @@ const laneOf = (m) => {
   const run = m.slices.filter((s) => runningIds.has(s.id)).length;
   const human = m.slices.filter((s) => !s.done && s.human).length;
   return { id: m.id, title: m.title, kind: m.kind, done, total: m.slices.length, running: run, human, block: lettered(m),
-    nodes: m.slices.map((s) => ({ id: s.id, short: shortId(s.id), s: stateOf(s), ...(s.human && !s.done ? { h: 1 } : {}) })) };
+    nodes: m.slices.map((s) => ({ id: s.id, short: shortId(s.id), s: stateOf(s), ...(s.human && !s.done ? { h: 1 } : {}), ...(byId.get(s.id).opus ? { o: 1 } : {}) })) };
 };
 const all = ms.map(laneOf);
 const finished = all.filter((l) => l.done === l.total);
@@ -100,7 +115,11 @@ const humanSlices = [...byId.values()].filter((s) => !s.done && s.human).map((s)
 // ---------- pace, from the merge times of BUILD-LOG ----------
 const merges = read("docs/BUILD-LOG.md").split("\n").map((l) => /^- (\d{4}-\d\d-\d\d) (\d\d:\d\d) · (\S+) .*? · (?:[\w.-]+) · ok · [^·]*· ([\w-]+)/.exec(l)).filter(Boolean)
   .map((m) => ({ id: m[3], profile: m[4], t: new Date(`${m[1]}T${m[2]}:00`).getTime() })).sort((a, b) => a.t - b.t);
-const gaps = merges.slice(1).map((m, i) => (m.t - merges[i].t) / 60000).filter((g) => g > 0 && g <= 90).slice(-20);
+// gaps over 90 min (a night, a pause) are left out; gaps between two serial merges (eco, day) are the time one slice takes
+const pairs = merges.slice(1).map((m, i) => [merges[i], m]);
+const gapsOf = (pred) => pairs.filter(([a, b]) => pred(a) && pred(b)).map(([a, b]) => (b.t - a.t) / 60000).filter((g) => g > 0 && g <= 90).slice(-20);
+const gaps = gapsOf(() => true);
+const serialGaps = gapsOf((m) => /^(eco|day)$/.test(m.profile));
 const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
 const med = median(gaps);
 const remaining = openNumbered.filter((s) => !s.human).length;
@@ -114,10 +133,24 @@ const chain = (id) => {
   depth.set(id, d); return d;
 };
 const longest = Math.max(0, ...openNumbered.map((s) => chain(s.id)));
-const pace = med == null ? null : {
-  medianMinutes: Math.round(med), samples: gaps.length, lastMerge: merges.length ? stamp(new Date(merges.at(-1).t)) : null,
-  remaining, etaHours: +(remaining * med / 60).toFixed(1), longestChain: longest, chainFloorHours: +(longest * med / 60).toFixed(1),
-};
+// With the time of one slice, the helpers running now share the slices, but the longest chain stays serial: the ETA is the
+// larger of the two. Without serial merges, the recent gap already holds the parallelism of that run, so it is not divided.
+const perSlice = serialGaps.length >= 3 ? median(serialGaps) : null;
+const helpers = Math.max(1, runningIds.size);
+const unit = perSlice ?? med;
+let pace = null;
+if (unit != null) {
+  const rowH = remaining * unit / 60, chainH = longest * unit / 60, shareH = perSlice != null ? remaining * unit / helpers / 60 : rowH;
+  const etaH = Math.max(chainH, shareH), binds = chainH >= shareH ? "chain" : "slices";
+  pace = {
+    medianMinutes: med == null ? null : Math.round(med), perSliceMinutes: perSlice == null ? null : Math.round(perSlice), samples: gaps.length,
+    lastMerge: merges.length ? stamp(new Date(merges.at(-1).t)) : null, remaining, helpers, longestChain: longest,
+    etaHours: +etaH.toFixed(1), binds, inARowHours: +rowH.toFixed(1), chainFloorHours: +chainH.toFixed(1),
+  };
+  pace.line = remaining === 0 ? null : perSlice != null && helpers > 1
+    ? `${Math.round(unit)} min per slice, so about ${hours(etaH)} for ${remaining} slices with ${helpers} helpers (${binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"}), at most ${hours(rowH)} in a row`
+    : `${Math.round(unit)} min per ${perSlice != null ? "slice" : "merged slice lately"}, about ${hours(etaH)} for ${remaining} slices (the longest chain, ${longest} slices, needs ${hours(chainH)} on its own)`;
+}
 
 // ---------- build mode: the profile of the newest logged merge (eco, fast, night, day), the helpers running now, the pack's profiles ----------
 const pack = (/^Pack: (\S+)/m.exec(read("docs/PLAN.md")) || [])[1] || "";
@@ -128,11 +161,89 @@ const nightPack = /night runs?|stareso-build.*night|`night`/i.test(packDoc);
 const mode = { pack, last: lastProfile, helpers: runningIds.size, available: ["eco", "fast", ...(nightPack ? ["night", "day"] : [])] };
 mode.label = runningIds.size ? `${lastProfile || (runningIds.size > 1 ? "fast" : "eco")} · ${runningIds.size} helper${runningIds.size > 1 ? "s" : ""}` : lastProfile ? `idle · last run ${lastProfile}` : "idle";
 
+// ---------- usage windows: readings kept next to the graph files, burn rate, stop caps ----------
+const outDir = typeof opt.write === "string" ? path.resolve(opt.write) : path.join(os.tmpdir(), `stareso-progress-${path.basename(root)}`);
+if (outDir.toLowerCase().startsWith(root.toLowerCase() + path.sep)) { console.error("Refusing to write inside the project."); process.exit(1); }
+const usageFile = path.join(outDir, "usage.json");
+let readings = { five: [], week: [] };
+try { readings = { ...readings, ...JSON.parse(fs.readFileSync(usageFile, "utf8")) }; } catch { /* first reading */ }
+let touched = false;
+for (const k of ["five", "week"]) {
+  const m = /^(\d+(?:\.\d+)?)@(.+)$/.exec(String(opt[k] || ""));
+  if (!m || isNaN(Date.parse(m[2]))) continue;
+  const r = { t: now, pct: Number(m[1]), reset: Date.parse(m[2]) };
+  // same window (same reset time), last three hours only
+  readings[k] = [...readings[k].filter((x) => Math.abs(x.reset - r.reset) < 600e3 && x.t > now - 3 * 3600e3 && now - x.t > 30e3), r].slice(-8);
+  touched = true;
+}
+if (touched) { fs.mkdirSync(outDir, { recursive: true }); fs.writeFileSync(usageFile, JSON.stringify(readings)); }
+
+// stop caps: --caps, else the newest `- yyyy-mm-dd HH:mm · caps · helper start 85 % · pause 90 % · weekly 95 % · deadline 18:30` line of BUILD-LOG (36 h at most)
+let caps = null;
+const capLine = read("docs/BUILD-LOG.md").split("\n").map((l) => /^- (\d{4}-\d\d-\d\d) (\d\d:\d\d) · caps · (.*)$/.exec(l)).filter(Boolean).at(-1);
+if (opt.caps) {
+  const [start, pause, weekly] = String(opt.caps).split("/").map((x) => Number(x) || null);
+  caps = { start, pause, weekly, deadline: null, source: "given" };
+} else if (capLine && now - new Date(`${capLine[1]}T${capLine[2]}:00`).getTime() < 36 * 3600e3) {
+  const g = (re) => Number((re.exec(capLine[3]) || [])[1]) || null;
+  caps = { start: g(/helper start (\d+) %/), pause: g(/pause (\d+) %/), weekly: g(/weekly (\d+) %/), deadline: (/deadline (\d\d:\d\d)/.exec(capLine[3]) || [])[1] || null, source: `BUILD-LOG ${capLine[1]} ${capLine[2]}` };
+}
+
+// rate from the oldest reading of the window (at least 10 min back), else the average since the window opened
+function windowOf(k, span, capList) {
+  const list = readings[k], last = list.at(-1);
+  if (!last || last.t < now - 3600e3) return null;
+  let rate = null, basis = null;
+  if (list.length > 1 && last.t - list[0].t >= 600e3) { rate = Math.max(0, (last.pct - list[0].pct) / ((last.t - list[0].t) / 3600e3)); basis = "last readings"; }
+  else { const elapsed = (span - (last.reset - now)) / 3600e3; if (elapsed > 0.1) { rate = last.pct / elapsed; basis = "window average"; } }
+  const reach = capList.filter(([, c]) => c).map(([name, c]) => {
+    if (last.pct >= c) return { name, cap: c, at: "reached" };
+    const t = rate > 0 ? now + (c - last.pct) / rate * 3600e3 : Infinity;
+    return { name, cap: c, at: t < last.reset ? clock(t) : null };
+  });
+  return { pct: last.pct, resets: clock(last.reset), ratePerHour: rate == null ? null : +rate.toFixed(1), basis, reach };
+}
+const usage = {
+  five: windowOf("five", 5 * 3600e3, [["helper-start", caps?.start], ["pause", caps?.pause]]),
+  week: windowOf("week", 7 * 24 * 3600e3, [["weekly", caps?.weekly]]),
+  caps,
+};
+const reachText = (w) => w.reach.map((r) => `${r.name} cap ${r.cap} % ${r.at === "reached" ? "reached" : r.at ? `at about ${r.at}` : "not before the reset"}`);
+const usageParts = [];
+if (usage.five) usageParts.push([`5-hour ${usage.five.pct} %${usage.five.ratePerHour != null ? ` (+${usage.five.ratePerHour} %/h, ${usage.five.basis})` : ""}`, ...reachText(usage.five), `resets ${usage.five.resets}`].join(", "));
+if (usage.week) usageParts.push([`weekly ${usage.week.pct} %`, ...reachText(usage.week), `resets ${usage.week.resets}`].join(", "));
+if (!usageParts.length && caps) usageParts.push(`caps ${[caps.start && `helper start ${caps.start} %`, caps.pause && `pause ${caps.pause} %`, caps.weekly && `weekly ${caps.weekly} %`].filter(Boolean).join(", ")}, no usage reading`);
+if (caps?.deadline) usageParts.push(`deadline ${caps.deadline}`);
+
+// ---------- the one-line status items ----------
+const blocking = questions.filter((q) => q.blocks.some((b) => byId.has(b) && !byId.get(b).done));
+const runningNow = running.filter((r) => runningIds.has(r.id));
+const lines = {
+  running: runningNow.length ? `${mode.label}: ${runningNow.map((r) => `${r.id}${r.minutes != null ? ` ${r.minutes} min` : ""}`).join(", ")}` : `no helper running (${mode.label})`,
+  usage: usageParts.length ? usageParts.join(" · ") : null,
+  pace: pace?.line ?? null,
+  waits: humanSlices.length || questions.length ? `${humanSlices.length} slice${humanSlices.length === 1 ? "" : "s"} for you${humanSlices.length ? ` (${humanSlices.slice(0, 6).join(", ")}${humanSlices.length > 6 ? ", …" : ""})` : ""}, ${questions.length} open question${questions.length === 1 ? "" : "s"}, ${blocking.length} blocking a slice` : null,
+  ready: ready.length ? `${ready.length} could start now with no helper: ${ready.slice(0, 6).join(", ")}${ready.length > 6 ? ", …" : ""}` : remaining ? "none could start now: every open slice waits on a chain, a helper or the user" : null,
+};
+
+// ---------- head line: phase, pack, branch and tree, ideas, debt ----------
+const plan = read("docs/PLAN.md");
+const phase = (/^Phase: (.+)$/m.exec(plan) || [])[1] || "?";
+const branch = git("branch", "--show-current").trim() || "detached";
+const changed = git("status", "--porcelain", "--untracked-files=no").split("\n").filter(Boolean).length;
+const ideas = (read("docs/IDEAS.md").match(/💭/g) || []).length;
+const debt = read("docs/QUESTIONS.md").split("\n").filter((l) => /^- \[ \] \[debt\]/.test(l)).length;
+const head = [path.basename(root), `Phase: ${phase}`, pack && `Pack: ${pack}`, `${branch}, ${changed ? `${changed} changed` : "clean"}`,
+  ideas && `${ideas} 💭 ideas`, debt && `${debt} debt`, /\(open:/.test(plan) && "PLAN has open points"].filter(Boolean).join(" · ");
+
 // ---------- text fallback ----------
 const mark = { d: "■", r: "▶", w: "□" };
 const text = [`mode: ${mode.label} (profiles of this pack: ${mode.available.join(", ")})`];
 if (bannerText) text.push(bannerText);
-for (const l of shown) text.push(`${l.id.padEnd(3)} ${String(l.done).padStart(2)}/${l.total}  ${l.block ? `block${l.human ? `, ${l.human} for you` : ""}${l.running ? ", running" : ""}` : l.nodes.map((n) => mark[n.s]).join("")}`);
+// the open questions are counted on the first lane that waits on the user (H)
+const qLane = shown.find((l) => l.block && l.human);
+const qText = questions.length ? `${questions.length} questions, ${blocking.length} blocking` : "";
+for (const l of shown) text.push(`${l.id.padEnd(3)} ${String(l.done).padStart(2)}/${l.total}  ${l.block ? `block${l.human ? `, ${l.human} for you` : ""}${l.running ? ", running" : ""}${l === qLane && qText ? ` · ${qText}` : ""}` : l.nodes.map((n) => mark[n.s]).join("")}`);
 if (hidden.length) text.push(`+ ${hidden.length} more open: ${hidden.join(", ")}`);
 text.push("■ done  ▶ a helper is running  □ waiting");
 
@@ -142,7 +253,14 @@ const NW = 34, NH = 26, GAP = 10, X0 = 120, W = 680, RIGHT = 640, ROW = NH + 8;
 const perRow = Math.floor((RIGHT - X0 + GAP) / (NW + GAP));
 const cls = { d: "c-teal", r: "c-amber", w: "c-gray" };
 
-function svgBody() {
+// standalone SVG only: a tooltip per node (slice title, and for a running one its branch and minutes since its worktree started)
+const tip = (standalone, id) => {
+  if (!standalone) return "";
+  const s = byId.get(id), r = running.find((x) => x.id === id && runningIds.has(id));
+  return `<title>${esc([`${id} ${s.title}`, s.opus ? "Opus slice" : "", r ? `${r.branch}${r.minutes != null ? `, ${r.minutes} min` : ""}` : ""].filter(Boolean).join(" · "))}</title>`;
+};
+
+function svgBody(standalone) {
   const out = [];
   let y = 16;
   const mw = mode.label.length * 6.4 + 36, bw = bannerText ? Math.min(RIGHT - 40, bannerText.length * 6.4 + 28) : 0;
@@ -159,13 +277,16 @@ function svgBody() {
     const rows = l.block ? 1 : Math.ceil(l.nodes.length / perRow);
     out.push(`<text class="th" x="40" y="${y + 11}" dominant-baseline="central">${esc(l.id)}</text><text class="ts" x="40" y="${y + 28}" dominant-baseline="central">${l.done} of ${l.total}</text>`);
     if (l.block) {
-      const w = 200, c = l.running ? "c-amber" : "c-gray", label = l.human ? `${l.total - l.done} for you` : `${l.total - l.done} open`;
+      const c = l.running ? "c-amber" : "c-gray";
+      const label = (l.human ? `${l.total - l.done} for you` : `${l.total - l.done} open`) + (l === qLane && qText ? ` · ${qText}` : "");
+      const w = Math.max(200, label.length * 6.4 + 28);
       out.push(`<g class="${c}"><rect x="${X0}" y="${y}" width="${w}" height="${NH}" rx="6" stroke-width="0.5"${l.human && !l.running ? ' stroke-dasharray="4 3"' : ""}/><text class="ts" x="${X0 + w / 2}" y="${y + NH / 2}" text-anchor="middle" dominant-baseline="central">${esc(label)}</text></g>`);
     } else {
       l.nodes.forEach((n, i) => {
         const r = Math.floor(i / perRow), x = X0 + (i % perRow) * (NW + GAP), ny = y + r * ROW;
         if (i % perRow && edges.some(([a, b]) => a === l.nodes[i - 1].id && b === n.id)) out.push(`<line x1="${x - GAP}" y1="${ny + NH / 2}" x2="${x}" y2="${ny + NH / 2}" stroke="var(--b)" stroke-width="1.5"/>`);
-        out.push(`<g class="${cls[n.s]}"><rect x="${x}" y="${ny}" width="${NW}" height="${NH}" rx="6" stroke-width="0.5"${n.h ? ' stroke-dasharray="4 3"' : ""}/><text class="ts" x="${x + NW / 2}" y="${ny + NH / 2}" text-anchor="middle" dominant-baseline="central">${esc(n.short)}</text></g>`);
+        out.push(`<g class="${cls[n.s]}">${tip(standalone, n.id)}<rect x="${x}" y="${ny}" width="${NW}" height="${NH}" rx="6" stroke-width="0.5"${n.h ? ' stroke-dasharray="4 3"' : ""}/><text class="ts" x="${x + NW / 2}" y="${ny + NH / 2}" text-anchor="middle" dominant-baseline="central">${esc(n.short)}</text></g>`);
+        if (n.o) out.push(`<circle cx="${x + NW - 4}" cy="${ny + 4}" r="2.5" fill="var(--t)"/>`);
       });
     }
     y += (l.block ? 1 : rows) * ROW + 10;
@@ -179,7 +300,8 @@ function svgBody() {
     x += 20 + label.length * 6.2 + 22;
   }
   out.push(`<text class="ts" x="40" y="${y + 30}" dominant-baseline="central">A line means the next slice waits on the one before it. A dashed outline is a slice for you.</text>`);
-  return { body: out.join("\n"), height: y + 52 };
+  out.push(`<circle cx="44" cy="${y + 48}" r="2.5" fill="var(--t)"/><text class="ts" x="54" y="${y + 48}" dominant-baseline="central">A dot marks an Opus slice, the costly ones.</text>`);
+  return { body: out.join("\n"), height: y + 70 };
 }
 
 const STYLE = `<style>
@@ -196,7 +318,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--t)}
 </style>`;
 
 function svg(standalone) {
-  const { body, height } = svgBody();
+  const { body, height } = svgBody(standalone);
   const desc = `Build progress: ${shown.map((l) => `${l.id} ${l.done} of ${l.total}`).join(", ")}${bannerText ? `, ${bannerText}` : ""}.`;
   return `<svg ${standalone ? 'xmlns="http://www.w3.org/2000/svg" ' : ""}width="100%" viewBox="0 0 ${W} ${height}" role="img"><title>Build progress</title><desc>${esc(desc)}</desc>${standalone ? STYLE : ""}\n${body}\n</svg>\n`;
 }
@@ -213,26 +335,29 @@ main{max-width:680px;margin:0 auto}h1{font-size:18px;font-weight:500;margin:0 0 
 </style></head><body><main>
 <h1>Build progress · ${esc(path.basename(root))}</h1>
 ${svg(true)}
-${running.length ? `<h2>Running now</h2><ul>${li(running.filter((r) => runningIds.has(r.id)).map((r) => `${r.id} ${byId.get(r.id).title}`))}</ul>` : ""}
+${runningNow.length ? `<h2>Running now</h2><ul>${li(runningNow.map((r) => `${r.id} ${byId.get(r.id).title}${r.minutes != null ? ` · ${r.minutes} min` : ""}`))}</ul>` : ""}
 ${ready.length ? `<h2>Could start now, no helper</h2><ul>${li(ready.slice(0, 8).map((id) => `${id} ${byId.get(id).title}`))}</ul>` : ""}
-${pace ? `<h2>Pace</h2><ul>${li([`${pace.medianMinutes} min per merged slice (median of ${pace.samples} gaps), about ${pace.etaHours} h for ${pace.remaining} slices in a row`, `the longest chain alone needs ${pace.chainFloorHours} h`])}</ul>` : ""}
+${lines.pace || lines.usage ? `<h2>Pace and usage</h2><ul>${li([lines.pace, lines.usage].filter(Boolean))}</ul>` : ""}
 </main></body></html>
 `;
 }
 
 // ---------- output ----------
 const result = {
-  project: path.basename(root), generated: stamp(),
-  mode, banner: bannerText, lanes: shown.map(({ id, title, kind, done, total, running: r, human, block, nodes }) => ({ id, title, kind, done, total, ...(r ? { running: r } : {}), ...(human ? { human } : {}), ...(block ? { block: true } : {}), ...(block ? {} : { nodes: nodes.map((n) => `${n.short}:${n.s}${n.h ? "h" : ""}`).join(" ") }) })),
+  project: path.basename(root), generated: stamp(), head,
+  mode, banner: bannerText, lanes: shown.map(({ id, title, kind, done, total, running: r, human, block, nodes }) => ({ id, title, kind, done, total, ...(r ? { running: r } : {}), ...(human ? { human } : {}), ...(block ? { block: true } : {}), ...(block ? {} : { nodes: nodes.map((n) => `${n.short}:${n.s}${n.h ? "h" : ""}${n.o ? "o" : ""}`).join(" ") }) })),
   hidden, edges: edges.map(([a, b]) => `${a}>${b}`).join(" "),
-  running: [...runningIds].map((id) => ({ id, title: byId.get(id).title, branch: running.find((r) => r.id === id).branch })),
-  recentMerges: recent, ready, humanSlices, questions: { open: questions.length, blocking: questions.filter((q) => q.blocks.some((b) => byId.has(b) && !byId.get(b).done)).map((q) => ({ text: q.text, blocks: q.blocks })) }, pace, text,
+  running: runningNow.map((r) => ({ id: r.id, title: byId.get(r.id).title, branch: r.branch, minutes: r.minutes, ...(byId.get(r.id).opus ? { opus: true } : {}) })),
+  recentMerges: recent, ready, humanSlices, questions: { open: questions.length, blocking: blocking.map((q) => ({ text: q.text, blocks: q.blocks })) }, pace, usage, lines, text,
 };
 
 if (opt.text) { console.log(text.join("\n")); process.exit(0); }
+// the fast status: the head line, the text graph and the one-line items, nothing else
+if (opt.brief) { console.log([head, ...text, ...Object.entries(lines).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)].join("\n")); process.exit(0); }
+// the widget SVG alone, passed as it is to the host's widget tool
+if (opt.widget) { process.stdout.write(svg(false)); process.exit(0); }
 if (opt.write) {
-  const dir = typeof opt.write === "string" ? path.resolve(opt.write) : path.join(os.tmpdir(), `stareso-progress-${path.basename(root)}`);
-  if (dir.toLowerCase().startsWith(root.toLowerCase() + path.sep)) { console.error("Refusing to write inside the project."); process.exit(1); }
+  const dir = outDir;
   fs.mkdirSync(dir, { recursive: true });
   const files = { svg: path.join(dir, "progress.svg"), widget: path.join(dir, "progress-widget.svg"), html: path.join(dir, "progress.html") };
   fs.writeFileSync(files.svg, svg(true)); fs.writeFileSync(files.widget, svg(false)); fs.writeFileSync(files.html, html());

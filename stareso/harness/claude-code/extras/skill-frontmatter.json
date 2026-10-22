@@ -20,7 +20,9 @@
     "argument-hint: \"[app-next | analysis-r | godot-game]\""
   ],
   "stareso-setup": [],
-  "stareso-status": [],
+  "stareso-status": [
+    "argument-hint: \"[graph]\""
+  ],
   "stareso-test": [],
   "stareso-usage": [
     "argument-hint: \"[--all]\""

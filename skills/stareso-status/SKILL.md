@@ -1,18 +1,18 @@
 ---
 name: stareso-status
 description: Where is this stareso project in its workflow, what is the current step, what is the next one (which skill, which model, which session), and whether a workflow review is due. Use when the user asks for the status, is coming back to the project, or asks what to do next.
+argument-hint: "[graph]"
 ---
 
 # stareso-status
 
 **Session:** any model, any session. Cheap: read only the files below, never the code or the milestone briefs. Talk in English unless the user switches to French.
 
-## 1. Read
-1. `docs/PLAN.md`: the `Phase:` and `Pack:` lines (and any "(open: …)" left by the grilling).
-2. `docs/ROADMAP.md`: the overview tables only (milestones with Kind, done / total, tested up to; the open slices with their flags).
-3. `docs/QUESTIONS.md`: open questions (which slices they block) and `[debt]` lines. `docs/IDEAS.md`: number of 💭 lines. `docs/FEEDBACK.md`: date of the newest block and whether it still has unsegmented points. `docs/BUILD-LOG.md`: last line. `docs/USAGE.md`: the Totals table and the last `### Retro` entry (its date and its "next retro" line), if the file exists.
-4. `git status` (one line), the current branch; say if the folder is a worktree.
-5. `node ~/.claude/stareso/tools/progress-graph.mjs --write`: one JSON (lanes, running helpers, `mode`, `ready` slices, `humanSlices`, `questions`, `pace`, `text`, `files`) from the records and `git worktree list` only. Detail: README, "The progress graph".
+## 1. Read (fast: status is the most used step)
+Argument: none (fast status, a text graph) or `graph` (the same, plus the drawn graph of §4).
+1. Call `get_usage` first: each plan window gives `percentUsed` and `resetsAt`.
+2. `node ~/.claude/stareso/tools/progress-graph.mjs --brief` with `--five <pct>@<reset>` and `--week <pct>@<reset>` from step 1 when there are readings, and `--caps <start>/<pause>/<weekly>` only when the user gave stop caps in this conversation (a build writes its own in BUILD-LOG). It prints, in about fifteen short lines: the head line (project, Phase, Pack, branch and tree, 💭 ideas, debt, open points of PLAN), the text graph (one line per milestone with open slices) and the items `running`, `usage` (with the burn rate and when each cap is reached), `pace`, `waits`, `ready`. Records and git only. Detail: README, "The progress graph".
+3. Only what the brief does not give, and only when the rule table needs it: `docs/FEEDBACK.md` (date of the newest block, points without "→ slice"), the overview's Tested column in `docs/ROADMAP.md`, the Totals row and the last `### Retro` of `docs/USAGE.md`. Say if the folder is a worktree.
 
 ## 2. Work out the current step and the next one (first rule that matches)
 | Situation (from the files) | Current step | Next step |
@@ -40,14 +40,10 @@ A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: n
 4. **The one next step**: the skill, the **model**, **new or same session**, **permission mode** (auto for build only), the profile for a build (eco unless speed matters), and the exact command to type, or the launch question of §5.
 5. The workflow review line of step 3 when due; otherwise nothing.
 
-Then these lines, **one line each and only when the data exists** (they count in the twelve):
-- **Running now:** the helpers of `running` (slice ids) and the build `mode` (`label`: profile and helper count, the profiles the pack allows are in `mode.available`), plus the other sessions working in the folder.
-- **Usage:** the 5-hour and weekly windows (`get_usage`: percent used and reset time), next to the stop caps the user gave for the build (a time limit, a percent of a window).
-- **Pace:** from `pace`, for example "17 min per merged slice, about 9 h for 31 slices in a row, the longest chain alone 3.4 h". Chains cannot be parallelised, so more helpers shorten the run only across independent slices.
-- **Waits for you:** `humanSlices`, the blocking `questions`, the number of open ones, and anything only the user can do.
-- **Could start now:** the `ready` slices that have no helper. When none is ready and helpers run, say that everything waits on a chain.
+Then the brief's items as printed, **one line each, only those it gives** (they count in the twelve): running now (with the build mode), usage, pace, waits for you, could start now. Do not recompute them.
 
-**The graph** is an addition, not counted in the twelve lines. Draw it, in this order. (1) With `mcp__visualize__show_widget` (load `mcp__visualize__read_me` once first): pass the content of `files.widget` as `widget_code`, title `build_progress`, with no text of its own inside the widget. (2) Otherwise, with the Artifact tool: publish `files.html` as a page, and give its link. (3) Otherwise print the `text` lines of the JSON in a code block (one line per lane, ■ done, ▶ a helper is running, □ waiting). The sessions of the project come from `list_sessions`.
+**The text graph** of the brief goes in a code block after the answer, as it is (■ done, ▶ a helper is running, □ waiting). It is not counted in the twelve lines.
+**With the argument `graph`** only: run the tool again with `--widget` (same flags) and pass its output as it is to `mcp__visualize__show_widget` (`widget_code`, title `build_progress`, no text of its own inside, `mcp__visualize__read_me` loaded once per session first). Without the visualize tool, run it with `--write` and publish `files.html` with the Artifact tool, then give its link.
 
 ## 5. Launch from this session (manager)
 The session that runs status can act as the project's manager: it stays open, and each step runs in its own new session. This applies to build, test and improve. Init, retrofit and deploy stay typed by the user in a session they open.

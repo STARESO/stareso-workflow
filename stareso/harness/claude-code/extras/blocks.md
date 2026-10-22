@@ -36,15 +36,15 @@ In Claude Code, start the child with `start_session`: `initiation` "user_asked",
 ```
 
 ## status-usage
-Claude Code reads the plan limits through the session tool `get_usage`.
+Claude Code reads the plan limits through the session tool `get_usage`, one fast call before the tool.
 
 ```text
-the 5-hour and weekly windows (`get_usage`: percent used and reset time),
+Call `get_usage` first: each plan window gives `percentUsed` and `resetsAt`.
 ```
 
 ## status-graph
-Claude Code draws the graph with the visualize tool, and falls back to a page or to text.
+Claude Code draws the graph with the visualize tool, and falls back to an Artifact page.
 
 ```text
-Draw it, in this order. (1) With `mcp__visualize__show_widget` (load `mcp__visualize__read_me` once first): pass the content of `files.widget` as `widget_code`, title `build_progress`, with no text of its own inside the widget. (2) Otherwise, with the Artifact tool: publish `files.html` as a page, and give its link. (3) Otherwise print the `text` lines of the JSON in a code block (one line per lane, ■ done, ▶ a helper is running, □ waiting). The sessions of the project come from `list_sessions`.
+run the tool again with `--widget` (same flags) and pass its output as it is to `mcp__visualize__show_widget` (`widget_code`, title `build_progress`, no text of its own inside, `mcp__visualize__read_me` loaded once per session first). Without the visualize tool, run it with `--write` and publish `files.html` with the Artifact tool, then give its link.
 ```
