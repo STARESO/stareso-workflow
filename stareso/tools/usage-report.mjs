@@ -21,6 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { args, findRoot, milestones } from "./lib/roadmap.mjs";
 import { collect, model } from "./lib/usage.mjs";
+import { planInterventions } from "./lib/plan.mjs";
 import { appendJsonl, logLine, mergesFromGit, mergesFromRecords, migrated, projectsFile, readBuilds, readProjects, SEED_REFERENCE } from "./lib/records.mjs";
 
 const argv = process.argv.slice(2);
@@ -52,7 +53,7 @@ const pct = (a, b) => (b ? Math.round((100 * a) / b) + " %" : "n/a");
 const median = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };
 const sum = (xs) => xs.reduce((a, b) => a + (b || 0), 0);
 // Step type: the skill name; typos of a skill ("tesot", "sttus") and free chats become "chat".
-const KNOWN = ["init", "retrofit", "discuss", "grill", "setup", "build", "test", "improve", "manager", "retro", "deploy", "usage"];
+const KNOWN = ["init", "retrofit", "discuss", "grill", "setup", "build", "test", "improve", "manager", "retro", "deploy"];
 const typeOf = (label) => { const w = label.replace(/\(launched by #\d+\)/, "").trim().split(/[\s:]/)[0]; return KNOWN.includes(w) ? w : "chat"; };
 
 // ---------- the build records as log lines (no session numbers needed: no transcript, no git)
@@ -77,15 +78,19 @@ if (argv.includes("--projects")) {
 
 // ---------- sessions and steps: from the records, or the transcripts with --live
 let sessions, steps, workflowSteps, planRows;
+// the names of the flaky tests, from the transcripts only (never in the records)
+const flakyNames = {};
 const SUMMARY = argv.includes("--summary");
 if (LIVE || MIGRATED) {
   const m = model(root, await collect(root, { live: LIVE }), { costPerSlice: false, planning: !SUMMARY });
+  for (const r of m.rows) for (const [n, c] of Object.entries(r.gateNames || {})) flakyNames[n] = (flakyNames[n] || 0) + c;
   const minute = (iso) => new Date(iso.slice(0, 16));
   const stepsOf = (r) => r.steps.map((st) => ({
     session: r.n, label: st.label, type: typeOf(st.label), win: { a: minute(st.first), b: new Date(st.last.slice(0, 16) + ":59") },
     hours: st.active / 3.6e6, turns: st.turns, you: st.user || 0, equiv: st.equiv, carried: st.carriedPct != null ? `${st.carriedPct} %` : "",
-    // a status call shown as chat still never merges a slice
-    statusCall: /^status\b/.test(st.kind),
+    // a status call or a usage read, shown as chat or manager, still never merges a slice
+    quietCall: /^(status|usage)\b/.test(st.kind),
+    gates: st.gates || null, userTs: st.userTs || null,
   }));
   sessions = m.rows.map((r) => ({
     n: Number(r.n), date: r.s.first.slice(0, 10), start: minute(r.s.first), hours: sum(r.steps.map((st) => st.active)) / 3.6e6, turns: r.s.assistant, you: r.s.user || 0,
@@ -135,7 +140,7 @@ const merges = MIGRATED ? mergesFromRecords(builds) : mergesFromGit(root, log);
 // transcript (unlogged), and no test or chat step is charged for it.
 const helperBuilt = new Set(log.filter((x) => !x.inline && x.tokens).map((x) => x.id));
 function stepOf(time, id) {
-  const holding = steps.filter((s) => s.win && s.win.a <= time && time <= s.win.b && !["retro", "usage"].includes(s.type) && !s.statusCall);
+  const holding = steps.filter((s) => s.win && s.win.a <= time && time <= s.win.b && s.type !== "retro" && !s.quietCall);
   return holding.find((s) => s.type === "build") || (helperBuilt.has(id) ? null : holding.at(-1)) || null;
 }
 const mergedBy = new Map();
@@ -211,7 +216,41 @@ const sessRows = sessions.map((s) => ({
 
 const sliceList = log.map((x) => { const m = merges.find((y) => y.id === x.id); const st = m?.step; return { id: x.id, milestone: x.milestone, tier: x.tier, model: x.model, inline: x.inline, tokens: x.tokens, lines: m?.lines ?? null, time: m ? m.time.toISOString().slice(0, 16) : null, equivPerSlice: sliceCost(m), helperEquiv: x.helperEquiv, stepType: st?.type || null, session: st?.session || null }; });
 const stepList = steps.map((s) => ({ session: s.session, type: s.type, before: !!before(s), start: s.win ? s.win.a.toISOString().slice(0, 16) : null, hours: s.hours, turns: s.turns, equiv: s.equiv, carried: Number(/^(\d+) %/.exec(s.carried)?.[1]) || null, merged: mergedBy.get(s) || 0 }));
-const report = { firstInit, workflowTotal, steps: stepList, slices: sliceList, types: typeRows, sessions: sessRows, milestones: msShown, milestonesHidden: msRows.length - msShown.length, builds: buildRows, tiers: tierRows, rounds: roundRows };
+// ---------- failing: the gates run inside the build steps (conductor and helpers), from the transcripts
+const buildSteps = steps.filter((s) => s.type === "build");
+const buildEquiv = sum(buildSteps.map((s) => s.equiv));
+let failing = null;
+{
+  const g = { runs: 0, fails: 0, reruns: 0, flakes: 0, flakeEquiv: 0, equiv: 0, relaunched: 0, rebuilt: 0 }, byGate = {};
+  for (const s of buildSteps) if (s.gates) {
+    for (const k of Object.keys(g)) g[k] += s.gates[k] || 0;
+    for (const [name, [r, f]] of Object.entries(s.gates.byGate || {})) { const x = (byGate[name] ??= { gate: name, runs: 0, fails: 0 }); x.runs += r; x.fails += f; }
+  }
+  const built = sum(buildSteps.map((s) => mergedBy.get(s) || 0));
+  if (g.runs) failing = {
+    ...g, perSlice: built ? Math.round((10 * g.runs) / built) / 10 : null, share: buildEquiv ? Math.round((100 * g.equiv) / buildEquiv) : null,
+    byGate: Object.values(byGate).sort((a, b) => b.runs - a.runs),
+    flaky: Object.entries(flakyNames).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, n]) => ({ name, n })),
+  };
+}
+
+// ---------- plan interventions: plan changes made while a milestone was being built, from git
+const stepAt = (time) => steps.filter((s) => s.win && s.win.a <= time && time <= s.win.b).sort((a, b) => b.win.a - a.win.a)[0]?.type;
+const pi = planInterventions(root, {
+  merges, open: new Set(ms.filter((m) => m.slices.some((s) => !s.done)).map((m) => m.id)), stepAt,
+  cost: (id) => sliceCost(merges.find((m) => m.id === id)),
+});
+// the user's messages in a manager step, and those a plan change followed before the next one (within an hour)
+const managerMessages = steps.filter((s) => s.type === "manager" && s.userTs).flatMap((s) => s.userTs.map((x, i, a) => ({ t: new Date(x), next: a[i + 1] ? new Date(a[i + 1]) : null })));
+const steered = managerMessages.filter((m) => pi.commitTimes.some((c) => c >= m.t && c < (m.next && m.next - m.t < 36e5 ? m.next : new Date(m.t.getTime() + 36e5)))).length;
+const offEquiv = sum(pi.milestones.map((x) => x.offEquiv));
+const planReport = {
+  milestones: pi.milestones, offEquiv, share: buildEquiv ? Math.round((100 * offEquiv) / buildEquiv) : null,
+  offSlices: sum(pi.milestones.map((x) => x.offBuilt)), plannedSlices: sum(pi.milestones.map((x) => x.planned)),
+  commits: sum(pi.milestones.map((x) => x.commits)), messages: managerMessages.length, steered,
+};
+
+const report = { failing, plan: planReport, firstInit, workflowTotal, steps: stepList, slices: sliceList, types: typeRows, sessions: sessRows, milestones: msShown, milestonesHidden: msRows.length - msShown.length, builds: buildRows, tiers: tierRows, rounds: roundRows };
 
 
 // ---------- this project in the cross-project index (records only: --live numbers move every minute)
@@ -245,7 +284,7 @@ if (CHARTS || PANEL) {
   const day0 = new Date((firstInit ? localDate(firstInit) : sessions[0].date) + "T00:00");
   const dayOf = (d) => Math.round(((d - day0) / 864e5) * 100) / 100;
   const dateOfDay = (n) => { const d = new Date(day0); d.setDate(d.getDate() + n); return localDate(d); };
-  const group = (t) => (["retro", "usage"].includes(t) ? "retro" : ["build", "test", "improve", "manager", "chat"].includes(t) ? t : "chat");
+  const group = (t) => (t === "retro" ? "retro" : ["build", "test", "improve", "manager", "chat"].includes(t) ? t : "chat");
   const kinds = ["build", "test", "improve", "manager", "chat", "retro"];
   const cum = Object.fromEntries(kinds.map((k) => [k, 0]));
   const cumulative = [];
@@ -267,6 +306,7 @@ if (CHARTS || PANEL) {
         { label: "Last build, per slice", value: fmt(buildRows.filter((b) => b.type === "build").at(-1)?.equivPerSlice ?? null) },
       ];
     })(),
+    failing, plan: planReport,
     shareByType: typeRows.filter((t) => t.type !== "before the workflow").map((t) => ({ type: t.type, share: Math.round((100 * t.equiv) / workflowTotal), equiv: t.equiv, hours: t.hours, turns: t.turns, carried: t.carried.length ? median(t.carried) : null })),
     cumulative: { kinds, days: Array.from({ length: lastDay + 1 }, (_, i) => ({ day: i, date: dateOfDay(i) })), points: cumulative },
     milestones: msRows.map((m) => ({ id: m.id, built: m.built, equivPerSlice: m.equivPerSlice, measured: m.measured, slices: m.slices })),
@@ -289,6 +329,24 @@ out.push("**1. By type of step**\n");
 out.push(md(["Share", "Step type", "Runs", "Active h", "Turns", "≈ equiv", "Median carried"], typeRows.map((t) => [
   t.type === "before the workflow" ? "—" : pct(t.equiv, workflowTotal), t.type, t.runs, t.hours.toFixed(1), t.turns, fmt(t.equiv), t.carried.length ? median(t.carried) + " %" : "",
 ])));
+
+if (failing) {
+  const f = failing;
+  out.push("\n**Failing** (the gates run inside the builds, helpers included; a gate's cost is the turn that runs it and the turn that reads it)\n");
+  out.push(`- ${f.runs} gate runs, ${f.fails} failed (${pct(f.fails, f.runs)})${f.perSlice != null ? `, ${f.perSlice} runs per built slice` : ""}.`);
+  out.push(`- Checking ≈ ${fmt(f.equiv)}, ${f.share ?? "n/a"} % of the build cost.`);
+  out.push(`- By gate: ${f.byGate.map((g) => `${g.gate} ${g.runs} (${g.fails} failed)`).join(" · ")}.`);
+  out.push(`- Reruns with no edit after a fail: ${f.reruns}, of which ${f.flakes} passed (flakes), ≈ ${fmt(f.flakeEquiv)}.${f.flaky.length ? ` Flakiest: ${f.flaky.map((x) => `${x.name} ×${x.n}`).join(", ")}.` : ""}`);
+  out.push(`- Slices started again after a failed gate: ${f.rebuilt} (of ${f.relaunched} restarts).`);
+}
+{
+  const p = planReport;
+  out.push("\n**Plan interventions** (plan changes after a milestone's first merge: slices added, briefs rewritten, chains changed, PLAN or decisions; the fix slices a test writes are planned)\n");
+  out.push(`- ${p.commits} plan commits during builds. ${p.offSlices} built slices off plan, ${p.plannedSlices} as planned. Off plan ≈ ${fmt(p.offEquiv)}, ${p.share ?? "n/a"} % of the build cost.`);
+  out.push(`- Manager messages: ${p.messages}, of which ${p.steered} steered (a plan change followed within the hour) and ${p.messages - p.steered} did not.`);
+  const rows = p.milestones.filter((x) => x.commits);
+  if (rows.length) out.push("", md(["Milestone", "Commits", "Added", "Rewritten", "Chain", "Built off plan", "≈ equiv"], rows.map((x) => [x.id, x.commits, x.added, x.rewritten, x.chain, `${x.offBuilt}/${x.offBuilt + x.planned}`, fmt(x.offEquiv)])));
+}
 
 out.push("\n**2. Sessions**\n");
 out.push(md(["Share", "Session", "Date", "Active h", "Turns", "You", "Turns per message", "Helpers", "≈ equiv"], sessRows.map((s) => [

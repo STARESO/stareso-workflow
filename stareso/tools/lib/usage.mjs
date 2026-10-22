@@ -37,13 +37,60 @@ function addKind(s, name, rawArg) {
 // sessions, lists them, or is woken by their reports) is a manager: the status call that opened it joins the manager
 // step, and after a plain chat the manager step starts at the request that led to it.
 const MANAGER_TOOL = /(^|__)(start_session|send_message|SendMessage|list_sessions|clear_session|stop_session|set_session_model|set_session_permission_mode)$/;
-const MANAGED_FROM = /^(status|chat)$/;
+const MANAGED_FROM = /^(status|usage|chat)$/;
 // the workflow's steps, past ones included: another `/stareso-…` command (the panel's, a typo) starts no step
 const STEPS = /^(init|retrofit|discuss|grill|setup|build|test|improve|status|retro|deploy|usage)$/;
 
 // A status call costs about one turn and has no type of its own in the tables: a status step left alone (no manager
-// after it) is shown as chat. The records keep "status", which tells that the step never builds nor plans slices.
-export const shownKind = (k) => (k || "").replace(/\bstatus\b/g, "chat").split(" → ").filter((x, i, a) => !i || x !== a[i - 1]).join(" → ");
+// after it) is shown as chat. A `usage` step (the retired /stareso-usage, now the panel's Usage tab) is manager work in
+// a session that manages, chat otherwise. The records keep both kinds, which tell that the step never builds nor
+// plans slices.
+export const shownKind = (k, managed = false) => (k || "").replace(/\bstatus\b/g, "chat").replace(/\busage\b/g, managed ? "manager" : "chat")
+  .split(" → ").filter((x, i, a) => !i || x !== a[i - 1]).join(" → ");
+
+// ---------- gates: the project's verification commands, counted in the build and helper transcripts
+// The gates are the rows of the project's Commands table (CLAUDE.md) with these names. A run is recognised by its
+// launcher and script ("bash tools/check.sh", "--script res://tools/test_runner.gd"), never by a mention of the
+// script, and a gate whose command has an environment word ("NO_WINDOW=1") needs it, so `check` and `check-full`
+// stay apart. A command with no script is matched whole ("npm run check").
+const GATE_NAMES = /^(check|check-full|test|tests|shot|reach|audit|lint|typecheck)$/;
+export function gateKeys(root) {
+  let md = "";
+  try { md = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8"); } catch { return []; }
+  const gates = [];
+  for (const line of md.split(/\r?\n/)) {
+    const row = /^\|\s*`([\w-]+)`\s*\|\s*`([^`]+)`/.exec(line);
+    if (!row || !GATE_NAMES.test(row[1])) continue;
+    const toks = row[2].replace(/\[[^\]]*\]/g, "").split(/\s+/).filter(Boolean);
+    const at = toks.findIndex((t) => /[\\/]/.test(t) && !/\$/.test(t));
+    const env = toks.filter((t) => /^[A-Z_]+=\S+$/.test(t));
+    if (at < 0) { gates.push({ name: row[1], script: toks.filter((t) => !env.includes(t)).join(" "), launcher: "", env }); continue; }
+    const launcher = at > 0 && /^(bash|sh|node|python3?|--script|npx|pwsh)$/.test(toks[at - 1]) ? toks[at - 1] : "";
+    gates.push({ name: row[1], script: toks[at].replace(/^res:\/\//, ""), launcher, env });
+  }
+  return gates;
+}
+const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function gateOf(gates, cmd) {
+  const c = ` ${cmd.replace(/\s+/g, " ")} `;
+  const hits = gates.filter((g) => (g.launcher ? new RegExp(`${esc(g.launcher)} +(?:res://)?\\S*${esc(g.script)}(?=[\\s"'|;&)]|$)`).test(c) : c.includes(` ${g.script} `))
+    && g.env.every((e) => c.includes(e)));
+  return hits.sort((a, b) => b.env.length - a.env.length)[0]?.name ?? null;
+}
+// a failed run: a non-zero exit, or a FAIL summary line (an exit code lost in a pipe to tail)
+const FAILED = /^\s*(?:[A-Z]+ )?FAIL(?:ED)?\b/m;
+// what failed: the test names, else the gate's stage, else the gate
+const failNames = (text, gate) => {
+  const tests = [...text.matchAll(/^\s*FAIL:?\s+(test_\w+)/gm)].map((m) => m[1]);
+  if (tests.length) return [...new Set(tests)];
+  const stages = [...text.matchAll(/^\s*FAIL\s+([\w-]+)\s+\(exit code/gm)].map((m) => `${gate}: ${m[1]}`);
+  return stages.length ? [...new Set(stages)] : [gate];
+};
+const EDITS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
+// a shell command that changes files counts as an edit too (a stale file removed, a sed, a git checkout)
+const SHELL_EDIT = /(\bsed -i|\bperl -pi|\bgit (checkout|restore|apply|stash|reset|merge|pull|rebase)\b|(^|[;&|]\s*)(cp|mv|rm|touch|mkdir|tee)\s|[^2&>]>\s*[^&\s>])/;
+// a slice id in a helper's launch ("Build M11.7: …", "M3.tidy")
+const SLICE_ID = /\b([A-Z]\d*\.(?:\d+[a-z]?|tidy\d*|[a-z]{2,8}\d*))\b/;
 
 // A step no skill names is labelled "chat": no word of the user's messages reaches a record. The first words of the
 // request (tags and paths dropped) only tell two such steps apart in memory, as the mark's key.
@@ -69,7 +116,7 @@ function splitSteps(s, helpers, fallback) {
     const gap = prev ? new Date(ev.ts) - new Date(prev) : 0;
     if (gap > 0 && gap <= 15 * 60e3) st.active += gap;
     prev = ev.ts; st.last = ev.ts;
-    if (ev.u) st.user++;
+    if (ev.u) { st.user++; if (st.kind === "manager") (st.userTs ??= []).push(ev.ts.slice(0, 16)); }
     if (ev.a) {
       st.turns++;
       if (ev.model) st.models[ev.model] = (st.models[ev.model] || 0) + 1;
@@ -85,26 +132,36 @@ function splitSteps(s, helpers, fallback) {
   return steps;
 }
 
-export async function summarise(file) {
+export async function summarise(file, gates = []) {
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
   const s = { id: path.basename(file, ".jsonl"), first: null, last: null, models: {}, tools: {}, user: 0, assistant: 0, agents: 0,
     compactions: 0, active: 0, kind: null, kinds: [], events: [], marks: [], lastUserTs: null, lastUserText: "", firstText: "", usage: { input: 0, cache_read: 0, cache_create: 0, output: 0 }, byModel: {}, timeline: [],
-    launchTs: null, launchText: "", launches: [] };
+    launchTs: null, launchText: "", launches: [], gateRuns: [], sliceLaunches: [] };
   const t = (ts) => (ts || "").slice(5, 16);
+  // gate runs: the call waits for its result, the run for the turn that reads it (both turns are its cost); a failed
+  // gate stays open until an edit, so a rerun with no edit between is a rerun of the same code (a flake when it passes)
+  const calls = {}, reading = [], open = {};
   // the status call that opened a manager becomes its manager step; after a plain chat, the manager step starts at the
   // request that led to the first manager action (the user's go), or at the action itself. Nothing is marked when the
   // session is already a manager.
   const manage = (ts) => {
     const cur = s.marks.at(-1);
-    if (cur ? !MANAGED_FROM.test(cur.kind) : s.launchTs) return;
-    if (cur?.kind === "status") {
+    if (cur ? !MANAGED_FROM.test(cur.kind) && !cur.conductor : s.launchTs) return;
+    if (cur?.kind === "status" || cur?.kind === "usage") {
+      s.kinds[s.kinds.lastIndexOf(cur.kind)] = "manager";
       cur.kind = "manager";
-      s.kinds[s.kinds.lastIndexOf("status")] = "manager";
       s.kinds = s.kinds.filter((k, i, a) => !i || k !== a[i - 1]);
       s.kind = s.kinds.join(" → ");
       return;
     }
     s.marks.push({ ts: s.lastUserTs && (!cur || s.lastUserTs > cur.ts) ? s.lastUserTs : ts, kind: addKind(s, "manager") });
+  };
+  // A manager or a plain chat that builds slices itself (it starts a slice builder or merges with slice-done) is a
+  // conductor for that stretch: a `build` step, until its next manager action. A launched build is a build already.
+  const conduct = (ts) => {
+    const cur = s.marks.at(-1);
+    if (cur ? !(MANAGED_FROM.test(cur.kind) || cur.kind === "manager") : s.launchTs) return;
+    s.marks.push({ ts: s.lastUserTs && (!cur || s.lastUserTs > cur.ts) ? s.lastUserTs : ts, kind: addKind(s, "build"), conductor: true });
   };
   for await (const line of rl) {
     let o; try { o = JSON.parse(line); } catch { continue; }
@@ -125,6 +182,25 @@ export async function summarise(file) {
       // a task notification, an interrupt mark) is not typed by the user: it is not counted in "You" and names no
       // chat step. The origin says so when the transcript has one, the text's opening otherwise.
       const fromApp = o.origin?.kind ? o.origin.kind !== "human" : o.turnOrigin === "sdk" || o.promptSource === "system";
+      // a gate's result: pass or fail, what failed, and whether it reran a failed gate with no edit between
+      for (const p of Array.isArray(c) ? c : []) {
+        const call = p.type === "tool_result" && calls[p.tool_use_id];
+        if (!call) continue;
+        delete calls[p.tool_use_id];
+        const text = typeof p.content === "string" ? p.content : (p.content || []).map((x) => x.text || "").join("\n");
+        const fail = !!p.is_error || FAILED.test(text);
+        const run = { ts: o.timestamp, gate: call.gate, fail, cost: call.cost, rerun: false, flake: false, names: fail ? failNames(text, call.gate) : [] };
+        const was = open[call.key];
+        if (was && !was.edited) {
+          run.rerun = true;
+          was.reruns.push(run);
+          // a pass with no edit since the fail: the fail was a flake, and every rerun of it is its cost
+          if (!fail) { run.flake = true; run.names = was.names; for (const r of was.reruns) r.flakeRun = true; }
+        }
+        if (fail) { if (!was || was.edited) open[call.key] = { names: run.names, edited: false, reruns: [] }; } else delete open[call.key];
+        s.gateRuns.push(run);
+        reading.push(run);
+      }
       for (const txt of texts) {
         // A reminder the app adds to a message is not the user's text either.
         if (/^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/.test(txt)) continue;
@@ -147,6 +223,9 @@ export async function summarise(file) {
       s.assistant++;
       if (m.model && !m.model.startsWith("<")) s.models[m.model] = (s.models[m.model] || 0) + 1;
       s.events.push({ ts: o.timestamp, a: 1, usage: m.usage, model: m.model && !m.model.startsWith("<") ? m.model : null });
+      const turnCost = m.usage ? equiv({ cache_read: m.usage.cache_read_input_tokens || 0, cache_create: m.usage.cache_creation_input_tokens || 0, output: m.usage.output_tokens || 0 }) : 0;
+      // the turn after a gate's result reads it: part of the gate's cost
+      for (const r of reading.splice(0)) r.cost += turnCost;
       if (m.usage) {
         s.usage.input += m.usage.input_tokens || 0;
         s.usage.cache_read += m.usage.cache_read_input_tokens || 0;
@@ -157,7 +236,24 @@ export async function summarise(file) {
       for (const p of m.content || []) {
         if (p.type !== "tool_use") continue;
         s.tools[p.name] = (s.tools[p.name] || 0) + 1;
-        if (p.name === "Agent" || p.name === "Task") { s.agents++; s.timeline.push(`${t(o.timestamp)} A ${p.input?.subagent_type || "?"} ${(p.input?.description || "").slice(0, 80)}`); }
+        if (p.name === "Bash" && /slice-done\.mjs/.test(p.input?.command || "")) conduct(o.timestamp);
+        if (p.name === "Bash" && gates.length) {
+          const gate = gateOf(gates, p.input?.command || "");
+          // the same command again (the same test file, scene or gate), its output piped or not, is a rerun
+          if (gate) calls[p.id] = { gate, key: (p.input.command || "").split(/\s*(?:\||2?>|&&|;)\s*/).find((x) => gateOf(gates, x))?.trim() || gate, cost: turnCost };
+        }
+        if (EDITS.test(p.name) || (p.name === "Bash" && !calls[p.id] && SHELL_EDIT.test(p.input?.command || ""))) for (const g of Object.values(open)) g.edited = true;
+        if (p.name === "Agent" || p.name === "Task") {
+          s.agents++; s.timeline.push(`${t(o.timestamp)} A ${p.input?.subagent_type || "?"} ${(p.input?.description || "").slice(0, 80)}`);
+          // a slice builder started for a slice: a second start of the same slice is a rebuild
+          // a slice builder, a helper asked to build or fix, or one whose description opens with a slice id ("A1 …",
+          // "M3.2 …", the ids of an older plan included)
+          const desc = p.input?.description || "";
+          const lead = /^([A-Z]\d+[a-z]?(?:\.\w+)?)\s/.exec(desc)?.[1];
+          const builder = /slice-builder/.test(p.input?.subagent_type || "") || /^(build|rebuild|fix)\b/i.test(desc);
+          const id = (builder && SLICE_ID.exec(`${desc} ${(p.input?.prompt || "").slice(0, 300)}`)?.[1]) || (!/checker|explore|plan/i.test(p.input?.subagent_type || "") && lead);
+          if (id) { s.sliceLaunches.push({ ts: o.timestamp, id }); conduct(o.timestamp); }
+        }
         if (p.name === "Skill") {
           s.timeline.push(`${t(o.timestamp)} S ${p.input?.skill}`);
           // A step the agent started itself (e.g. improve after a status) counts like a typed command.
@@ -207,22 +303,54 @@ const isWorkflowSession = (s, dirName) => /workflow-review|retro/.test(s.kinds?.
 const strip = (s) => ({ id: s.id, first: s.first, last: s.last, kind: s.kind, kinds: s.kinds, user: s.user, assistant: s.assistant, active: s.active, compactions: s.compactions, usage: s.usage, models: s.models, byModel: s.byModel, launchTs: s.launchTs, launches: s.launches });
 
 // One session read from its transcript and its helpers' (null when it has no assistant turn).
-async function sessionEntry(file, hFiles, d, slug) {
-  const s = await summarise(file);
+async function sessionEntry(file, hFiles, d, slug, gates = []) {
+  const s = await summarise(file, gates);
   if (!s.assistant) return null;
   const helpers = [];
-  for (const hf of hFiles) helpers.push(await summarise(hf));
+  for (const hf of hFiles) helpers.push(await summarise(hf, gates));
   const h = helpers.reduce((a, x) => { a.n++; a.out += x.usage.output; a.cr += x.usage.cache_read; a.cw += x.usage.cache_create; a.equiv += equiv(x.usage); for (const [m, n] of Object.entries(x.models)) a.models[m] = (a.models[m] || 0) + n; for (const [m, u] of Object.entries(x.byModel)) addKinds(a.byModel, m, u); return a; }, { n: 0, out: 0, cr: 0, cw: 0, equiv: 0, models: {}, byModel: {} });
   const wf = isWorkflowSession(s, d);
   // A session with no step mark (e.g. a review run in a worktree named for it) keeps the session's label.
   const steps = splitSteps(s, helpers, wf ? "workflow review" : null);
-  return { id: s.id, s: strip(s), steps, h, inWorktree: d !== slug, wf };
+  const gateNames = gateSteps(steps, s, helpers);
+  return { id: s.id, s: strip(s), steps, h, inWorktree: d !== slug, wf, ...(gateNames ? { gateNames } : {}) };
+}
+
+// The gate runs of a session and its helpers, counted on the step running at the time (numbers only, saved with the
+// step), and the names of the flaky tests (kept on the entry, never in the records). A slice started again after a
+// gate failed since its last start counts as rebuilt.
+function gateSteps(steps, s, helpers) {
+  const runs = [...s.gateRuns, ...helpers.flatMap((x) => x.gateRuns)].sort((a, b) => a.ts.localeCompare(b.ts));
+  if (!runs.length && !s.sliceLaunches.length) return null;
+  const at = (ts) => [...steps].reverse().find((x) => x.first <= ts) || steps[0];
+  const g = (st) => (st.gates ??= { runs: 0, fails: 0, reruns: 0, flakes: 0, flakeEquiv: 0, equiv: 0, byGate: {}, relaunched: 0, rebuilt: 0 });
+  const names = {};
+  for (const r of runs) {
+    const x = g(at(r.ts));
+    x.runs++; x.equiv += r.cost;
+    const by = (x.byGate[r.gate] ??= [0, 0]); by[0]++;
+    if (r.fail) { x.fails++; by[1]++; }
+    if (r.rerun) x.reruns++;
+    if (r.flakeRun) x.flakeEquiv += r.cost;
+    if (r.flake) { x.flakes++; for (const n of r.names) names[n] = (names[n] || 0) + 1; }
+  }
+  const last = {};
+  for (const l of s.sliceLaunches) {
+    if (last[l.id]) {
+      const x = g(at(l.ts));
+      x.relaunched++;
+      if (runs.some((r) => r.fail && r.ts > last[l.id] && r.ts < l.ts)) x.rebuilt++;
+    }
+    last[l.id] = l.ts;
+  }
+  for (const st of steps) if (st.gates) { st.gates.equiv = Math.round(st.gates.equiv); st.gates.flakeEquiv = Math.round(st.gates.flakeEquiv); }
+  return Object.keys(names).length ? names : null;
 }
 
 // Per-machine cache of the session entries (numbers and step labels only, no prompt), keyed by the transcript files'
 // sizes and times, so a live read parses only the transcripts that grew. CACHE_VERSION changes with summarise or
 // splitSteps, which drops every old entry. The file is replaced in one rename: two panels may write at once.
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 12;
 const CACHE_FILE = path.join(GLOBAL_DATA, "cache", "sessions.json");
 function readCache() {
   let c = null;
@@ -249,6 +377,9 @@ export async function collect(root, { live = true } = {}) {
   if (live) {
     const { slug, dirs } = transcriptDirs(root);
     const cache = readCache();
+    // the project's gates: a change of its Commands table reads the transcripts again
+    const gates = gateKeys(root);
+    const gateSig = gates.map((x) => `${x.name}=${x.launcher} ${x.script} ${x.env.join(" ")}`).join(",");
     let changed = false;
     for (const d of dirs) {
       const dir = path.join(PROJECTS, d);
@@ -257,10 +388,10 @@ export async function collect(root, { live = true } = {}) {
         const hDir = path.join(dir, f.slice(0, -6), "subagents");
         const hFiles = fs.existsSync(hDir) ? fs.readdirSync(hDir).filter((x) => x.endsWith(".jsonl")).sort().map((x) => path.join(hDir, x)) : [];
         // a session is read again only when its transcript or one of its helpers' changed (size or time)
-        const key = [file, ...hFiles].map((x) => { const st = fs.statSync(x); return `${path.basename(x)}:${st.size}:${st.mtimeMs}`; }).join("|") + `|${d}`;
+        const key = [file, ...hFiles].map((x) => { const st = fs.statSync(x); return `${path.basename(x)}:${st.size}:${st.mtimeMs}`; }).join("|") + `|${d}|${gateSig}`;
         let entry = cache.sessions[file]?.key === key ? cache.sessions[file].entry : undefined;
         if (entry === undefined) {
-          entry = await sessionEntry(file, hFiles, d, slug);
+          entry = await sessionEntry(file, hFiles, d, slug, gates);
           cache.sessions[file] = { key, entry };
           changed = true;
         }
@@ -337,7 +468,7 @@ export function model(root, entries, { costPerSlice = true, planning = true } = 
     st.equiv = equiv(st.usage) + st.hEquiv;
     st.extra = Math.max(0, (st.carried || 0) - base);
     st.carriedPct = i && st.turns ? Math.round(100 * Math.min(1, st.extra * st.turns * 0.1 / Math.max(1, st.equiv))) : null;
-    st.label = shownKind(st.kind) + (!i && r.by ? ` (launched by #${r.by})` : "");
+    st.label = shownKind(st.kind, r.steps.some((x) => x.kind === "manager")) + (!i && r.by ? ` (launched by #${r.by})` : "");
   });
 
   const builds = readBuilds(root);
@@ -403,7 +534,7 @@ export function model(root, entries, { costPerSlice = true, planning = true } = 
 export function renderBlock(m) {
   const { rows, wfRows, base, totals, wfTotals, sliceList, unlogged, planList, byDay, conductorBuilt } = m;
   const endOf = (first, last) => (last.slice(0, 10) === first.slice(0, 10) ? last.slice(11, 16) : last.slice(0, 16).replace("T", " "));
-  const kindOf = (r) => (r.wf && !/workflow-review|stareso-retro/.test(r.s.kind || "") ? "workflow review" : shownKind(r.s.kind) || "chat") + (r.inWorktree ? " (worktree)" : "") + (r.gone ? " (transcript gone)" : "");
+  const kindOf = (r) => (r.wf && !/workflow-review|stareso-retro/.test(r.s.kind || "") ? "workflow review" : shownKind(r.s.kind, r.steps.some((x) => x.kind === "manager")) || "chat") + (r.inWorktree ? " (worktree)" : "") + (r.gone ? " (transcript gone)" : "");
   const session = (r) => `| ${r.n} | ${r.s.first.slice(0, 10)} ${r.s.first.slice(11, 16)}–${endOf(r.s.first, r.s.last)} | ${kindOf(r)}${r.by ? ` (launched by #${r.by})` : ""} | ${hours(r.steps.reduce((a, st) => a + st.active, 0))} | ${modelsText(r.s.models) || "—"} | ${r.s.assistant} | ${r.s.user} | ${r.h.n || ""} | ${fmt(Math.round(r.e))} |`;
   const details = (r) => `| ${r.n} | ${r.s.compactions || ""} | ${fmt(Math.round(r.s.usage.cache_read / Math.max(1, r.s.assistant)))} | ${fmt(r.s.usage.output)} | ${fmt(r.s.usage.cache_read)} | ${fmt(r.s.usage.cache_create)} | ${r.h.n ? `${modelsText(r.h.models)} · out ${fmt(r.h.out)} · cache ${fmt(r.h.cr)}` : ""} |`;
   const stepLines = (r) => r.steps.map((st) => `| ${r.n} | ${st.first.slice(0, 10)} ${st.first.slice(11, 16)}–${endOf(st.first, st.last)} | ${st.label} | ${hours(st.active)} | ${st.turns} | ${st.user} | ${st.hN || ""} | ${fmt(Math.round(st.equiv))} | ${st.carriedPct != null ? `${st.carriedPct} % · ${fmt(st.extra)}` : ""} |`);
@@ -429,7 +560,7 @@ export function renderBlock(m) {
     "| Column | Meaning |", "|---|---|",
     "| # | Session number: links the Sessions, Steps and Details rows (W1… = workflow sessions). |",
     "| Date / Start–end | Start date and time, then end time (`10-18 15:10` = ended on a later day). |",
-    "| Steps | The stareso steps of the session in order (`chat → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat` = work no skill names, or a request the task list marked as new (never words of the request). `manager` = a session that launches, messages or lists other sessions, or is woken by their reports, from the status call that opened it (or the request that led to it). A status call left alone is a few turns of `chat`. `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. `(transcript gone)` = the transcript was deleted after the session was logged: its numbers come from the sessions records, written at every `--log`. |",
+    "| Steps | The stareso steps of the session in order (`chat → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat` = work no skill names, or a request the task list marked as new (never words of the request). `manager` = a session that launches, messages or lists other sessions, or is woken by their reports, from the status call that opened it (or the request that led to it). A status call (or a usage read) left alone is a few turns of `chat`. A manager or chat that starts slice builders or merges slices itself is `build` (a conductor) for that stretch. `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. `(transcript gone)` = the transcript was deleted after the session was logged: its numbers come from the sessions records, written at every `--log`. |",
     "| Step rows | One per step, split at the step's first message; helpers go to the step that started them. The session's totals are the sum of its steps. |",
     `| Carried | For a session's later steps: share of the step's cost spent re-reading the context it started with above the base (${fmt(base)}, the median context at the first turn of this project's sessions, which every new session pays), then that extra context's size. High = a new session would have been cheaper (target < 20 %). |`,
     "| Active h | Hours of work: time between consecutive messages, pauses over 15 min left out. |",

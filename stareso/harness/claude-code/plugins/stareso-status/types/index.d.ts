@@ -60,6 +60,16 @@ export type UsageCharts = {
   sessions: { n: number; date: string; ctx: number | null; turns: number; equiv: number; helpers: number; over300: boolean }[];
   slices: { id: string; tier: string; tokens: number; lines: number; outlier: boolean }[];
   tierMedians: { tier: string; model: string; tokens: number | null; lines: number | null; per100: number | null }[];
+  // the gates run inside the builds (metrics.md, "Failing"), null with no gate run
+  failing?: {
+    runs: number; fails: number; perSlice: number | null; equiv: number; share: number | null; reruns: number; flakes: number;
+    flakeEquiv: number; rebuilt: number; relaunched: number; byGate: { gate: string; runs: number; fails: number }[]; flaky: { name: string; n: number }[];
+  } | null;
+  // the plan changes made while milestones were built (metrics.md, "Plan interventions")
+  plan?: {
+    offEquiv: number; share: number | null; offSlices: number; plannedSlices: number; commits: number; messages: number; steered: number;
+    milestones: { id: string; commits: number; added: number; rewritten: number; chain: number; offBuilt: number; planned: number; offEquiv: number }[];
+  };
 };
 
 // progress-graph.mjs: what the ETAs missed, the factor learned from it, the latest measured slices (minutes)

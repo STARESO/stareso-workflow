@@ -155,6 +155,10 @@ const CHARTS = {
   sessions: [{ n: 1, date: '2026-10-21', ctx: 120000, turns: 120, equiv: 1e7, helpers: 2, over300: false }, { n: 2, date: '2026-10-22', ctx: 400000, turns: 900, equiv: 9e7, helpers: 0, over300: true }],
   slices: [{ id: 'M1.1', tier: 'standard', tokens: 30000, lines: 100, outlier: false }, { id: 'M1.2', tier: 'strong', tokens: 400000, lines: 50, outlier: true }],
   tierMedians: [{ tier: 'standard', model: 'sonnet', tokens: 30000, lines: 100, per100: 30000 }],
+  failing: { runs: 40, fails: 8, perSlice: 2.5, equiv: 3e6, share: 6, reruns: 3, flakes: 2, flakeEquiv: 2e5, rebuilt: 0, relaunched: 0,
+    byGate: [{ gate: 'check', runs: 30, fails: 5 }], flaky: [{ name: 'test_boost', n: 2 }] },
+  plan: { offEquiv: 4e6, share: 8, offSlices: 2, plannedSlices: 10, commits: 3, messages: 12, steered: 2,
+    milestones: [{ id: 'M1', commits: 3, added: 1, rewritten: 1, chain: 0, offBuilt: 2, planned: 1, offEquiv: 4e6 }] },
 }
 
 // the engine beneath the plugin; what it answers counts the pane openings
@@ -232,6 +236,11 @@ test('the usage view draws the plan windows, the tiles and the seven charts', as
     expect(await ui.find({ type: 'Text', text: /Plan usage now/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^166\.6M$/ })).toBeTruthy()
     for (const n of [1, 2, 3, 4, 5, 6, 7]) expect(await ui.find({ type: 'Text', text: new RegExp(`^${n}\\. `) })).toBeTruthy()
+    // the two measures under the charts, a few lines each
+    expect(await ui.find({ type: 'Text', text: /^40 runs, 8 failed \(20 %\)/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^flakiest: test_boost ×2$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^2 built slices off plan, 10 as planned/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^manager messages: 12, 2 steered the plan, 10 did not$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /over 300 turns/ })).toBeTruthy()
     // chart 3 leaves out a planned milestone with no cost per slice yet
     expect(await ui.find({ type: 'Text', text: /^M1 +$/ })).toBeTruthy()

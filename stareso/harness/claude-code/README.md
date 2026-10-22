@@ -40,6 +40,7 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 
 - Four tiles, the plan windows with the stop caps (│ marks 100 %), then **seven charts** (how to read them: `metrics.md`, "The usage report").
 - Charts 2, 3, 6 and 7 fold to their latest rows. **Expand** shows every row with more in each, for example each step's type, conductor and helper cost on chart 6.
+- Under the charts, two measures in a few lines: **Failing** (the gates inside the builds: runs, failures, checking cost, flakes) and **Plan interventions** (the build that left the plan, and the manager messages that steered it). Definitions: `metrics.md`.
 - **Chart 7** is a dumbbell per merged slice (○ predicted, ● what it took, green on time, amber late, blue early), and its caption gives the correction factor the ETAs learned.
 - Hovering a row gives its detail, every value is right-aligned, dates are written yyyy-mm-dd, and the tables are one button away (computed with the charts, so opening them costs nothing).
 - The report is read live from the transcripts, nothing is written in the project, and it refreshes after five minutes or a merge.

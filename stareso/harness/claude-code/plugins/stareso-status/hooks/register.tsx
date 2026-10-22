@@ -737,7 +737,7 @@ function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act, pick: (id: stri
 // ---------- usage: the plan windows, then the tiles and the six charts of the usage report (metrics.md) ----------
 
 const KIND: Record<string, string> = {
-  build: 'suggestion', test: 'success', improve: 'claude', manager: 'merged', chat: 'warning', retro: 'inactive', usage: 'inactive',
+  build: 'suggestion', test: 'success', improve: 'claude', manager: 'merged', chat: 'warning', retro: 'inactive',
 }
 const TIER: Record<string, string> = { light: 'success', standard: 'suggestion', strong: 'claude' }
 const BUILT: Record<string, string> = { helpers: 'suggestion', chat: 'warning' }
@@ -829,6 +829,7 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
             )
           })()}
           {pair(etaChart(ui, p.etaTrack, room, L, open('u7')), p.etaTrack && more('u7', p.etaTrack.rows.length, FOLDED.u7))}
+          {measures(ui, c)}
           {pair(
             <Box flexDirection="row">
               <Button key="tables" dimColor onPress={act(q => ({ ...q, showTables: !q.showTables }))}>{p.showTables ? 'Hide the tables' : 'Show the tables'}</Button>
@@ -947,6 +948,38 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
 // 2. the running total of each step type at the end of each day, stacked (the stacked variant of the skill's chart 2)
 // the rows a folded chart keeps (its latest); the Expand button shows them all
 const FOLDED = { u2: 14, u3: 12, u6: 8, u7: 6 }
+
+// Two measures in a few lines, no chart (metrics.md): what the gates cost inside the builds, and how much of the
+// build left the plan written before it
+function measures(ui: UI, c: UsageCharts) {
+  const { Box, Text } = ui
+  const f = c.failing
+  const p = c.plan
+  if (!f && !p) return null
+  const block = (title: string, caption: string, lines: (string | false)[]) => (
+    <Box flexDirection="column">
+      <Text bold>{title}</Text>
+      <Text dimColor size="footnote">{caption}</Text>
+      {lines.filter((x): x is string => !!x).map(x => <Text>{x}</Text>)}
+    </Box>
+  )
+  return (
+    <Box flexDirection="column" gap={2}>
+      {f && block('Failing, inside the builds', 'The gates the build and its helpers ran; a gate costs the turn that runs it and the one that reads it.', [
+        `${f.runs} runs, ${f.fails} failed (${f.runs ? Math.round((100 * f.fails) / f.runs) : 0} %)${f.perSlice != null ? ` · ${f.perSlice} per built slice` : ''}`,
+        `checking ≈ ${fmt(f.equiv)}, ${f.share ?? 'n/a'} % of the build cost`,
+        `reruns with no edit: ${f.reruns}, ${f.flakes} flakes ≈ ${fmt(f.flakeEquiv)}`,
+        f.flaky.length > 0 && `flakiest: ${f.flaky.slice(0, 3).map(x => `${x.name} ×${x.n}`).join(', ')}`,
+        f.relaunched > 0 && `slices started again after a failed gate: ${f.rebuilt} of ${f.relaunched}`,
+      ])}
+      {p && block('Plan interventions', 'Plan changes after a milestone\'s first merge (slices added, briefs rewritten, chains changed, PLAN, decisions); a test\'s fix slices are planned.', [
+        `${p.offSlices} built slices off plan, ${p.plannedSlices} as planned · ≈ ${fmt(p.offEquiv)}, ${p.share ?? 'n/a'} % of the build cost`,
+        `${p.commits} plan commits during builds${p.milestones.some(x => x.offBuilt) ? ` · most in ${[...p.milestones].sort((a, b) => b.offEquiv - a.offEquiv).slice(0, 2).filter(x => x.offBuilt).map(x => `${x.id} (${x.offBuilt})`).join(', ')}` : ''}`,
+        p.messages > 0 && `manager messages: ${p.messages}, ${p.steered} steered the plan, ${p.messages - p.steered} did not`,
+      ])}
+    </Box>
+  )
+}
 
 // 7. what each ETA predicted against what the slice took, and the factor learned from the misses
 function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: boolean) {
