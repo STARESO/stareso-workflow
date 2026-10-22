@@ -54,8 +54,11 @@ test('the panel draws the brief from the tool, on every surface', async ($, on) 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /demo/ })).toBeTruthy()
-    // the brief drawn natively: a helper row in the running colour, the milestone's squares by state, its ETA
-    expect((await ui.find({ type: 'Text', text: /^▶ M1\.2/ }))?.props.color).toBe('warning')
+    // the brief drawn natively: a helper card in the running colour, the milestone's squares by state, its ETA
+    expect((await ui.find({ type: 'Text', text: /^M1\.2$/ }))?.props.color).toBe('warning')
+    expect(await ui.find({ type: 'Text', text: /^sonnet · since 16:55 · 5 min · ETA ≈ 17:30$/ })).toBeTruthy()
+    // the plan windows are left to the Usage tab
+    expect(await ui.find({ type: 'Text', text: /5-hour/ })).toBeFalsy()
     expect((await ui.find({ type: 'Text', text: /^■$/ }))?.props.color).toBe('success')
     expect(await ui.find({ type: 'Text', text: /^≈ 19:00$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^Second step$/ })).toBeTruthy()

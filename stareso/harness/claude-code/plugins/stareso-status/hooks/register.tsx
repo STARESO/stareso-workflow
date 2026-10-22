@@ -342,7 +342,7 @@ export const register: Register = on => {
         {p.view === 'text' && (p.graph ? briefView(ui, p, p.graph, cols) : p.brief !== '' && <Code source={p.brief} language="text" />)}
         {p.view === 'graph' && (p.graph ? graphView(ui, p, p.graph, act) : <Text dimColor>reading the graph…</Text>)}
         {p.view === 'usage' && usageView(ui, p, cols, act)}
-        {p.view !== 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
+        {p.view === 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
       </Box>
     )
   })
@@ -397,92 +397,83 @@ function heading(ui: UI, name: string, head = '') {
   )
 }
 
+// Laid out for a narrow dock: fixed columns for the short values (milestone, count), every longer text cut
+// at the edge rather than wrapped, one face per column, and a two-line card per helper instead of a wide table. The
+// plan windows are left to the Usage tab.
 function briefView(ui: UI, p: PanelView, g: PanelGraph, cols: number) {
   const { Box, Text } = ui
   const sec = sections(p.brief)
   const progress = sec.get('Progress')?.lines ?? []
-  const idW = Math.max(4, ...g.lanes.map(l => l.id.length)) + 2
-  const cntW = Math.max(5, ...g.lanes.map(l => `${l.done}/${l.total}`.length)) + 2
-  const sqW = Math.min(Math.max(1, ...g.lanes.map(l => l.slices.length)), Math.max(8, cols - idW - cntW - 18)) + 2
+  const idW = Math.max(3, ...g.lanes.map(l => l.id.length)) + 2
+  const cntW = Math.max(4, ...g.lanes.map(l => `${l.done}/${l.total}`.length)) + 2
+  const sqW = Math.min(Math.max(1, ...g.lanes.map(l => l.slices.length)), Math.max(6, cols - idW - cntW - 14))
   // what follows the squares: the milestone's ETA, or for a human or queue lane the brief's own words
   const tail = (l: PanelLane) => (l.block ? (progress.find(x => x.startsWith(`${l.id} `))?.replace(/^\S+\s+\d+\/\d+\s+/, '') ?? '') : l.eta)
-  const marks = (l: PanelLane) => {
-    const runs: { state: SliceState; n: number }[] = []
-    for (const id of l.slices.filter(x => g.slices[x]).slice(0, sqW - 2)) {
+  // one glyph for every state, the colour telling them apart: ▶ and ■ are not the same width in every face
+  const runs = (l: PanelLane) => {
+    const out: { state: SliceState; n: number }[] = []
+    for (const id of l.slices.filter(x => g.slices[x]).slice(0, sqW)) {
       const state = g.slices[id]?.state ?? 'waiting'
-      const last = runs.at(-1)
+      const last = out.at(-1)
       if (last?.state === state) last.n += 1
-      else runs.push({ state, n: 1 })
+      else out.push({ state, n: 1 })
     }
-    return { runs, n: runs.reduce((k, r) => k + r.n, 0) }
+    return out
   }
-  const finished = progress.find(x => x.includes('every slice done'))
+  const glyph = (state: SliceState) => (state === 'waiting' ? '□' : '■')
+  const finished = progress.find(x => x.includes('every slice done'))?.replace(/\s*·\s*every slice done$/, '')
   const used = new Set(Object.values(g.slices).map(s => s.state))
-
   const running = Object.entries(g.slices).filter(([, s]) => s.state === 'running')
     .sort(([, a], [, b]) => (a.started ?? '').localeCompare(b.started ?? ''))
-  const slW = Math.max(7, ...running.map(([id]) => id.length + 2)) + 2
-  const helperRow = (cells: string[], title: string, header: boolean, id = '') => (
-    <Box flexDirection="row">
-      {id !== '' ? <Text mono color={STATE.running.color}>{`▶ ${id}`.padEnd(slW)}</Text> : <Text mono dimColor>{(cells[0] ?? '').padEnd(slW)}</Text>}
-      <Text mono {...(header ? { dimColor: true } : {})}>{(cells[1] ?? '').padEnd(8)}</Text>
-      <Text mono dimColor>{(cells[2] ?? '').padEnd(9)}</Text>
-      <Text mono {...(header ? { dimColor: true } : {})}>{(cells[3] ?? '').padEnd(9)}</Text>
-      <Text mono {...(header ? { dimColor: true } : {})}>{(cells[4] ?? '').padEnd(9)}</Text>
-      <Box flexShrink={1}><Text wrap="truncate-end" {...(header ? { dimColor: true } : {})}>{title}</Text></Box>
-    </Box>
-  )
-
-  const L = 9
-  const n = Math.max(10, Math.min(30, cols - L - 24))
-  const etaColor = (t: string) => (t === 'waits on you' ? { color: STATE.you.color } : t.startsWith('≈') ? {} : { dimColor: true })
+  const etaStyle = (t: string) => (t === 'waits on you' ? { color: STATE.you.color } : t.startsWith('≈') ? {} : { dimColor: true })
+  // the header line without the project's name, which the panel's own header already gives
+  const header = (p.brief.split('\n')[0] ?? '').split(' · ').filter((x, i) => i > 0 || x !== p.project).join(' · ')
 
   return (
     <Box flexDirection="column" gap={1}>
-      <Text dimColor>{p.brief.split('\n')[0] ?? ''}</Text>
+      <Text dimColor size="footnote">{header}</Text>
 
       <Box flexDirection="column">
+        {heading(ui, 'Progress')}
         <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          <Text bold>Progress</Text>
-          {(Object.keys(STATE) as SliceState[]).filter(k => used.has(k)).map(k => <Text color={STATE[k].color}>{`${STATE[k].mark} ${STATE[k].label}`}</Text>)}
+          {(Object.keys(STATE) as SliceState[]).filter(k => used.has(k)).map(k => (
+            <Text size="footnote"><Text color={STATE[k].color}>{glyph(k)}</Text>{` ${STATE[k].label}`}</Text>
+          ))}
         </Box>
-        {finished && (
-          <Box flexDirection="row">
-            <Text mono color={STATE.done.color}>{'✓'.padEnd(idW)}</Text>
-            <Text dimColor>{finished}</Text>
-          </Box>
-        )}
         {g.lanes.map(l => {
-          const m = marks(l)
           const t = tail(l)
           return (
             <Box flexDirection="row">
-              <Text mono bold>{l.id.padEnd(idW)}</Text>
-              <Text mono dimColor>{`${l.done}/${l.total}`.padEnd(cntW)}</Text>
-              {m.runs.map(r => <Text mono color={STATE[r.state].color}>{STATE[r.state].mark.repeat(r.n)}</Text>)}
-              <Text mono>{' '.repeat(Math.max(1, sqW - m.n))}</Text>
-              <Box flexShrink={1}><Text wrap="truncate-end" {...etaColor(t)}>{t}</Text></Box>
+              <Box width={idW} flexShrink={0}><Text bold>{l.id}</Text></Box>
+              <Box width={cntW} flexShrink={0}><Text dimColor tabular>{`${l.done}/${l.total}`}</Text></Box>
+              <Box width={sqW + 2} flexShrink={0}>
+                <Text mono>{runs(l).map(r => <Text color={STATE[r.state].color}>{glyph(r.state).repeat(r.n)}</Text>)}</Text>
+              </Box>
+              <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end" tabular {...etaStyle(t)}>{t}</Text></Box>
             </Box>
           )
         })}
+        {finished && <Text dimColor wrap="truncate-end"><Text color={STATE.done.color}>{'✓ '}</Text>{`${finished} finished`}</Text>}
       </Box>
 
       <Box flexDirection="column">
         {heading(ui, 'Helpers', sec.get('Helpers')?.head)}
-        {running.length > 0 && helperRow(['Slice', 'Model', 'Started', 'Running', 'ETA'], 'Title', true)}
-        {running.map(([id, s]) => helperRow(['', s.model ?? '', s.started ?? '', s.minutes != null ? `${s.minutes} min` : '', s.eta ? `≈ ${s.eta}` : ''], s.title, false, id))}
+        {running.map(([id, s]) => (
+          <Box flexDirection="column">
+            <Box flexDirection="row">
+              <Box width={idW + cntW} flexShrink={0}><Text bold color={STATE.running.color}>{id}</Text></Box>
+              <Box flexShrink={1}><Text wrap="truncate-end">{s.title}</Text></Box>
+            </Box>
+            <Box marginLeft={idW + cntW}>
+              <Text dimColor tabular wrap="truncate-end">
+                {[s.model, s.started ? `since ${s.started}` : '', s.minutes != null ? `${s.minutes} min` : '', s.eta ? `ETA ≈ ${s.eta}` : ''].filter(Boolean).join(' · ')}
+              </Text>
+            </Box>
+          </Box>
+        ))}
       </Box>
 
-      {chatsView(ui, p.chats ?? [])}
-
-      {p.windows && (p.windows.five || p.windows.week)
-        ? windowsView(ui, p.windows, n, L, 'Usage')
-        : sec.get('Usage') && (
-          <Box flexDirection="column">
-            {heading(ui, 'Usage')}
-            {sec.get('Usage')?.lines.map(x => <Text dimColor>{x}</Text>)}
-          </Box>
-        )}
+      {chatsView(ui, p.chats ?? [], idW + cntW)}
 
       {(['Pace', 'Waits for you', 'Could start now'] as const).map(name => {
         const s = sec.get(name)
@@ -490,7 +481,7 @@ function briefView(ui: UI, p: PanelView, g: PanelGraph, cols: number) {
         return (
           <Box flexDirection="column">
             {heading(ui, name, s.head)}
-            {s.lines.map((x, i) => sliceText(ui, g, x, name === 'Pace' && i > 0 ? { dimColor: true } : {}))}
+            {s.lines.map((x, i) => sliceText(ui, g, x, i > 0 ? { dimColor: true } : {}))}
           </Box>
         )
       })}
@@ -499,17 +490,16 @@ function briefView(ui: UI, p: PanelView, g: PanelGraph, cols: number) {
 }
 
 // the chats working in the project now, outside the roadmap: for information only
-function chatsView(ui: UI, chats: PanelView['chats']) {
+function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
   const { Box, Text } = ui
   if (!chats.length) return null
   return (
     <Box flexDirection="column">
-      {heading(ui, 'Chats computing', 'outside the roadmap, for information')}
+      {heading(ui, 'Chats computing', 'outside the roadmap')}
       {chats.map(c => (
         <Box flexDirection="row">
-          <Text mono color="claude">{'◐ '}</Text>
+          <Box width={w} flexShrink={0}><Text color="claude">{c.at !== '' ? `◐ ${c.at}` : '◐'}</Text></Box>
           <Box flexShrink={1}><Text wrap="truncate-end">{c.title}</Text></Box>
-          {c.at !== '' && <Text mono dimColor>{`  active ${c.at}`}</Text>}
         </Box>
       ))}
     </Box>
