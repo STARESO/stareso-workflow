@@ -69,7 +69,7 @@ export function readSessions(root) {
 
 // A line logged before the manager step type (2026-10-22) holds a manager's work in its status step: a status step
 // whose time holds one of the session's launches becomes "manager", read so and never rewritten. Approximate: the one
-// status turn stays in it, and a manager that only sent messages stays status. A fresh `--log` of a session whose
+// status turn stays in it, and a manager that only sent messages stays status (shown as chat). A fresh `--log` of a session whose
 // transcript is still there splits it exactly.
 // A status step that started helpers went on with the step before it (a status call never builds), so it is read as
 // that step.

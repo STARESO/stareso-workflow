@@ -52,7 +52,7 @@ const pct = (a, b) => (b ? Math.round((100 * a) / b) + " %" : "n/a");
 const median = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };
 const sum = (xs) => xs.reduce((a, b) => a + (b || 0), 0);
 // Step type: the skill name; typos of a skill ("tesot", "sttus") and free chats become "chat".
-const KNOWN = ["init", "retrofit", "discuss", "grill", "setup", "build", "test", "improve", "status", "manager", "retro", "deploy", "usage"];
+const KNOWN = ["init", "retrofit", "discuss", "grill", "setup", "build", "test", "improve", "manager", "retro", "deploy", "usage"];
 const typeOf = (label) => { const w = label.replace(/\(launched by #\d+\)/, "").trim().split(/[\s:]/)[0]; return KNOWN.includes(w) ? w : "chat"; };
 
 // ---------- the build records as log lines (no session numbers needed: no transcript, no git)
@@ -84,6 +84,8 @@ if (LIVE || MIGRATED) {
   const stepsOf = (r) => r.steps.map((st) => ({
     session: r.n, label: st.label, type: typeOf(st.label), win: { a: minute(st.first), b: new Date(st.last.slice(0, 16) + ":59") },
     hours: st.active / 3.6e6, turns: st.turns, you: st.user || 0, equiv: st.equiv, carried: st.carriedPct != null ? `${st.carriedPct} %` : "",
+    // a status call shown as chat still never merges a slice
+    statusCall: /^status\b/.test(st.kind),
   }));
   sessions = m.rows.map((r) => ({
     n: Number(r.n), date: r.s.first.slice(0, 10), start: minute(r.s.first), hours: sum(r.steps.map((st) => st.active)) / 3.6e6, turns: r.s.assistant, you: r.s.user || 0,
@@ -128,12 +130,12 @@ const log = builds.filter((e) => e.type === "slice").map((e) => ({
 // ---------- merges, with the lines they changed outside docs/: kept in the build records, else from git (one diff per merge)
 const merges = MIGRATED ? mergesFromRecords(builds) : mergesFromGit(root, log);
 
-// The step that merged a slice: a build step whose window holds the merge, else any non-status step. A slice that
+// The step that merged a slice: a build step whose window holds the merge, else any step but a status call or a retro. A slice that
 // the build records say a helper built came from a build session: with no build step holding it, that session left no
 // transcript (unlogged), and no test or chat step is charged for it.
 const helperBuilt = new Set(log.filter((x) => !x.inline && x.tokens).map((x) => x.id));
 function stepOf(time, id) {
-  const holding = steps.filter((s) => s.win && s.win.a <= time && time <= s.win.b && !["status", "retro", "usage"].includes(s.type));
+  const holding = steps.filter((s) => s.win && s.win.a <= time && time <= s.win.b && !["retro", "usage"].includes(s.type) && !s.statusCall);
   return holding.find((s) => s.type === "build") || (helperBuilt.has(id) ? null : holding.at(-1)) || null;
 }
 const mergedBy = new Map();
@@ -243,8 +245,8 @@ if (CHARTS || PANEL) {
   const day0 = new Date((firstInit ? localDate(firstInit) : sessions[0].date) + "T00:00");
   const dayOf = (d) => Math.round(((d - day0) / 864e5) * 100) / 100;
   const dateOfDay = (n) => { const d = new Date(day0); d.setDate(d.getDate() + n); return localDate(d); };
-  const group = (t) => (["status", "retro", "usage"].includes(t) ? "status & retro" : ["build", "test", "improve", "manager", "chat"].includes(t) ? t : "chat");
-  const kinds = ["build", "test", "improve", "manager", "chat", "status & retro"];
+  const group = (t) => (["retro", "usage"].includes(t) ? "retro" : ["build", "test", "improve", "manager", "chat"].includes(t) ? t : "chat");
+  const kinds = ["build", "test", "improve", "manager", "chat", "retro"];
   const cum = Object.fromEntries(kinds.map((k) => [k, 0]));
   const cumulative = [];
   for (const s of steps.filter((x) => !before(x) && x.win).sort((a, b) => a.win.a - b.win.a)) {

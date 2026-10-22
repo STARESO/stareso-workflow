@@ -75,7 +75,7 @@ proj · build M11 7/13 · fast · ends ≈ 21:18
 
 Everything else lives in the **stareso panel** beside the chat (Claude Code): milestones and their times, the slice grid with a card per slice, helpers, chats, pace, plan windows and seven usage charts. Details: [`harness/claude-code/README.md`](harness/claude-code/README.md).
 
-The session that ran status can stay open as the project's **manager**: it launches build, test and improve in new sessions and relays their reports. Its work is the `manager` step type in the usage records, apart from the status call itself. Its cost per turn grows with its context, so clear it at each milestone end: every piece of state is in the files.
+The session that ran status can stay open as the project's **manager**: it launches build, test and improve in new sessions and relays their reports. Its work, the status call that opened it included, is the `manager` step type in the usage records. A status call alone costs about one turn and counts as chat. Its cost per turn grows with its context, so clear it at each milestone end: every piece of state is in the files.
 
 Usage has no step of its own. The panel shows it live, the retro reads it, and [`metrics.md`](metrics.md) ("The usage report") explains every number.
 

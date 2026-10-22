@@ -737,7 +737,7 @@ function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act, pick: (id: stri
 // ---------- usage: the plan windows, then the tiles and the six charts of the usage report (metrics.md) ----------
 
 const KIND: Record<string, string> = {
-  build: 'suggestion', test: 'success', improve: 'claude', manager: 'merged', chat: 'warning', 'status & retro': 'inactive', status: 'inactive', retro: 'inactive', usage: 'inactive',
+  build: 'suggestion', test: 'success', improve: 'claude', manager: 'merged', chat: 'warning', retro: 'inactive', usage: 'inactive',
 }
 const TIER: Record<string, string> = { light: 'success', standard: 'suggestion', strong: 'claude' }
 const BUILT: Record<string, string> = { helpers: 'suggestion', chat: 'warning' }
