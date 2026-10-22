@@ -191,7 +191,7 @@ async function sessionEntry(file, hFiles, d, slug) {
 
 // Per-machine cache of the session entries (numbers and step labels only, no prompt), keyed by the transcript files'
 // sizes and times, so a live read parses only the transcripts that grew. CACHE_VERSION changes with summarise or
-// splitSteps, which drops every old entry. The file is replaced in one rename: a panel and a dashboard may write at once.
+// splitSteps, which drops every old entry. The file is replaced in one rename: two panels may write at once.
 const CACHE_VERSION = 2;
 const CACHE_FILE = path.join(GLOBAL_DATA, "cache", "sessions.json");
 function readCache() {
@@ -241,7 +241,7 @@ export async function collect(root, { live = true } = {}) {
       }
     }
     // A session of this project whose transcript is gone (archived or cleared in the app) keeps its last reading here,
-    // so a session that any live read saw (the panel, the dashboard) is never lost before the next `--log` saves it.
+    // so a session that any live read saw (the panel) is never lost before the next `--log` saves it.
     for (const [file, c] of Object.entries(cache.sessions)) {
       // this project's folders by name, even one the app removed with its last transcript
       const folder = path.relative(PROJECTS, file).split(path.sep)[0];

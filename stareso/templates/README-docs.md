@@ -14,9 +14,9 @@ What each file is for and which stareso skill writes it. Doc files are named in 
 | `QUESTIONS.md` | Open questions the build could not answer, `[debt]` lines | setup | build asks; improve and sessions answer |
 | `FEEDBACK.md` | The newest test rounds and what became of each point | setup | test, build (requests during a run) |
 | `FEEDBACK-DONE.md` | Older test rounds, moved out at the end of a test | test | test |
-| `data/` | Machine records, one event per line: `sessions.jsonl` (`session-stats --log`), `builds.jsonl` (`slice-done`, `record.mjs`). Read with `usage-report.mjs` or the dashboard, never by hand | setup | tools |
+| `data/` | Machine records, one event per line: `sessions.jsonl` (`session-stats --log`), `builds.jsonl` (`slice-done`, `record.mjs`). Read with `usage-report.mjs` or the stareso panel, never by hand | setup | tools |
 | `RETROS.md` | Workflow reviews, newest at the bottom | setup | retro |
-| `reports/` | Dated usage reports kept on request (`dashboard.mjs --write`, standalone HTML) | any session, on request | — |
+| `reports/` | Dated usage reports kept on request (`usage-report.mjs --all`, Markdown) | any session, on request | — |
 | `LOGBOOK.md` (analysis pack) | Dated scientific findings and choices | init | slices, the user |
 | `DEPLOY.md` (app pack) | Going-online checklist and lessons | deploy | deploy |
 | `README.md` | This list | init | any skill that adds a doc |

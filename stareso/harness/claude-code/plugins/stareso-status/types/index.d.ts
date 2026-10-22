@@ -93,8 +93,6 @@ export type PanelView = {
   // the app's chats in the project (a manager, a build, a side chat, this chat), working or idle, shown for information.
   // `why` says what makes one active: it works, a step it launched works, or it is the build and helpers run
   chats: { title: string; at: string; working: boolean; why?: 'working' | 'launched' | 'helpers'; here?: boolean }[];
-  // the address of the project's dashboard server the mod started, linked in the header while it runs
-  dashboard: string;
   // the ETA learning, drawn as chart 7 of the usage view
   etaTrack: EtaTrack | null;
   // the usage charts the person expanded (all their rows, and more in each row)

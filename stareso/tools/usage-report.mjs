@@ -11,7 +11,7 @@
 //   node usage-report.mjs --charts   ready-made chart series as JSON (share by step type, cumulative cost, cost per slice
 //                                    by milestone, context per turn by session, tokens against lines by tier)
 //   node usage-report.mjs --panel    the chart series and the markdown tables (with the recent builds) in one JSON line,
-//                                    for the status panel and the dashboard
+//                                    for the status panel
 //   --live                           reads the sessions from the transcripts as they are now (plus the records for the
 //                                    sessions whose transcript is gone), so they are current and nothing is written
 //

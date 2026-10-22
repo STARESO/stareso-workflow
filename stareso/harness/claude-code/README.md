@@ -45,13 +45,6 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 - Hovering a row gives its detail, dates are written yyyy-mm-dd, and the tables are one button away.
 - The report is read live from the transcripts, nothing is written in the project, and it refreshes after five minutes or a merge.
 
-### 🌐 Dashboard (on request)
-
-- The panel's last element. **Start** (or `/stareso-panel dashboard`) runs `tools/dashboard.mjs` and gives its local address with a **Copy** button.
-- The page shows the progress graph and the usage charts (Chart.js), refreshed every minute at no token cost.
-- The server listens on this machine alone and stops with **Stop**, when the plugin unloads, or after 20 idle minutes.
-- `dashboard.mjs --write [file.html]` writes the same page as one standalone file.
-
 Outside Claude Code, `progress-graph.mjs --write` gives the same graph as an HTML page.
 
 ### 🔧 Install and update

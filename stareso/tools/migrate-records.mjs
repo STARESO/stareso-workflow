@@ -10,7 +10,7 @@
 //
 // Usage:  node ~/.claude/stareso/tools/migrate-records.mjs [--root <project>] [--force]
 //         With STARESO_DATA=<dir> (or --data <dir>) only the datasets are written, in <dir>, and the project is left
-//         untouched: a read-only check (`usage-report` and `dashboard` read the same <dir> with the same variable).
+//         untouched: a read-only check (`usage-report` reads the same <dir> with the same variable).
 // Nothing is committed: the step that runs it commits docs and .gitattributes.
 import fs from "node:fs";
 import path from "node:path";
@@ -66,7 +66,7 @@ if (exists(logFile)) {
   const to = path.join(docs, "archive", "BUILD-LOG.md");
   move(logFile, to);
   const text = fs.readFileSync(to, "utf8"), eol = eolOf(text);
-  fs.writeFileSync(to, `> Frozen on ${stamp().slice(0, 10)}: every line below is in docs/data/builds.jsonl, where slice-done writes the new ones (read them with \`usage-report.mjs --builds\` or on the dashboard).${eol}${eol}${text}`);
+  fs.writeFileSync(to, `> Frozen on ${stamp().slice(0, 10)}: every line below is in docs/data/builds.jsonl, where slice-done writes the new ones (read them with \`usage-report.mjs --builds\` or in the stareso panel).${eol}${eol}${text}`);
   report.push("docs/BUILD-LOG.md → docs/archive/BUILD-LOG.md (frozen)");
 }
 
@@ -101,9 +101,9 @@ const readmeFile = path.join(docs, "README.md");
 if (exists(readmeFile)) {
   const text = fs.readFileSync(readmeFile, "utf8"), eol = eolOf(text);
   const rows = [
-    "| `data/` | Machine records, one event per line: `sessions.jsonl` (`session-stats --log`), `builds.jsonl` (`slice-done`, `record.mjs`). Read with `usage-report.mjs` or the dashboard | setup | tools |",
+    "| `data/` | Machine records, one event per line: `sessions.jsonl` (`session-stats --log`), `builds.jsonl` (`slice-done`, `record.mjs`). Read with `usage-report.mjs` or the stareso panel | setup | tools |",
     "| `RETROS.md` | Workflow reviews, newest at the bottom | setup | retro |",
-    "| `reports/` | Dated usage reports kept on request (`dashboard.mjs --write`, standalone HTML) | usage | usage |",
+    "| `reports/` | Dated usage reports kept on request (`usage-report.mjs --all`, Markdown) | any session, on request | — |",
     "| `archive/` | Finished material kept for reference (the frozen `BUILD-LOG.md`) | tools | — |",
   ].filter((r) => !text.includes(r.slice(0, r.indexOf("|", 2))));
   let lines = text.split(/\r?\n/).filter((l) => !/^\| `(BUILD-LOG\.md|USAGE\.md|usage-sessions\.json)` \|/.test(l));

@@ -9,7 +9,7 @@ allowed-tools: Bash(node ~/.claude/stareso/tools/progress-graph.mjs:*)
 **Session:** any model, any session. Status is the most used step, so it costs one turn: the tool computes the answer, the model only passes it on. It never prints the progress brief, because the panel shows it. Talk in English unless the user switches to French.
 
 ## 1. The status lines
-Argument: none, or a project folder (then add `--root <folder>`). An old `graph` or `dashboard` argument only means that the `↗` line names the dashboard.
+Argument: none, or a project folder (then add `--root <folder>`). An old `graph` argument is ignored.
 The tool already ran while this skill loaded, and its lines are just below. If the line below still shows the command itself (a session that re-read the skill), run that command once. If the session works in another folder, run it again with `--root <folder>`.
 
 !`node ~/.claude/stareso/tools/progress-graph.mjs --status --models opus/sonnet/haiku`
@@ -38,7 +38,7 @@ A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: n
 ## 4. Answer: the tool's lines, then one line
 1. Print the tool's lines as they are, as plain lines (no code block, no bold, nothing added or reworded): the head (project, step, build mode, the number that matters), `⚠` a slice blocked by a question, then one line per usage window (5-hour, weekly) when a cap matters now, `□` what waits on you, `▶` the next step with its model, session and permission mode.
 2. When `▶` names `/stareso-build`, `/stareso-test` or `/stareso-improve` and this session can start sessions, end that line with "launch it in a new session?" (§5).
-3. Then the `↗` line: `↗ panel: ◧ stareso or /stareso-panel`, as plain text, nothing else on the line (the dashboard only when the user asked for charts or a browser: `/stareso-panel dashboard`). Never draw the graph here.
+3. Then the `↗` line: `↗ panel: ◧ stareso or /stareso-panel`, as plain text, nothing else on the line. Never draw the graph here.
 4. Say nothing more. When the head says "(worktree)", add that a build must run in the main folder.
 
 Example (a build is running):

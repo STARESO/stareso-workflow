@@ -134,7 +134,7 @@ export function needMigrated(root) {
   process.exit(1);
 }
 
-// An event back to its BUILD-LOG line (the retro and the dashboard's Builds table read them this way).
+// An event back to its BUILD-LOG line (the retro and `usage-report --builds` read them this way).
 export function logLine(e) {
   if (e.type === "caps") return `- ${e.t} · caps · ${e.note}`;
   if (e.type === "note") return `- ${e.t} · ${e.text}`;

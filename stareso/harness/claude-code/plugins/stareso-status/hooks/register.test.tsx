@@ -201,18 +201,6 @@ test('the progress view draws a row per milestone, a pressed milestone lists its
   }
 })
 
-test('the dashboard command starts the server and gives its address', async ($, on) => {
-  engine(on, false)
-  on('process.spawn', async function* () {
-    yield { stream: 'stdout', text: 'stareso dashboard on http://127.0.0.1:4636 for /work/demo\n' }
-    return { value: { code: 0, signal: null } }
-  })
-  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
-  const ran = await $.command.run({ command: 'stareso-panel', args: 'dashboard' })
-  expect(ran.text).toContain('http://127.0.0.1:4636')
-  // the link in the header needs the server alive, which a stand-in stream that ends with the command is not
-})
-
 test('the usage view draws the plan windows, the tiles and the seven charts', async ($, on) => {
   engine(on, false)
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
@@ -256,8 +244,6 @@ test('the progress view lists the chats of the project, working or idle', async 
   // the chat the panel draws in, which the app leaves out of its own list
   expect(await ui.find({ type: 'Text', text: /^This chat/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /Last week|Other project|Unrelated chat/ })).toBeFalsy()
-  // the dashboard is the panel's last element, started only on request
-  expect(await ui.find({ type: 'Button', key: 'dashboard-start' })).toBeTruthy()
   await ui.unmount()
 })
 

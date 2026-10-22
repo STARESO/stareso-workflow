@@ -8,7 +8,7 @@ description: Where is this stareso project in its workflow and what to do next (
 **Session:** any model, any session. Status is the most used step, so it costs one turn: the tool computes the answer, the model only passes it on. It never prints the progress brief, because the panel shows it. Talk in English unless the user switches to French.
 
 ## 1. The status lines
-Argument: none, or a project folder (then add `--root <folder>`). An old `graph` or `dashboard` argument only means that the `↗` line names the dashboard.
+Argument: none, or a project folder (then add `--root <folder>`). An old `graph` argument is ignored.
 <!-- harness:status-run -->Run `node <stareso>/tools/progress-graph.mjs --status` in the project folder, with `--five <pct>@<reset>` and `--week <pct>@<reset>` when the harness shows the usage windows.<!-- /harness -->
 The tool reads PLAN, the roadmap, QUESTIONS, the newest FEEDBACK block, the build records, git and the newest stored usage readings (the panel stores them while it is open), in about half a second, applies the table of §2 and prints the answer. Read nothing else, and never the code, the briefs or the cost reports, unless the user asks a question the lines do not answer.
 

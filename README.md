@@ -52,7 +52,7 @@ In Claude Code, the **stareso panel** (plugin `stareso-status`) shows the progre
 | `stareso/capabilities/` | what a harness must provide, each with its manual fallback |
 | `stareso/harness/<harness>/` | how each harness provides it: `claude-code` (adopted, with the panel plugin), `codex`, `cursor`, `gemini`, `chat-only` |
 | `stareso/packs/<pack>/` | stack and conventions: `app-next`, `analysis-r`, `godot-game` |
-| `stareso/tools/` | plain Node scripts: `slice-done`, `progress-graph`, `docs-check`, `usage-report`, `dashboard`, `session-stats`, `harness-build`, … |
+| `stareso/tools/` | plain Node scripts: `slice-done`, `progress-graph`, `docs-check`, `usage-report`, `session-stats`, `harness-build`, … |
 | `stareso/templates/` | starting docs for a new project |
 | `stareso/grilling.md`, `stareso/metrics.md` | how decisions are asked, how the workflow is measured |
 | `stareso/DESIGN-NOTES.md`, `stareso/CHANGELOG.md` | why, and what changed |

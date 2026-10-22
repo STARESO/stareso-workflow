@@ -75,7 +75,7 @@ proj · build M11 7/13 · fast · ends ≈ 21:18
 
 Everything else lives in the **stareso panel** beside the chat (Claude Code): milestones and their times, the slice grid with a card per slice, helpers, chats, pace, plan windows and seven usage charts. Details: [`harness/claude-code/README.md`](harness/claude-code/README.md).
 
-Usage has no step of its own. The panel and the dashboard show it live, the retro reads it, and [`metrics.md`](metrics.md) ("The usage report") explains every number.
+Usage has no step of its own. The panel shows it live, the retro reads it, and [`metrics.md`](metrics.md) ("The usage report") explains every number.
 
 ---
 
@@ -139,7 +139,7 @@ A step that touches a decision runs `roadmap-overview` and `docs-check` before c
 | `docs/data/builds.jsonl` | setup | `slice-done`, `record.mjs` | status, panel, retro | `docs-check` | never: append only |
 | `docs/data/sessions.jsonl` | setup | `session-stats --log` | panel, retro | — | never: append only |
 | `docs/RETROS.md` | setup | retro | retro, status | — | never |
-| `docs/reports/` | on request | `dashboard.mjs --write` | you, in any browser | — | never |
+| `docs/reports/` | on request | `usage-report.mjs --all` (a dated Markdown file) | you | — | never |
 | `docs/LOGBOOK.md` (analysis) | init | slices, you | report writing, improve | — | never |
 | `docs/DEPLOY.md` (app) | **deploy** | deploy | deploy, you | lessons copied to the pack | never |
 | `docs/README.md` | init | any step that adds a doc | newcomers | `docs-check` | never |
@@ -157,7 +157,6 @@ Plain Node in `stareso/tools/`, no install. The everyday ones:
 - `progress-graph.mjs --status | --panel | --brief | --write` gives the build's state from the records and git.
 - `docs-check.mjs` checks that the records agree with each other.
 - `usage-report.mjs` gives the usage report (tables, `--json`, `--charts`, `--live`).
-- `dashboard.mjs` serves the progress graph and usage charts to a browser, or writes them as one page.
 
 <details>
 <summary><b>Every tool and its options</b></summary>
@@ -171,7 +170,6 @@ Plain Node in `stareso/tools/`, no install. The everyday ones:
 | `progress-graph.mjs` | `--status` the answer of status, `--panel` the panel's data, `--brief` the sections, `--write` an SVG and a page for a harness with no panel. Never writes in the project |
 | `session-stats.mjs --log` | reads the Claude Code transcripts and appends every session that changed to `docs/data/sessions.jsonl`. `--print` shows the usage tables, `--prune` lists old conversation logs (`--yes` deletes them) |
 | `usage-report.mjs` | the usage report from the records: six tables, `--json`, `--summary`, `--builds`, `--projects`, `--charts`, `--panel`, `--live` |
-| `dashboard.mjs [--write [file]]` | the live dashboard as a small local server, or one standalone page with the data inlined |
 | `record.mjs caps … \| note "…"` | appends a caps or note event to the build records |
 | `migrate-records.mjs` | one shot per project: older record files into `docs/data/`. Setup runs it in a new project, and the other tools ask for it when `docs/data/` is missing |
 | `usage-seed.mjs <rev> <n>` | brings an archived session back from an older usage table kept in git |

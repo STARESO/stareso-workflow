@@ -9,8 +9,6 @@
 //   /stareso-panel                 opens the panel, or hides it when it is open
 //   /stareso-panel <folder>        opens it on that project (remembered across sessions)
 //   /stareso-panel progress | usage   opens it on that view (graph and brief open Progress)
-//   /stareso-panel dashboard       starts ~/.claude/stareso/tools/dashboard.mjs for the project (the Chart.js charts of
-//                                  the usage report and the progress graph, refreshing itself) and opens it in the side browser
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, RenderElement } from 'claude-code'
 
@@ -27,7 +25,7 @@ const CHATS_RECENT_MS = 24 * 3600_000
 const MAX_CHATS = 8
 const EMPTY: PanelView = {
   project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'graph', selected: '',
-  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [], dashboard: '',
+  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [],
   etaTrack: null, expanded: [],
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
@@ -294,62 +292,6 @@ function startTicking($: EngineInterface) {
   })
 }
 
-// The dashboard server, one per project folder, started only when the person asks (the Start button at the bottom of
-// the panel, or /stareso-panel dashboard). It listens on 127.0.0.1 only, and its port is freed by the Stop button, when
-// the mod unloads (a reload, the end of the session, Claude closing), or after 20 minutes with no page asking. A start
-// on a project whose dashboard already runs (another session's) only prints that one's address, which is kept.
-const dashboards = new Map<string, string>()
-
-async function ensureDashboard($: EngineInterface): Promise<string> {
-  const root = await projectRoot($)
-  const known = dashboards.get(root)
-  if (known) return known
-  const tool = await toolPath($, 'dashboard.mjs')
-  const url = await new Promise<string>(resolve => {
-    void (async () => {
-      let found = false
-      let ours = false
-      try {
-        for await (const piece of $.process.spawn({ argv: ['node', tool, '--root', root] })) {
-          const m = /http:\/\/127\.0\.0\.1:\d+/.exec(piece.text)
-          if (m && !found) {
-            found = true
-            ours = !/already running/.test(piece.text)
-            dashboards.set(root, m[0])
-            resolve(m[0])
-          }
-        }
-      } catch {
-        // it could not start: said where the address is asked
-      }
-      if (!found) resolve('')
-      // our server ended (Stop, its idle limit): the next Start starts it again
-      if (ours || !found) {
-        dashboards.delete(root)
-        await update($, panel, p => (p.dashboard ? { ...p, dashboard: '' } : p)).catch(() => undefined)
-      }
-    })()
-  })
-  if (url) await update($, panel, p => ({ ...p, dashboard: url }))
-  return url
-}
-
-// The address to open by hand: a link to a local address does nothing on a click in the desktop app, and a mod
-// cannot reach the app's side browser.
-async function openDashboard($: EngineInterface): Promise<string> {
-  const url = await ensureDashboard($)
-  return url
-    ? `dashboard running: open ${url} in a browser (Stop at the bottom of the panel frees the port)`
-    : 'the dashboard did not start (node ~/.claude/stareso/tools/dashboard.mjs --root <project> says why)'
-}
-
-async function stopDashboard($: EngineInterface, url: string) {
-  for (const [root, u] of dashboards) if (u === url) dashboards.delete(root)
-  await update($, panel, p => ({ ...p, dashboard: '' }))
-  // the server answers /stop and exits, which frees its port
-  await $.process.run(['node', '-e', `fetch(${JSON.stringify(`${url}/stop`)}).catch(() => {})`], { timeoutMs: 10_000 }).catch(() => undefined)
-}
-
 // Opens the panel (the command, or the stareso button in the prompt footer): the minute timer, a read, the view
 async function openPanel($: EngineInterface, view?: PanelView['view']) {
   startTicking($)
@@ -368,8 +310,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'stareso-panel',
-      description: 'Live stareso status beside the chat: opens or hides it (optional: a project folder, progress, usage, or dashboard)',
-      argumentHint: '[project folder | progress | usage | dashboard]',
+      description: 'Live stareso status beside the chat: opens or hides it (optional: a project folder, progress or usage)',
+      argumentHint: '[project folder | progress | usage]',
     })
 
     return next(e)
@@ -378,14 +320,13 @@ export const register: Register = on => {
   on('command.run', { command: 'stareso-panel' }, async ($, e) => {
     const arg = (e.args ?? '').trim().replace(/^"|"$/g, '')
     const views: Record<string, PanelView['view']> = { progress: 'graph', graph: 'graph', brief: 'graph', text: 'graph', usage: 'usage' }
-    if (arg === 'dashboard') return { text: `stareso ${await openDashboard($)}` }
     if (!arg && (await isOpen($))) {
       await $.ui.close({ id: PANE })
       return { text: 'stareso panel hidden: /stareso-panel shows it again.' }
     }
     if (arg && !views[arg]) {
       await $.store.set('project', arg)
-      await update($, panel, p => ({ ...p, root: arg, selected: '', usage: null, usageMd: '', usageAt: 0, usageError: '', dashboard: '' }))
+      await update($, panel, p => ({ ...p, root: arg, selected: '', usage: null, usageMd: '', usageAt: 0, usageError: '' }))
       seen = null
     }
     await openPanel($, views[arg])
@@ -438,7 +379,6 @@ export const register: Register = on => {
         {/* a desktop's monospaced face runs wider than the pane's columns: the charts keep a margin so no row overflows */}
         {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.9), act)}
         {p.view === 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
-        {dashboardView(ui, p, $)}
       </Box>
     )
   })
@@ -498,31 +438,6 @@ function heading(ui: UI, name: string, head = '') {
     <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
       <Text bold>{name}</Text>
       {head !== '' && <Text dimColor>{head}</Text>}
-    </Box>
-  )
-}
-
-// The last element of the panel: Start, or the address to open by hand with Copy and Stop
-function dashboardView(ui: UI, p: PanelView, $: EngineInterface) {
-  const { Box, Text, Button } = ui
-  // the state keeps the address across reloads, the server does not outlive the mod: only a live one is shown
-  const url = p.dashboard !== '' && [...dashboards.values()].includes(p.dashboard) ? p.dashboard : ''
-  return (
-    <Box flexDirection="column">
-      {heading(ui, 'Dashboard', 'the charts and the graph in a browser')}
-      {url
-        ? (
-          <Box flexDirection="row" flexWrap="wrap" columnGap={1} alignItems="center">
-            <Text tabular>{url}</Text>
-            <Button key="dashboard-copy" dimColor onPress={press => void $.ui.copy({ text: url, surface: press.surface }).then(r => $.ui.toast(r.isCopied ? 'address copied' : 'copy the address by hand')).catch(() => undefined)}>Copy</Button>
-            <Button key="dashboard-stop" dimColor onPress={() => void stopDashboard($, url).catch(() => undefined)}>Stop</Button>
-          </Box>
-        )
-        : (
-          <Box flexDirection="row">
-            <Button key="dashboard-start" dimColor onPress={() => void openDashboard($).then(t => $.ui.toast(t)).catch(() => undefined)}>Start the dashboard</Button>
-          </Box>
-        )}
     </Box>
   )
 }
