@@ -61,12 +61,58 @@ test('a folder that is not a stareso project says so', async ($, on) => {
   on('ui.close', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: 'Error: No docs/ROADMAP.md found', isStdoutTruncated: false, isStderrTruncated: false } }))
+  // what Node prints for an uncaught throw: the source line first, then the error
+  const stderr = [
+    'file:///home/me/.claude/stareso/tools/lib/roadmap.mjs:11',
+    '    if (parent === dir) throw new Error("No docs/ROADMAP.md found: run from inside a stareso project.");',
+    '                              ^',
+    '',
+    'Error: No docs/ROADMAP.md found: run from inside a stareso project.',
+    '    at findRoot (file:///home/me/.claude/stareso/tools/lib/roadmap.mjs:11:31)',
+  ].join('\n')
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } }))
   on('mcp.call', () => ({ value: { content: [], isError: true } }))
 
   await $.session.start({ cwd: '/tmp', surface: 'desktop', isInteractive: true })
   const ran = await $.command.run({ command: 'stareso-panel', args: '/tmp' })
-  expect(ran.text).toContain('No docs/ROADMAP.md')
+  expect(ran.text).toContain('/tmp: No docs/ROADMAP.md found: run from inside a stareso project. Type /stareso-panel')
+  expect(ran.text).not.toContain('throw new Error')
+})
+
+test('a side session outside the project reads the project another session read', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'stareso-panel' } }))
+  on('store.get', () => ({ value: '/work/demo' }))
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.cwd', () => ({ value: '/home/me/.claude' }))
+  on('clock.every', () => ({ value: {} }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('mcp.call', () => ({ value: { content: [], isError: true } }))
+  on('process.run', (_, e) => {
+    const argv = (e as { argv: string[] }).argv
+    return argv.includes('/work/demo')
+      ? { value: { exitCode: 0, stdout: JSON.stringify(SNAPSHOT), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      : { value: { exitCode: 1, stdout: '', stderr: 'Error: No docs/ROADMAP.md found', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  await $.session.start({ cwd: '/home/me/.claude', surface: 'desktop', isInteractive: true })
+  const ran = await $.command.run({ command: 'stareso-panel', args: '' })
+  expect(ran.text).toContain('open on demo')
+})
+
+test('the graph view draws the graph alone, at the height its viewBox gives', async ($, on) => {
+  engine(on, false)
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'graph' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const svg = (await ui.find({ type: 'Svg' })) as { props?: { width?: number; height?: number } } | undefined
+  expect(svg?.props?.height).toBeGreaterThan(0)
+  expect(svg?.props?.height).toBe(svg?.props?.width)
+  expect(await ui.find({ type: 'Code' })).toBeFalsy()
+  await ui.unmount()
 })
 
 const CHARTS = {

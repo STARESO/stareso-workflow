@@ -31,7 +31,7 @@ claude plugin marketplace add ~/.claude/stareso/harness/claude-code/plugins
 claude plugin install stareso-status@stareso
 ```
 
-The plugin is read from this folder itself: after an edit (or a `git pull`), `/reload-plugins` in a session picks it up, with no reinstall. `claude plugin validate` and `claude plugin test` in `plugins/` check it (four tests in `hooks/register.test.tsx`).
+The plugin is read from this folder itself: after an edit (or a `git pull`), `/reload-plugins` in a session picks it up, with no reinstall. `claude plugin validate` and `claude plugin test` in `plugins/` check it (six tests in `hooks/register.test.tsx`).
 
 ## Install on a new machine
 1. Clone the `stareso-workflow` repository as `~/.claude` (or copy `skills/stareso-*`, `agents/stareso-*` and `stareso/` into it).

@@ -119,22 +119,47 @@ async function panelState($: EngineInterface): Promise<PanelView> {
   return { ...EMPTY, ...(await read($, panel)) }
 }
 
-async function projectRoot($: EngineInterface): Promise<string> {
+// The folders to read, in order: the one this session settled on (a /stareso-panel <folder>, or the last good read),
+// else the session's own folder, then the last project any session read (a side session often starts outside it).
+async function projectRoots($: EngineInterface): Promise<string[]> {
   const state = await read($, panel)
-  return state.root || ((await $.store.get('project')) as string | undefined) || (await $.session.cwd())
+  if (state.root) return [state.root]
+  const remembered = (await $.store.get('project')) as string | undefined
+  const cwd = await $.session.cwd()
+  return [cwd, ...(remembered && remembered !== cwd ? [remembered] : [])]
+}
+
+async function projectRoot($: EngineInterface): Promise<string> {
+  return (await projectRoots($))[0]
+}
+
+// Node prints the throwing source line (and a caret) before the error itself: keep the "Error: ..." line, without its
+// prefix or final period, else the first non-empty line
+function errorLine(output: string): string {
+  const lines = output.split('\n').map(l => l.trim()).filter(Boolean)
+  const line = lines.find(l => /^\w*Error: /.test(l)) ?? lines[0] ?? ''
+  return line.replace(/^\w*Error: /, '').replace(/\.$/, '').slice(0, 200)
 }
 
 async function readOnce($: EngineInterface) {
   try {
-    const root = await projectRoot($)
+    const roots = await projectRoots($)
     const flags = await usageFlags($)
-    const run = await $.process.run(['node', await toolPath($, 'progress-graph.mjs'), '--root', root, '--panel', ...flags], { timeoutMs: 20_000 })
-    if (run.exitCode !== 0) {
-      const why = (run.stderr.split('\n').find(l => /Error|No docs/.test(l)) ?? run.stderr).trim().slice(0, 200)
-      await update($, panel, p => ({ ...p, root, updated: clock(), error: `${root}: ${why}. Type /stareso-panel <project folder>.` }))
+    const tool = await toolPath($, 'progress-graph.mjs')
+    let run: Awaited<ReturnType<typeof $.process.run>> | null = null
+    let firstError = ''
+    for (const root of roots) {
+      run = await $.process.run(['node', tool, '--root', root, '--panel', ...flags], { timeoutMs: 20_000 })
+      if (run.exitCode === 0) break
+      firstError ||= `${root}: ${errorLine(run.stderr) || `progress-graph.mjs exited with ${run.exitCode}`}`
+    }
+    if (!run || run.exitCode !== 0) {
+      // the root is not kept: a later /stareso-panel <folder>, or a project read by another session, still gets its turn
+      await update($, panel, p => ({ ...p, updated: clock(), error: `${firstError}. Type /stareso-panel <project folder>.` }))
       return
     }
     const s = JSON.parse(run.stdout) as Snapshot
+    await $.store.set('project', s.root)
     alerts($, s)
     await update($, panel, p => ({
       ...p, project: s.project, root: s.root, brief: s.brief, svg: s.svg, updated: clock(), error: '',
@@ -157,7 +182,8 @@ async function readUsage($: EngineInterface) {
       $.process.run(['node', tool, '--charts'], { cwd: root, timeoutMs: 60_000 }),
     ])
     if (tables.exitCode !== 0 || charts.exitCode !== 0) {
-      const why = (tables.stdout + tables.stderr).trim().split('\n')[0]?.slice(0, 200) ?? 'no usage report'
+      const failed = tables.exitCode !== 0 ? tables : charts
+      const why = errorLine(`${failed.stderr}\n${failed.stdout}`) || 'no usage report'
       await update($, panel, p => ({ ...p, usageAt: Date.now(), usageError: why }))
       return
     }
@@ -225,7 +251,7 @@ export const register: Register = on => {
     const canDraw = 'Svg' in ui && e.surface !== 'terminal'
     const Svg = (ui as { Svg?: typeof ui.Box }).Svg
     const Markdown = (ui as { Markdown?: typeof ui.Box }).Markdown
-    const width = Math.min(680, Math.max(320, Math.round((e.props.bodyColumns ?? 80) * 7.6)))
+    const width = Math.min(1000, Math.max(320, Math.round((e.props.bodyColumns ?? 80) * 7.2)))
     const tab = (view: PanelView['view'], label: string) => (
       <Button key={`view-${view}`} variant={p.view === view ? 'primary' : 'secondary'} onPress={() => void show($, view).catch(() => undefined)}>{label}</Button>
     )
@@ -243,12 +269,12 @@ export const register: Register = on => {
           {tab('usage', 'Usage')}
         </Box>
         {p.error !== '' && <Text color="red">{p.error}</Text>}
-        {p.view === 'graph' && canDraw && Svg && p.svg !== '' && <Svg source={p.svg} alt="Build progress graph" width={width} isInteractive />}
-        {p.view !== 'usage' && p.brief !== '' && <Code source={p.brief} language="text" />}
+        {p.view === 'graph' && canDraw && Svg && p.svg !== '' && <Svg source={p.svg} alt="Build progress graph" width={width} height={heightAt(p.svg, width)} isInteractive />}
+        {(p.view === 'text' || (p.view === 'graph' && !canDraw)) && p.brief !== '' && <Code source={p.brief} language="text" />}
         {p.view === 'usage' && p.usageError !== '' && <Text color="red">{p.usageError}</Text>}
         {p.view === 'usage' && p.usageError === '' && p.usageMd === '' && <Text dimColor>reading the usage report…</Text>}
         {p.view === 'usage' && p.usageTiles !== '' && <Text bold>{p.usageTiles}</Text>}
-        {p.view === 'usage' && canDraw && Svg && p.usageSvg !== '' && <Svg source={p.usageSvg} alt="Usage charts" width={width} />}
+        {p.view === 'usage' && canDraw && Svg && p.usageSvg !== '' && <Svg source={p.usageSvg} alt="Usage charts" width={width} height={heightAt(p.usageSvg, width)} />}
         {p.view === 'usage' && p.usageMd !== '' && (Markdown ? <Markdown text={p.usageMd} /> : <Code source={p.usageMd} language="markdown" />)}
         {p.view !== 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
       </Box>
@@ -296,6 +322,13 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.h{font-size:13px
 .l,.v{font-size:12px;fill:var(--s)}.b{fill:var(--b)}.b2{fill:var(--b2)}.r{stroke:var(--r);stroke-dasharray:4 3}
 </style>`
   return `<svg xmlns="http://www.w3.org/2000/svg" width="680" viewBox="0 0 680 ${y + 10}" role="img"><title>Usage</title>${style}${out.join('')}</svg>`
+}
+
+// The height of an SVG drawn at this width, from its viewBox: progress-graph's SVG says width="100%" and no height, so
+// the frame would otherwise fall back to its small default height and shrink the graph to fit it
+function heightAt(svg: string, width: number): number | undefined {
+  const m = /viewBox="[\d.-]+ [\d.-]+ ([\d.]+) ([\d.]+)"/.exec(svg)
+  return m ? Math.round((width * Number(m[2])) / Number(m[1])) : undefined
 }
 
 // minutes from now to "HH:MM" (today, or tomorrow when it is earlier than now)
