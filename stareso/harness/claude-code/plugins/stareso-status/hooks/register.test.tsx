@@ -65,6 +65,7 @@ test('the panel draws the progress view from the tool, on every surface', async 
     expect((await ui.find({ type: 'Text', text: /^demo$/ }))?.props.size).toBe('title')
     // the all-done time and the mode in tiles, with the counts
     expect(await ui.find({ type: 'Text', text: /^All done$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^Next milestone: M1$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^eco$/ })).toBeTruthy()
     // the stat tiles under it, as the Usage tab's, the counts in the colour of their state
     expect((await ui.find({ type: 'Text', text: /^1\/3$/ }))?.props.color).toBe('success')

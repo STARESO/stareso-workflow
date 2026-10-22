@@ -639,21 +639,32 @@ function statTiles(ui: UI, tiles: { label: string; value: string; color?: string
   )
 }
 
-// the Progress tab's tiles, from the graph alone: when all is done, the build mode, slices done, slices running, the
-// time of one slice, what waits on the person
+// a time of the tool's clock ("04:05", "04:05 tomorrow", "04:05 10/24") as a tile shows it: the time alone, as the
+// milestone list does, or the date (yyyy-mm-dd) past tomorrow; `order` sorts times across days
+function when(t: string): { value: string; order: number } | null {
+  const m = /(\d\d):(\d\d)(?:\s+(tomorrow|(\d+)\/(\d+)))?/.exec(t)
+  if (!m) return null
+  const minutes = Number(m[1]) * 60 + Number(m[2])
+  if (!m[4]) return { value: `≈ ${m[1]}:${m[2]}`, order: (m[3] ? 1440 : 0) + minutes }
+  const today = new Date()
+  const year = Number(m[4]) < today.getMonth() + 1 ? today.getFullYear() + 1 : today.getFullYear()
+  const date = new Date(year, Number(m[4]) - 1, Number(m[5]))
+  return { value: `≈ ${year}-${m[4].padStart(2, '0')}-${m[5]!.padStart(2, '0')}`, order: Math.round((date.getTime() - today.getTime()) / 60000) + minutes }
+}
+
+// the Progress tab's tiles, from the graph alone: when all is done, the next milestone done, the build mode, slices
+// done, slices running, the time of one slice, what waits on the person
 function progressTiles(g: PanelGraph) {
   const all = Object.values(g.slices)
   const count = (state: SliceState) => all.filter(s => s.state === state).length
   const perSlice = /^(\d+) min per slice/.exec(g.pace ?? '')?.[1]
-  // "04:05 tomorrow" or "04:05 10/24" (the tool's clock): the day goes to the label, a date as yyyy-mm-dd, so the
-  // value stays a time
-  const day = /\s+(tomorrow|(\d+)\/(\d+))$/.exec(g.allDone ?? '')
-  const today = new Date()
-  const year = day?.[2] && Number(day[2]) < today.getMonth() + 1 ? today.getFullYear() + 1 : today.getFullYear()
-  const later = !day ? '' : day[1] === 'tomorrow' ? 'tomorrow' : `${year}-${day[2]!.padStart(2, '0')}-${day[3]!.padStart(2, '0')}`
-  const doneAt = (g.allDone ?? '').replace(/\s+(tomorrow|\d+\/\d+)$/, '')
+  const allDone = when(g.allDone ?? '')
+  // the open milestone with the earliest ETA (a human or queue lane has none)
+  const next = g.lanes.filter(l => !l.block && l.done < l.total).map(l => ({ l, w: when(l.eta) }))
+    .filter((x): x is { l: PanelLane; w: { value: string; order: number } } => x.w != null).sort((a, b) => a.w.order - b.w.order)[0]
   return [
-    ...(g.allDone ? [{ label: later ? `All done, ${later}` : 'All done', value: `≈ ${doneAt}` }] : []),
+    ...(allDone ? [{ label: 'All done', value: allDone.value }] : []),
+    ...(next ? [{ label: `Next milestone: ${next.l.id}`, value: next.w.value }] : []),
     // "fast · 1 helper": the profile alone, the helpers have their tile
     ...(g.mode ? [{ label: 'Mode', value: g.mode.split(' · ')[0] ?? g.mode }] : []),
     { label: 'Slices done', value: `${count('done')}/${all.length}`, color: STATE.done.color },
