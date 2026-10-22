@@ -162,13 +162,16 @@ const CHARTS = {
 }
 
 // the engine beneath the plugin; what it answers counts the pane openings
-function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean, sessions: unknown[] | null = null) {
+type Run = { exitCode: number; stdout: string; stderr: string }
+function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean, sessions: unknown[] | null = null,
+  opts: { cwd?: string; remembered?: string; run?: (argv: string[]) => Run | null } = {}) {
   const seen = { opened: 0 }
   on('command.register', () => ({ value: { command: 'stareso-panel' } }))
-  on('store.get', () => ({ value: undefined }))
+  // the project another session read last (a stale one when a test says so)
+  on('store.get', () => ({ value: opts.remembered }))
   on('store.set', () => ({ value: undefined }))
   on('env.get', () => ({ value: '/home/me' }))
-  on('session.cwd', () => ({ value: '/work/demo' }))
+  on('session.cwd', () => ({ value: opts.cwd ?? '/work/demo' }))
   on('clock.every', () => ({ value: {} }))
   on('ui.panes', () => ({ value: open ? [{ id: 'stareso-status', title: 'stareso status' }] : [] }))
   on('ui.close', () => ({ value: undefined }))
@@ -183,6 +186,8 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean, se
     : { value: { content: [], isError: true } }))
   on('process.run', (_, e) => {
     const argv = (e as { argv: string[] }).argv
+    const own = opts.run?.(argv)
+    if (own) return { value: { ...own, isStdoutTruncated: false, isStderrTruncated: false } }
     const stdout = argv.some(a => a.endsWith('usage-report.mjs')) ? JSON.stringify({ charts: CHARTS, tables: '**1. By type of step**' }) : JSON.stringify(SNAPSHOT)
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -292,5 +297,40 @@ test('a stareso button in the prompt footer opens the panel', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /^focus$/ })).toBeTruthy()
   await ui.press({ key: 'stareso-toggle' })
   expect(seen.opened).toBe(1)
+  await ui.unmount()
+})
+
+// a session whose stored project is stale and whose extra folder is not a project (the app's second working folder,
+// typed as /stareso-panel <folder>): the panel falls back to the session's own folder and draws it
+const NOT_A_PROJECT: Run = { exitCode: 1, stdout: '', stderr: 'file:///x/roadmap.mjs:11\n    throw new Error()\n\nError: No docs/ROADMAP.md found: run from inside a stareso project.\n    at findRoot' }
+const rootOf = (argv: string[]) => argv[argv.indexOf('--root') + 1]
+
+test('a session with an extra folder and a stale stored project still reads its own project', async ($, on) => {
+  engine(on, false, null, { remembered: '/old/project', run: argv => (argv.includes('--root') && rootOf(argv) !== '/work/demo' ? NOT_A_PROJECT : null) })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  const ran = await $.command.run({ command: 'stareso-panel', args: '/vault/notes/extra-folder' })
+  expect(ran.text).toContain('open on demo')
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^demo$/ }))?.props.size).toBe('title')
+  expect(await ui.find({ type: 'Text', text: /No docs\/ROADMAP/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('when no folder reads, the pane shows the error instead of nothing', async ($, on) => {
+  engine(on, false, null, { cwd: '/vault/notes', remembered: '/old/project', run: argv => (argv.includes('--root') ? NOT_A_PROJECT : null) })
+  await $.session.start({ cwd: '/vault/notes', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /No docs\/ROADMAP\.md found/ }))?.props.color).toBe('error')
+  await ui.unmount()
+})
+
+test('a view that cannot be drawn shows its error in the pane', async ($, on) => {
+  const broken = JSON.stringify({ ...SNAPSHOT, graph: { ...SNAPSHOT.graph, lanes: null } })
+  engine(on, false, null, { run: argv => (argv.includes('--root') ? { exitCode: 0, stdout: broken, stderr: '' } : null) })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'progress' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /could not draw this view/ }))?.props.color).toBe('error')
   await ui.unmount()
 })

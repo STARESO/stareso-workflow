@@ -350,7 +350,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
-    const { Box, Text, Button, Code } = ui
+    const { Box, Text, Button } = ui
     const p = await panelState($)
     const cols = Math.max(48, e.props.bodyColumns ?? 80)
     const act: Act = fn => () => void update($, panel, fn).catch(() => undefined)
@@ -375,13 +375,28 @@ export const register: Register = on => {
           {tab('usage', 'Usage')}
         </Box>
         {p.error !== '' && <Text color="error">{p.error}</Text>}
-        {p.view !== 'usage' && (p.graph ? progressView(ui, p, p.graph, act) : p.brief !== '' ? <Code source={p.brief} language="text" /> : <Text dimColor>reading…</Text>)}
+        {body(ui, p, cols, act)}
+      </Box>
+    )
+  })
+}
+
+// The view under the tabs. A drawing that fails (a state kept by an older version, a shape the tool changed) shows
+// its error in the pane, where the person sees it, instead of a hook the app skips and a pane with nothing to show.
+function body(ui: UI, p: PanelView, cols: number, act: Act) {
+  const { Box, Text, Code } = ui
+  try {
+    return (
+      <Box flexDirection="column" gap={1}>
+        {p.view !== 'usage' && (p.graph ? progressView(ui, p, p.graph, act) : p.brief !== '' ? <Code source={p.brief} language="text" /> : <Text dimColor>{p.error ? 'nothing read yet' : 'reading…'}</Text>)}
         {/* a desktop's monospaced face runs wider than the pane's columns: the charts keep a margin so no row overflows */}
         {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.9), act)}
         {p.view === 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
       </Box>
     )
-  })
+  } catch (err) {
+    return <Text color="error">{`The panel could not draw this view: ${String(err).slice(0, 200)}. Press Refresh, or /reload-plugins after an update.`}</Text>
+  }
 }
 
 const STATE: Record<SliceState, { color: string; label: string; mark: string }> = {
