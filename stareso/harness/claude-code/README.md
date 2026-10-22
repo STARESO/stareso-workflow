@@ -21,7 +21,7 @@ The workflow was built and measured on Claude Code, so every capability here is 
 `plugins/` is a local plugin marketplace (`plugins/.claude-plugin/marketplace.json`) holding one Claude Code plugin, `stareso-status`: a panel beside the chat that shows the status brief of a project and refreshes it every minute while it is open, with no model call. It runs `progress-graph.mjs --panel` (and `usage-report.mjs` for the Usage view), reads the app's 5-hour and weekly windows when the app allows it, and raises toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage cap comes within 15 minutes.
 
 - `/stareso-panel` opens the panel, or hides it when it is open. `/stareso-panel <project folder>` opens it on a project, remembered across sessions. `/stareso-panel graph`, `usage` or `brief` opens it on that view, and the buttons switch views.
-- Graph and Usage ask for a wide dock (110 columns); a width the person dragged wins.
+- Graph and Usage ask for a wide dock (110 columns), and a width the person dragged wins.
 - It exists only where Claude Code draws panels (desktop app, terminal, IDE extensions). Outside Claude Code, the same graph is `progress-graph.mjs --write` (an HTML page, or an Artifact).
 
 Install once per machine, from a terminal (the desktop app has no `/plugin` command), at the user scope so it loads in every session:
