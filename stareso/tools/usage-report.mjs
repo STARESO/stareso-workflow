@@ -52,7 +52,7 @@ const pct = (a, b) => (b ? Math.round((100 * a) / b) + " %" : "n/a");
 const median = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };
 const sum = (xs) => xs.reduce((a, b) => a + (b || 0), 0);
 // Step type: the skill name; typos of a skill ("tesot", "sttus") and free chats become "chat".
-const KNOWN = ["init", "retrofit", "discuss", "grill", "setup", "build", "test", "improve", "status", "retro", "deploy", "usage"];
+const KNOWN = ["init", "retrofit", "discuss", "grill", "setup", "build", "test", "improve", "status", "manager", "retro", "deploy", "usage"];
 const typeOf = (label) => { const w = label.replace(/\(launched by #\d+\)/, "").trim().split(/[\s:]/)[0]; return KNOWN.includes(w) ? w : "chat"; };
 
 // ---------- the build records as log lines (no session numbers needed: no transcript, no git)
@@ -243,8 +243,8 @@ if (CHARTS || PANEL) {
   const day0 = new Date((firstInit ? localDate(firstInit) : sessions[0].date) + "T00:00");
   const dayOf = (d) => Math.round(((d - day0) / 864e5) * 100) / 100;
   const dateOfDay = (n) => { const d = new Date(day0); d.setDate(d.getDate() + n); return localDate(d); };
-  const group = (t) => (["status", "retro", "usage"].includes(t) ? "status & retro" : ["build", "test", "improve", "chat"].includes(t) ? t : "chat");
-  const kinds = ["build", "test", "improve", "chat", "status & retro"];
+  const group = (t) => (["status", "retro", "usage"].includes(t) ? "status & retro" : ["build", "test", "improve", "manager", "chat"].includes(t) ? t : "chat");
+  const kinds = ["build", "test", "improve", "manager", "chat", "status & retro"];
   const cum = Object.fromEntries(kinds.map((k) => [k, 0]));
   const cumulative = [];
   for (const s of steps.filter((x) => !before(x) && x.win).sort((a, b) => a.win.a - b.win.a)) {
@@ -265,7 +265,7 @@ if (CHARTS || PANEL) {
         { label: "Last build, per slice", value: fmt(buildRows.filter((b) => b.type === "build").at(-1)?.equivPerSlice ?? null) },
       ];
     })(),
-    shareByType: typeRows.filter((t) => t.type !== "before the workflow").map((t) => ({ type: t.type, share: Math.round((100 * t.equiv) / workflowTotal), equiv: t.equiv, hours: t.hours, turns: t.turns })),
+    shareByType: typeRows.filter((t) => t.type !== "before the workflow").map((t) => ({ type: t.type, share: Math.round((100 * t.equiv) / workflowTotal), equiv: t.equiv, hours: t.hours, turns: t.turns, carried: t.carried.length ? median(t.carried) : null })),
     cumulative: { kinds, days: Array.from({ length: lastDay + 1 }, (_, i) => ({ day: i, date: dateOfDay(i) })), points: cumulative },
     milestones: msRows.map((m) => ({ id: m.id, built: m.built, equivPerSlice: m.equivPerSlice, measured: m.measured, slices: m.slices })),
     referencePerSlice: { label: reference.label, equiv: reference.equiv },

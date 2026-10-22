@@ -737,7 +737,7 @@ function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act, pick: (id: stri
 // ---------- usage: the plan windows, then the tiles and the six charts of the usage report (metrics.md) ----------
 
 const KIND: Record<string, string> = {
-  build: 'suggestion', test: 'success', improve: 'claude', chat: 'warning', 'status & retro': 'inactive', status: 'inactive', retro: 'inactive', usage: 'inactive',
+  build: 'suggestion', test: 'success', improve: 'claude', manager: 'merged', chat: 'warning', 'status & retro': 'inactive', status: 'inactive', retro: 'inactive', usage: 'inactive',
 }
 const TIER: Record<string, string> = { light: 'success', standard: 'suggestion', strong: 'claude' }
 const BUILT: Record<string, string> = { helpers: 'suggestion', chat: 'warning' }
@@ -793,7 +793,7 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
           {chart(ui, '1. Share of the workflow cost by step type', 'Where the tokens go: build should lead; a large chat bar is work done outside the steps.',
             c.shareByType.map((t, i) => ({
               scope: `u1:${i}`, label: t.type, segs: [{ v: t.share, color: KIND[t.type] ?? 'inactive' }],
-              value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns`,
+              value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns${t.carried != null ? `, median carried ${t.carried} %` : ''}`,
             })), L, room, Math.max(...c.shareByType.map(x => x.share)))}
           {pair(cumulativeChart(ui, c, room, L, open('u2')), more('u2', c.cumulative.days.length, FOLDED.u2))}
           {pair(milestoneChart(ui, c, room, L, open('u3')), more('u3', measuredMilestones(c).length, FOLDED.u3))}

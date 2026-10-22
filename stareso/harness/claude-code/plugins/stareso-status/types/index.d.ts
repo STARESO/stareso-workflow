@@ -51,7 +51,8 @@ export type UsageWindow = {
 export type UsageCharts = {
   unit: string;
   tiles: { label: string; value: string }[];
-  shareByType: { type: string; share: number; equiv: number; hours: number; turns: number }[];
+  // carried: the median share of the context a run of this type started with (a manager's grows with its age)
+  shareByType: { type: string; share: number; equiv: number; hours: number; turns: number; carried?: number | null }[];
   cumulative: { kinds: string[]; days: { day: number; date: string }[]; points: ({ day: number } & { [kind: string]: number })[] };
   milestones: { id: string; built: string; equivPerSlice: number | null; measured: string; slices: number }[];
   referencePerSlice: { label: string; equiv: number } | null;

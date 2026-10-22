@@ -33,6 +33,14 @@ function addKind(s, name, rawArg) {
   return kind;
 }
 
+// A session that ran status (or a plain chat) and then works as the project's manager (it launches or messages other
+// sessions, lists them, or is woken by their reports) is a manager from that point: its own step type, so a status run
+// stays the one-turn skill call it is.
+const MANAGER_TOOL = /(^|__)(start_session|send_message|SendMessage|list_sessions|clear_session|stop_session|set_session_model|set_session_permission_mode)$/;
+const MANAGED_FROM = /^(status|chat)$/;
+// the workflow's steps, past ones included: another `/stareso-…` command (the panel's, a typo) starts no step
+const STEPS = /^(init|retrofit|discuss|grill|setup|build|test|improve|status|retro|deploy|usage)$/;
+
 // A step no skill names is labelled "chat": no word of the user's messages reaches a record. The first words of the
 // request (tags and paths dropped) only tell two such steps apart in memory, as the mark's key.
 const chatKey = (txt) => {
@@ -79,6 +87,15 @@ export async function summarise(file) {
     compactions: 0, active: 0, kind: null, kinds: [], events: [], marks: [], lastUserTs: null, lastUserText: "", firstText: "", usage: { input: 0, cache_read: 0, cache_create: 0, output: 0 }, byModel: {}, timeline: [],
     launchTs: null, launchText: "", launches: [] };
   const t = (ts) => (ts || "").slice(5, 16);
+  // the manager step starts where the status call's answer ends (the next message the user typed), so status keeps
+  // only its own reply; after a plain chat, at the request that led to the first manager action (the user's go), or at
+  // the action itself. Nothing is marked when the session is already a manager.
+  const manage = (ts) => {
+    const cur = s.marks.at(-1);
+    if (cur ? !MANAGED_FROM.test(cur.kind) : s.launchTs) return;
+    const at = cur?.kind === "status" ? cur.nextUser ?? ts : s.lastUserTs && (!cur || s.lastUserTs > cur.ts) ? s.lastUserTs : ts;
+    s.marks.push({ ts: at, kind: addKind(s, "manager") });
+  };
   for await (const line of rl) {
     let o; try { o = JSON.parse(line); } catch { continue; }
     // Transcripts stamp UTC; docs show local time (no "Z", so Date parses it back as local).
@@ -106,13 +123,17 @@ export async function summarise(file) {
           s.events.push({ ts: o.timestamp });
           // A step a manager session launched: the app opens the new session with this background message.
           if (!s.launchTs && !s.assistant && /Background \(from the session that started this one\)/.test(txt)) { s.launchTs = o.timestamp; s.launchText = txt; }
+          // a session woken by the reports of the sessions it started manages them
+          if (/^\s*<side-sessions-event/.test(txt)) manage(o.timestamp);
           continue;
         }
         s.user++; s.timeline.push(`${t(o.timestamp)} U ${txt.replace(/\s+/g, " ").slice(0, 220)}`);
         s.events.push({ ts: o.timestamp, u: 1 });
         s.lastUserTs = o.timestamp; s.lastUserText = txt; s.firstText ||= txt;
+        const last = s.marks.at(-1);
+        if (last && !last.nextUser && o.timestamp > last.ts) last.nextUser = o.timestamp;
         const k = /<command-name>\/stareso(?:-app)?-([\w-]+)<\/command-name>(?:\s*<command-message>[^<]*<\/command-message>)?(?:\s*<command-args>([^<]*)<\/command-args>)?/.exec(txt) || /^\/stareso(?:-app)?-([\w-]+)\s*(\S*)/.exec(txt);
-        if (k) s.marks.push({ ts: o.timestamp, kind: addKind(s, k[1], k[2]) });
+        if (k && STEPS.test(k[1])) s.marks.push({ ts: o.timestamp, kind: addKind(s, k[1], k[2]) });
       }
     } else if (o.type === "assistant") {
       s.assistant++;
@@ -133,7 +154,7 @@ export async function summarise(file) {
           s.timeline.push(`${t(o.timestamp)} S ${p.input?.skill}`);
           // A step the agent started itself (e.g. improve after a status) counts like a typed command.
           const k = /^stareso(?:-app)?-([\w-]+)$/.exec(p.input?.skill || "");
-          if (k) s.marks.push({ ts: s.lastUserTs || s.launchTs || o.timestamp, kind: addKind(s, k[1], p.input?.args) });
+          if (k && STEPS.test(k[1])) s.marks.push({ ts: s.lastUserTs || s.launchTs || o.timestamp, kind: addKind(s, k[1], p.input?.args) });
         }
         // A launched session often starts its step by reading the skill file instead of calling the skill: its first
         // such read names the step, with the range the launch message gives after the skill's name, if any.
@@ -142,6 +163,7 @@ export async function summarise(file) {
           if (k) s.marks.push({ ts: s.lastUserTs || s.launchTs, kind: addKind(s, k[1], (new RegExp(`stareso-${k[1]}\\s+(\\S+)`).exec(s.launchText) || [])[1]) });
         }
         if (/start_session$/.test(p.name)) s.launches.push(o.timestamp);
+        if (MANAGER_TOOL.test(p.name)) manage(o.timestamp);
         // The app's task list says when a request is unrelated work: a new step, named from the request.
         if (/update_plan$/.test(p.name) && p.input?.scope === "new_task") s.marks.push({ ts: s.lastUserTs || o.timestamp, kind: "chat", key: chatKey(s.lastUserText), soft: true });
       }
@@ -192,7 +214,7 @@ async function sessionEntry(file, hFiles, d, slug) {
 // Per-machine cache of the session entries (numbers and step labels only, no prompt), keyed by the transcript files'
 // sizes and times, so a live read parses only the transcripts that grew. CACHE_VERSION changes with summarise or
 // splitSteps, which drops every old entry. The file is replaced in one rename: two panels may write at once.
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 4;
 const CACHE_FILE = path.join(GLOBAL_DATA, "cache", "sessions.json");
 function readCache() {
   let c = null;
@@ -328,7 +350,7 @@ export function model(root, entries, { costPerSlice = true, planning = true } = 
   // or retro step, which do not build. An improve or test launched during a build only plans slices, so the build wins.
   // A merge only such a step holds was made by a session with no transcript here (deleted, or run in another folder).
   const allSteps = kept.flatMap((r) => r.steps.map((st) => ({ r, st, from: new Date(st.first).getTime(), to: new Date(st.last).getTime() + 5 * 60e3 })));
-  const managerKind = (x) => /^(status|retro|workflow)/.test(x.st.kind);
+  const managerKind = (x) => /^(status|manager|retro|workflow)/.test(x.st.kind);
   const buildKind = (x) => /^build/.test(x.st.kind);
   const merged = new Map();
   let unlogged = 0;
@@ -399,7 +421,7 @@ export function renderBlock(m) {
     "| Column | Meaning |", "|---|---|",
     "| # | Session number: links the Sessions, Steps and Details rows (W1… = workflow sessions). |",
     "| Date / Start–end | Start date and time, then end time (`10-18 15:10` = ended on a later day). |",
-    "| Steps | The stareso steps of the session in order (`status → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat` = work no skill names, or a request the task list marked as new (never words of the request). `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. `(transcript gone)` = the transcript was deleted after the session was logged: its numbers come from the sessions records, written at every `--log`. |",
+    "| Steps | The stareso steps of the session in order (`status → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat` = work no skill names, or a request the task list marked as new (never words of the request). `manager` = after a status (or a plain chat), the part where the session launches, messages or lists other sessions, or is woken by their reports. `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. `(transcript gone)` = the transcript was deleted after the session was logged: its numbers come from the sessions records, written at every `--log`. |",
     "| Step rows | One per step, split at the step's first message; helpers go to the step that started them. The session's totals are the sum of its steps. |",
     `| Carried | For a session's later steps: share of the step's cost spent re-reading the context it started with above the base (${fmt(base)}, the median context at the first turn of this project's sessions, which every new session pays), then that extra context's size. High = a new session would have been cheaper (target < 20 %). |`,
     "| Active h | Hours of work: time between consecutive messages, pauses over 15 min left out. |",

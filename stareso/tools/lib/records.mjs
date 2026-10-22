@@ -63,9 +63,24 @@ export const writeJsonl = (file, objs) => { fs.mkdirSync(path.dirname(file), { r
 // inWorktree, wf, seeded? }. `at` is when the line was written.
 export function readSessions(root) {
   const byId = {};
-  for (const e of readJsonl(sessionsFile(root))) { if (e?.id && e.s) byId[e.id] = plainChat(e); }
+  for (const e of readJsonl(sessionsFile(root))) { if (e?.id && e.s) byId[e.id] = managerSteps(plainChat(e)); }
   return byId;
 }
+
+// A line logged before the manager step type (2026-10-22) holds a manager's work in its status step: a status step
+// whose time holds one of the session's launches becomes "manager", read so and never rewritten. Approximate: the one
+// status turn stays in it, and a manager that only sent messages stays status. A fresh `--log` of a session whose
+// transcript is still there splits it exactly.
+// A status step that started helpers went on with the step before it (a status call never builds), so it is read as
+// that step.
+const managerSteps = (e) => {
+  const launches = (e.s?.launches || []).map((t) => new Date(t).getTime());
+  const holds = (st) => launches.some((t) => t >= new Date(st.first).getTime() && t <= new Date(st.last).getTime() + 60e3);
+  const steps = e.steps || [];
+  if (!steps.some((st) => st.kind === "status")) return e;
+  return { ...e, steps: steps.map((st, i) => (st.kind !== "status" ? st : holds(st) ? { ...st, kind: "manager" }
+    : st.hN > 0 && i > 0 ? { ...st, kind: steps[i - 1].kind } : st)) };
+};
 
 // Step labels that held the first words of a request ("chat: next step", before 2026-10-22) become plain "chat".
 export const plainChat = (e) => ({ ...e, steps: (e.steps || []).map((st) => (/^chat: /.test(st.kind) ? { ...st, kind: "chat" } : st)) });
