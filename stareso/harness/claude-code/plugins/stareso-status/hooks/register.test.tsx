@@ -133,7 +133,7 @@ const CHARTS = {
 }
 
 // the engine beneath the plugin; what it answers counts the pane openings
-function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean) {
+function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean, sessions: unknown[] | null = null) {
   const seen = { opened: 0 }
   on('command.register', () => ({ value: { command: 'stareso-panel' } }))
   on('store.get', () => ({ value: undefined }))
@@ -145,7 +145,10 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean) {
   on('ui.close', () => ({ value: undefined }))
   on('ui.open', () => { seen.opened += 1; return { value: { isPlaced: true } } })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('mcp.call', () => ({ value: { content: [], isError: true } }))
+  // the app's session list when a test gives one, else no app tools here
+  on('mcp.call', (_, e) => (sessions && e.tool === 'list_sessions'
+    ? { value: { content: [{ type: 'text', text: JSON.stringify(sessions) }], isError: false } }
+    : { value: { content: [], isError: true } }))
   on('process.run', (_, e) => {
     const argv = (e as { argv: string[] }).argv
     const stdout = argv.some(a => a.endsWith('usage-report.mjs')) ? JSON.stringify({ charts: CHARTS, tables: '**1. By type of step**' }) : JSON.stringify(SNAPSHOT)
@@ -204,4 +207,21 @@ test('the usage view draws the plan windows, the tiles and the six charts', asyn
     expect(await ui.find({ type: 'Text', text: /over 300 turns/ })).toBeTruthy()
     await ui.unmount()
   }
+})
+
+test('the brief lists the chats working in the project, outside the roadmap', async ($, on) => {
+  engine(on, false, [
+    { title: 'Build all open milestones (fast)', cwd: '\\work\\demo\\', isRunning: true, lastActivityAt: '2026-10-22T17:09:11.264Z' },
+    { title: 'Side question', cwd: '/work/demo/.claude/worktrees/x', isRunning: true },
+    { title: 'Idle manager', cwd: '/work/demo', isRunning: false },
+    { title: 'Other project', cwd: '/work/other', isRunning: true },
+  ])
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'brief' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^Chats computing$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^Build all open milestones \(fast\)$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^Side question$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Idle manager|Other project/ })).toBeFalsy()
+  await ui.unmount()
 })

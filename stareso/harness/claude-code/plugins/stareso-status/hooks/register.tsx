@@ -1,5 +1,6 @@
 // Live stareso status: a pane beside the chat that runs ~/.claude/stareso/tools/progress-graph.mjs every minute while
-// it is open and draws its brief (aligned columns, slices in the colour of their state), its graph (one row of slices per milestone, to hover and press) or the
+// it is open and draws its brief (aligned columns, slices in the colour of their state, the chats computing in the
+// project), its graph (one row of slices per milestone, to hover and press) or the
 // project's usage (the plan windows, then the tiles and six charts of the stareso-usage skill from usage-report.mjs
 // --live), with toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage
 // cap comes within 15 minutes. Everything is drawn with the surface's own elements, so the terminal draws it too.
@@ -23,7 +24,7 @@ const USAGE_STALE_MS = 5 * 60_000
 const WIDE = 110
 const EMPTY: PanelView = {
   project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'text', selected: '',
-  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false,
+  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, chats: [],
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
 
@@ -73,6 +74,23 @@ async function usageFlags($: EngineInterface): Promise<string[]> {
       else if (/weekly · all/i.test(w.label)) flags.push('--week', `${w.percentUsed}@${w.resetsAt}`)
     }
     return flags
+  } catch {
+    return []
+  }
+}
+
+// The app's chats that are working now in the project folder or below it (its worktrees), from its own session list;
+// none when the app does not give it. The session the panel draws in is not listed.
+async function activeChats($: EngineInterface, root: string): Promise<PanelView['chats']> {
+  const norm = (f: string) => f.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  try {
+    const res = await $.mcp.call('ccd_session_mgmt', 'list_sessions', { limit: 40 })
+    const block = res.content.find(c => c.type === 'text') as { text?: string } | undefined
+    const rows = JSON.parse(block?.text ?? '[]') as { title?: string; cwd?: string; isRunning?: boolean; lastActivityAt?: string }[]
+    const r = norm(root)
+    return (Array.isArray(rows) ? rows : [])
+      .filter(x => x.isRunning && x.cwd && (norm(x.cwd) === r || norm(x.cwd).startsWith(`${r}/`)))
+      .map(x => ({ title: x.title || 'untitled chat', at: x.lastActivityAt ? clock(Date.parse(x.lastActivityAt)) : '' }))
   } catch {
     return []
   }
@@ -168,8 +186,9 @@ async function readOnce($: EngineInterface) {
     await $.store.set('project', s.root)
     latestMerge = s.recentMerges[0]?.id ?? ''
     alerts($, s)
+    const chats = await activeChats($, s.root)
     await update($, panel, p => ({
-      ...p, project: s.project, root: s.root, brief: s.brief, graph: s.graph, windows: s.usage, updated: clock(), error: '',
+      ...p, project: s.project, root: s.root, brief: s.brief, graph: s.graph, windows: s.usage, chats, updated: clock(), error: '',
       usageNote: flags.length ? '' : 'usage windows not readable here',
     }))
   } catch (err) {
@@ -454,6 +473,8 @@ function briefView(ui: UI, p: PanelView, g: PanelGraph, cols: number) {
         {running.map(([id, s]) => helperRow(['', s.model ?? '', s.started ?? '', s.minutes != null ? `${s.minutes} min` : '', s.eta ? `≈ ${s.eta}` : ''], s.title, false, id))}
       </Box>
 
+      {chatsView(ui, p.chats ?? [])}
+
       {p.windows && (p.windows.five || p.windows.week)
         ? windowsView(ui, p.windows, n, L, 'Usage')
         : sec.get('Usage') && (
@@ -473,6 +494,24 @@ function briefView(ui: UI, p: PanelView, g: PanelGraph, cols: number) {
           </Box>
         )
       })}
+    </Box>
+  )
+}
+
+// the chats working in the project now, outside the roadmap: for information only
+function chatsView(ui: UI, chats: PanelView['chats']) {
+  const { Box, Text } = ui
+  if (!chats.length) return null
+  return (
+    <Box flexDirection="column">
+      {heading(ui, 'Chats computing', 'outside the roadmap, for information')}
+      {chats.map(c => (
+        <Box flexDirection="row">
+          <Text mono color="claude">{'◐ '}</Text>
+          <Box flexShrink={1}><Text wrap="truncate-end">{c.title}</Text></Box>
+          {c.at !== '' && <Text mono dimColor>{`  active ${c.at}`}</Text>}
+        </Box>
+      ))}
     </Box>
   )
 }
@@ -552,6 +591,12 @@ function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
       {selSlice && sliceCard(ui, g, sel, act, chips)}
       {!selSlice && selLane && laneCard(ui, g, selLane, act, pick)}
       {chipRow('Running', 'run', of('running'))}
+      {(p.chats ?? []).length > 0 && (
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          <Text dimColor>Chats computing</Text>
+          {(p.chats ?? []).map(c => <Text><Text color="claude">◐ </Text>{c.title}</Text>)}
+        </Box>
+      )}
       {chipRow('Could start now', 'ready', of('ready'))}
       {chipRow('For you', 'you', of('you').filter(id => !g.finished.some(l => l.slices.includes(id))))}
       {g.pace && <Text dimColor>{g.pace}</Text>}

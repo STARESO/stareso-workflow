@@ -79,6 +79,8 @@ export type PanelView = {
   usageMerge: string;
   usageError: string;
   showTables: boolean;
+  // the app's chats working in the project now (a manager, a build, a side chat), shown for information
+  chats: { title: string; at: string }[];
 };
 
 declare module 'claude-code' {
