@@ -41,7 +41,7 @@ Where the tokens of a project went, from the records only (`docs/data/sessions.j
 
 - `node tools/session-stats.mjs --log` first, from inside the project, refreshes `docs/data/sessions.jsonl`.
 - `node tools/usage-report.mjs` prints six tables: step types, sessions, milestones (the 30 most recent, `--all` for every one), steps that merged slices, efficiency by tier, planning rounds. Share % is the first column. Work done before the workflow started (before the first init or retrofit) shows as "—" and stays out of the shares. Sessions are named by number and date, never by their step.
-- `--json` gives the same numbers as one compact line, `--charts` the series of the six charts, `--builds` the build records with their notes, `--projects` the cross-project index of this machine, `--summary` one line.
+- `--json` gives the same numbers as one compact line, `--charts` the series of the charts, `--builds` the build records with their notes, `--projects` the cross-project index of this machine, `--summary` one line.
 - To keep a report, `node tools/usage-report.mjs --all > docs/reports/usage-yyyy-mm-dd.md` writes the tables as a dated Markdown file in the project.
 - **≈ equiv** is one number per session that weighs the token kinds by their relative cost (cache read × 0.1, cache write × 1.25, output × 5). The weights are frozen, and it is not money.
 - A good reading takes three to five lines: the biggest cost of the period and its cause in the records, how chat-built slices compare with launched builds (≈ equiv per slice), and which tier gives the most change per token, compared with the previous retro entry when there is one.
@@ -51,7 +51,7 @@ Where the tokens of a project went, from the records only (`docs/data/sessions.j
 - **Efficiency by tier:** helper tokens from the build records (the figure a helper reports, its final context, not what it consumed: "Measured" and "Median measured ≈ equiv" give what the measured helpers consumed), lines changed by the slice's merge commit outside `docs/` (kept in the build record when slice-done merged it). Tokens per 100 lines is the median per tier, and a slice above twice its tier's median token count is an outlier. Tiers are chosen by difficulty, so compare a slice with its own tier, not across tiers.
 - **Planning rounds** are named `Test n` / `Improve n` in date order, with their session number and the share of their cost spent re-reading older context (Carried).
 
-### The six charts (what each one shows, how to read it)
+### The nine charts (what each one shows, how to read it)
 Four tiles come first: the workflow cost (≈ equiv since the first init or retrofit), the cost before the workflow (shown, never in a share), the slices built, and the last launched build's cost per slice.
 
 1. **Share of the workflow cost by step type** (horizontal bars). One bar per step type (build, test, improve, manager, chat, retro), as a percentage of the workflow cost. Reading: where the tokens go. Build is expected to lead; a large "chat" bar means work done outside the steps, and a large "manager" bar a manager session kept open across milestones. The tooltip gives ≈ equiv, active hours, turns and the median Carried.

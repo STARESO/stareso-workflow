@@ -232,7 +232,7 @@ test('the progress view draws a row per milestone, a pressed milestone lists its
   }
 })
 
-test('the usage view draws the plan windows, the tiles and the seven charts', async ($, on) => {
+test('the usage view draws the plan windows, the tiles and the nine charts', async ($, on) => {
   engine(on, false)
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'stareso-panel', args: 'usage' })
