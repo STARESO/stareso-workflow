@@ -130,7 +130,9 @@ const chain = (id) => {
   if (depth.has(id)) return depth.get(id);
   depth.set(id, 1);
   const s = byId.get(id);
-  const d = 1 + Math.max(0, ...s.after.filter((a) => byId.has(a) && !byId.get(a).done).map(chain));
+  // a tidy slice waits for every other slice of its milestone
+  const deps = [...s.after, ...(/\.tidy$/.test(id) ? ms.find((m) => m.id === s.ms).slices.filter((x) => x.id !== id).map((x) => x.id) : [])];
+  const d = 1 + Math.max(0, ...deps.filter((a) => byId.has(a) && !byId.get(a).done && /^M\d+$/.test(byId.get(a).ms)).map(chain));
   depth.set(id, d); return d;
 };
 const longest = Math.max(0, ...openNumbered.map((s) => chain(s.id)));
@@ -161,6 +163,52 @@ const lastProfile = merges.map((m) => m.profile).filter((p) => /^(eco|fast|night
 const nightPack = /night runs?|stareso-build.*night|`night`/i.test(packDoc);
 const mode = { pack, last: lastProfile, helpers: runningIds.size, available: ["eco", "fast", ...(nightPack ? ["night", "day"] : [])] };
 mode.label = runningIds.size ? `${lastProfile || (runningIds.size > 1 ? "fast" : "eco")} · ${runningIds.size} helper${runningIds.size > 1 ? "s" : ""}` : lastProfile ? `idle · last run ${lastProfile}` : "idle";
+
+// ---------- ETA per slice and per milestone: a small simulation of the rest of the build ----------
+// Every open slice of a numbered milestone takes `unit` minutes. A running one has `unit` minus its minutes left (at least 5).
+// The helpers running now (or the profile's usual count when idle) take the slices in roadmap order as soon as their
+// `after:` slices are merged, and a tidy slice waits for the rest of its milestone. A slice that waits on the user
+// (a [human] slice, a blocking question, an open slice of a lettered milestone) gets no ETA, nor what waits on it.
+// Not modelled: shared files in fast, pauses for the usage caps, the checker at the end of a milestone.
+const simHelpers = runningIds.size || ({ eco: 1, day: 1, fast: 3, night: 3 }[lastProfile] || 1);
+const eta = { helpers: simHelpers, minutesPerSlice: unit == null ? null : Math.round(unit), bySlice: {}, byMilestone: {}, allDone: null };
+if (unit != null) {
+  const depsOf = (s) => [...s.after, ...(/\.tidy$/.test(s.id) ? ms.find((m) => m.id === s.ms).slices.filter((x) => x.id !== s.id).map((x) => x.id) : [])].filter((d) => byId.has(d) && !byId.get(d).done);
+  const waitMemo = new Map();
+  const waitsOnUser = (id) => {
+    if (waitMemo.has(id)) return waitMemo.get(id);
+    waitMemo.set(id, false);
+    const s = byId.get(id);
+    const w = !/^M\d+$/.test(s.ms) || s.human || blockedByQuestion.has(id) || /waits on \/stareso/.test(s.rest) || depsOf(s).some(waitsOnUser);
+    waitMemo.set(id, w); return w;
+  };
+  const order = shown.filter((l) => !l.block).flatMap((l) => l.nodes.map((n) => n.id)).concat(openNumbered.map((s) => s.id));
+  const pending = [...new Set(order)].filter((id) => !byId.get(id).done && !runningIds.has(id) && !waitsOnUser(id));
+  const finish = new Map();
+  let active = running.filter((r) => runningIds.has(r.id) && !waitsOnUser(r.id)).map((r) => ({ id: r.id, end: Math.max(5, unit - (r.minutes ?? 0)) }));
+  let t = 0;
+  const merged = (d, at) => byId.get(d).done || (finish.has(d) && finish.get(d) <= at);
+  for (let guard = 0; guard < 2000 && (pending.length || active.length); guard++) {
+    for (let i = 0; i < pending.length && active.length < simHelpers;) {
+      const s = byId.get(pending[i]);
+      if (depsOf(s).every((d) => merged(d, t))) { active.push({ id: s.id, end: t + unit }); pending.splice(i, 1); } else i++;
+    }
+    if (!active.length) break;
+    active.sort((a, b) => a.end - b.end);
+    t = active[0].end;
+    for (const a of active.filter((x) => x.end === t)) finish.set(a.id, t);
+    active = active.filter((x) => x.end !== t);
+  }
+  for (const [id, m] of finish) eta.bySlice[id] = clock(now + m * 60000);
+  for (const l of shown.filter((x) => !x.block)) {
+    const open = l.nodes.filter((n) => n.s !== "d").map((n) => n.id);
+    const times = open.filter((id) => finish.has(id)).map((id) => finish.get(id));
+    const waiting = open.filter((id) => !finish.has(id)).length;
+    eta.byMilestone[l.id] = { at: times.length ? clock(now + Math.max(...times) * 60000) : null, waiting };
+  }
+  if (finish.size) { const end = Math.max(...finish.values()); eta.allDone = clock(now + end * 60000); eta.allDoneHours = +(end / 60).toFixed(1); }
+}
+const etaLane = (id) => { const e = eta.byMilestone[id]; return !e ? "" : e.at ? `≈ ${e.at}${e.waiting ? `, ${e.waiting} wait on you` : ""}` : e.waiting ? "waits on you" : ""; };
 
 // ---------- usage windows: readings kept next to the graph files, burn rate, stop caps ----------
 const outDir = typeof opt.write === "string" ? path.resolve(opt.write) : path.join(os.tmpdir(), `stareso-progress-${path.basename(root)}`);
@@ -258,7 +306,7 @@ const cls = { d: "c-teal", r: "c-amber", w: "c-gray" };
 const tip = (standalone, id) => {
   if (!standalone) return "";
   const s = byId.get(id), r = running.find((x) => x.id === id && runningIds.has(id));
-  return `<title>${esc([`${id} ${s.title}`, s.opus ? "Opus slice" : "", r ? `${r.branch}${r.minutes != null ? `, ${r.minutes} min` : ""}` : ""].filter(Boolean).join(" · "))}</title>`;
+  return `<title>${esc([`${id} ${s.title}`, s.opus ? "Opus slice" : "", r ? `${r.branch}${r.minutes != null ? `, ${r.minutes} min` : ""}` : "", eta.bySlice[id] ? `done ≈ ${eta.bySlice[id]}` : ""].filter(Boolean).join(" · "))}</title>`;
 };
 
 function svgBody(standalone) {
@@ -277,6 +325,10 @@ function svgBody(standalone) {
   for (const l of shown) {
     const rows = l.block ? 1 : Math.ceil(l.nodes.length / perRow);
     out.push(`<text class="th" x="40" y="${y + 11}" dominant-baseline="central">${esc(l.id)}</text><text class="ts" x="40" y="${y + 28}" dominant-baseline="central">${l.done} of ${l.total}</text>`);
+    // the milestone's ETA under its label, short: "≈ 17:59", "≈ 04:11+1" (tomorrow), "for you" when it waits on the user
+    const e = l.block ? null : eta.byMilestone[l.id];
+    const laneEta = !e ? "" : e.at ? `≈ ${e.at.replace(" tomorrow", "+1")}` : e.waiting ? "for you" : "";
+    if (laneEta) out.push(`<text class="ts" x="40" y="${y + 44}" dominant-baseline="central">${esc(laneEta)}</text>`);
     if (l.block) {
       const c = l.running ? "c-amber" : "c-gray";
       const label = (l.human ? `${l.total - l.done} for you` : `${l.total - l.done} open`) + (l === qLane && qText ? ` · ${qText}` : "");
@@ -290,7 +342,7 @@ function svgBody(standalone) {
         if (n.o) out.push(`<circle cx="${x + NW - 4}" cy="${ny + 4}" r="2.5" fill="var(--t)"/>`);
       });
     }
-    y += (l.block ? 1 : rows) * ROW + 10;
+    y += Math.max((l.block ? 1 : rows) * ROW, laneEta ? 52 : 0) + 10;
   }
   if (hidden.length) { out.push(`<text class="ts" x="40" y="${y + 6}" dominant-baseline="central">+ ${hidden.length} more open: ${esc(hidden.join(", "))}</text>`); y += 26; }
   y += 6;
@@ -349,7 +401,7 @@ const result = {
   mode, banner: bannerText, lanes: shown.map(({ id, title, kind, done, total, running: r, human, block, nodes }) => ({ id, title, kind, done, total, ...(r ? { running: r } : {}), ...(human ? { human } : {}), ...(block ? { block: true } : {}), ...(block ? {} : { nodes: nodes.map((n) => `${n.short}:${n.s}${n.h ? "h" : ""}${n.o ? "o" : ""}`).join(" ") }) })),
   hidden, edges: edges.map(([a, b]) => `${a}>${b}`).join(" "),
   running: runningNow.map((r) => ({ id: r.id, title: byId.get(r.id).title, branch: r.branch, minutes: r.minutes, ...(byId.get(r.id).opus ? { opus: true } : {}) })),
-  recentMerges: recent, ready, humanSlices, questions: { open: questions.length, blocking: blocking.map((q) => ({ text: q.text, blocks: q.blocks })) }, pace, usage, lines, text,
+  recentMerges: recent, ready, humanSlices, questions: { open: questions.length, blocking: blocking.map((q) => ({ text: q.text, blocks: q.blocks })) }, pace, eta, usage, lines, text,
 };
 
 if (opt.text) { console.log(text.join("\n")); process.exit(0); }
@@ -360,10 +412,11 @@ function brief() {
   const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   out.push("Progress   ■ done  ▶ running  □ waiting");
   if (bannerText) out.push(`  ${bannerText}`);
+  const graphWidth = Math.max(0, ...shown.filter((l) => !l.block).map((l) => l.nodes.length));
   for (const l of shown) {
     const body = l.block
       ? [l.human ? `${l.total - l.done} for you` : `${l.total - l.done} open`, l.running ? "running" : "", l === qLane ? qText : ""].filter(Boolean).join(" · ")
-      : l.nodes.map((n) => mark[n.s]).join("");
+      : `${pad(l.nodes.map((n) => mark[n.s]).join(""), graphWidth)}  ${etaLane(l.id)}`.trimEnd();
     out.push(`  ${pad(l.id, 5)} ${pad(`${l.done}/${l.total}`, 6)} ${body}`);
   }
   if (hidden.length) out.push(`  + ${hidden.length} more open: ${hidden.join(", ")}`);
@@ -371,7 +424,7 @@ function brief() {
   out.push("", runningNow.length ? `Helpers   ${mode.last || "build"} profile, ${runningNow.length} running` : `Helpers   none running (${mode.label})`);
   for (const r of [...runningNow].sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0))) {
     const s = byId.get(r.id);
-    out.push(`  ${pad(r.id, 8)} ${pad(s.model || "?", 7)} ${pad(r.minutes != null ? `${r.minutes} min` : "", 8)} ${cut(s.title, 52)}`);
+    out.push(`  ${pad(r.id, 8)} ${pad(s.model || "?", 7)} ${pad(r.minutes != null ? `${r.minutes} min` : "", 8)} ${pad(eta.bySlice[r.id] ? `≈ ${eta.bySlice[r.id]}` : "", 8)} ${cut(s.title, 48)}`);
   }
 
   if (usage.five || usage.week || caps) {
@@ -391,7 +444,8 @@ function brief() {
   if (pace && remaining) {
     out.push("", "Pace");
     out.push(`  ${pace.perSliceMinutes ?? pace.medianMinutes} min per slice, ${remaining} slices left, ${helpers} helper${helpers > 1 ? "s" : ""}`);
-    out.push(`  about ${hours(pace.etaHours)} (${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
+    if (eta.allDone) out.push(`  all done ≈ ${eta.allDone} (about ${hours(eta.allDoneHours)} with ${eta.helpers} helper${eta.helpers > 1 ? "s" : ""}, ${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
+    else out.push(`  about ${hours(pace.etaHours)} (${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
     out.push(`  at most ${hours(pace.inARowHours)} if run one after the other`);
   }
 
