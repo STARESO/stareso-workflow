@@ -469,7 +469,7 @@ function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
 // ---------- progress: the brief's context and sections around the graph, laid out for a narrow dock ----------
 //
 // One row of slice numbers per milestone, each number in the colour of its state, its title on a dim line under it;
-// hover a number for the slice's line, press it for the slice's card, press a milestone for its card (its slices, each
+// hover a number for a preview of the slice's card, press it for the slice's card, press a milestone for its card (its slices, each
 // pressable). Then the running helpers folded to one line each (press one for its card), the chats of the project, the
 // pace and what waits for the person. Each number is its state's coloured mark beside a plain Button, in a wrapping
 // row, so a press opens its card as a helper's does.
@@ -556,6 +556,10 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
       <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end">{s.title}</Text></Box>
     </Box>
   )
+  // a hovered slice's card for the preview: its ids as coloured text, nothing to press
+  const marks = (_where: string, list: string[]) => list.map(id => (
+    <Text><Text color={STATE[g.slices[id]?.state ?? 'waiting'].color}>{`${STATE[g.slices[id]?.state ?? 'waiting'].mark} `}</Text>{id}</Text>
+  ))
   const card = selSlice ? sliceCard(ui, g, sel, act, chips) : selLane ? laneCard(ui, g, selLane, act, pick) : null
 
   return (
@@ -572,11 +576,15 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
           ))}
         </Box>
         {lanes.map(lane)}
-        {ids.map(id => (
-          <Box display="none" hover={{ scope: `g:${id}`, display: 'flex' }}>
-            <Text wrap="truncate-end">{`${id} · ${g.slices[id]?.title ?? ''} · ${stateLine(g, id)}`}</Text>
-          </Box>
-        ))}
+        {/* hovering a number previews its card just under the grid, over what follows (an open card too), so nothing
+            moves: a hover reaches no hook, so each card is drawn hidden on a background and revealed by its number */}
+        <Box position="relative" height={0}>
+          {ids.filter(id => id !== sel).map(id => (
+            <Box position="absolute" top={0} left={0} right={0} backgroundColor="inverseText" display="none" hover={{ scope: `g:${id}`, display: 'flex' }}>
+              {sliceCard(ui, g, id, act, marks, true)}
+            </Box>
+          ))}
+        </Box>
         {g.finished.length > 0 && (
           <Box flexDirection="row" columnGap={1} marginTop={1}>
             <Box flexShrink={1}>
@@ -630,7 +638,8 @@ function stateLine(g: PanelGraph, id: string): string {
   return `${open.length ? `waits on ${open.join(', ')}` : 'waits for a helper'}${eta}`
 }
 
-function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: string, list: string[]) => RenderElement[]) {
+// a slice's card; a preview (the card of a hovered number) has nothing to press
+function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: string, list: string[]) => RenderElement[], preview = false) {
   const { Box, Text, Button } = ui
   const s = g.slices[id]
   if (!s) return null
@@ -643,7 +652,7 @@ function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: s
       <Text dimColor>{[s.ms, s.model, s.opus ? 'an Opus slice, the costly ones' : ''].filter(Boolean).join(' · ')}</Text>
       {s.after.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>needs</Text>{chips('needs', s.after.filter(a => g.slices[a]))}</Box>}
       {unblocks.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>unblocks</Text>{chips('unblocks', unblocks)}</Box>}
-      <Box flexDirection="row"><Button key="close-card" dimColor onPress={act(q => ({ ...q, selected: '' }))}>Close</Button></Box>
+      {!preview && <Box flexDirection="row"><Button key="close-card" dimColor onPress={act(q => ({ ...q, selected: '' }))}>Close</Button></Box>}
     </Box>
   )
 }

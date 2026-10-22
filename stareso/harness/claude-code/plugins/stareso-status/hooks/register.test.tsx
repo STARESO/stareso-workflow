@@ -63,7 +63,8 @@ test('the panel draws the progress view from the tool, on every surface', async 
     expect(await ui.find({ type: 'Text', text: /^First steps$/ })).toBeTruthy()
     expect((await ui.find({ type: 'Text', text: /^▶$/ }))?.props.color).toBe('warning')
     expect(await ui.find({ type: 'Text', text: /^Second step$/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^running since/ })).toBeFalsy()
+    // no card open (the hidden hover previews have no Close)
+    expect(await ui.find({ type: 'Button', key: 'close-card' })).toBeFalsy()
     await ui.press({ key: 'h:M1.2' })
     expect((await ui.find({ type: 'Text', text: /^running since/ }))?.text).toContain('16:55')
     await ui.press({ key: 'close-card' })
@@ -185,13 +186,19 @@ test('the progress view draws a row per milestone, a pressed milestone lists its
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /≈ 19:00/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^M1\.2 · Second step$/ })).toBeFalsy()
+    // no card open, each slice's card a hidden preview its number reveals on hover
+    expect(await ui.find({ type: 'Button', key: 'close-card' })).toBeFalsy()
+    expect((await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute' && b.props.display === 'none')).toHaveLength(3)
     // each slice number a plain Button that opens the slice's card, its state's coloured mark beside it (a desktop
     // drops the colour of a Text inside a Button)
     expect((await ui.find({ type: 'Button', key: 'c:M1.2' }))?.text).toBe('2')
     expect((await ui.findAll({ type: 'Text', text: /^▶$/ })).every(t => t.props.color === 'warning')).toBe(true)
     await ui.press({ key: 'c:M1.2' })
     expect(await ui.find({ type: 'Text', text: /^M1.2 · Second step$/ })).toBeTruthy()
+    // the other slices' cards wait hidden over it, each revealed by hovering its number
+    const previews = (await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute' && b.props.display === 'none')
+    expect(previews).toHaveLength(2)
+    expect(await ui.find({ type: 'Text', text: /^M1\.3 · / })).toBeTruthy()
     await ui.press({ key: 'close-card' })
     await ui.press({ key: 'l:M1' })
     expect(await ui.find({ type: 'Text', text: /^M1 · First steps$/ })).toBeTruthy()

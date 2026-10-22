@@ -30,7 +30,7 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 - **Heading:** the all-done time and the build mode.
 - **Grid:** one row of slice numbers per milestone, each after a mark in the colour of its state (■ done green, ▶ running amber, ■ could start teal, ■ waits on you purple, ■ waiting grey). A picked slice opens its card, and the numbers not linked to it go dim.
   - Hover a number for its one-line state.
-  - **Press a number for the slice's card:** its state, branch and model, what it needs and what it unblocks. The other numbers go dim, except the ones linked to it.
+  - **Press a number for the slice's card:** its state, branch and model, what it needs and what it unblocks. The other numbers go dim, except the ones linked to it. Hovering a number previews its card under the grid, over the open card if there is one, and the pressed card stays when the pointer leaves.
   - Press a milestone's name for its card, which lists its slices.
 - **Milestones:** each milestone's ETA, then its title.
 - **Helpers:** one line each (slice, ETA, title), pressable for its card.
