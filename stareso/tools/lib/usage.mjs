@@ -14,7 +14,7 @@ import readline from "node:readline";
 import { execSync } from "node:child_process";
 import { GLOBAL_DATA, logLine, readBuilds, readSessions } from "./records.mjs";
 
-const PROJECTS = path.join(os.homedir(), ".claude", "projects");
+export const PROJECTS = path.join(os.homedir(), ".claude", "projects");
 
 export function localIso(ts) {
   const d = new Date(ts);
@@ -33,10 +33,11 @@ function addKind(s, name, rawArg) {
   return kind;
 }
 
-// "chat: usage times seem" from the user's request (tags and paths dropped), for steps no skill names.
-const chatLabel = (txt) => {
+// A step no skill names is labelled "chat": no word of the user's messages reaches a record. The first words of the
+// request (tags and paths dropped) only tell two such steps apart in memory, as the mark's key.
+const chatKey = (txt) => {
   const words = (txt || "").replace(/<[^>]+>[^<]*<\/[^>]+>|<[^>]+>/g, " ").replace(/\S*[\\/]\S*/g, "").trim().split(/\s+/).slice(0, 4).join(" ").slice(0, 32);
-  return words ? "chat: " + words : "chat";
+  return "chat: " + words;
 };
 
 // Splits a session at its step marks (a stareso skill, or a request the app's task list marks as a new task).
@@ -45,8 +46,8 @@ function splitSteps(s, helpers, fallback) {
   let marks = [...s.marks].sort((a, b) => a.ts.localeCompare(b.ts));
   // A new-task request that goes straight into a skill is one step, named after the skill.
   marks = marks.filter((m) => !(m.soft && marks.some((n) => !n.soft && n.ts === m.ts)));
-  marks = marks.filter((m, i) => i === 0 || m.kind !== marks[i - 1].kind);
-  if (!marks.length || s.events.some((e) => e.a && e.ts < marks[0].ts)) marks.unshift({ ts: s.first, kind: (!marks.length && fallback) || (s.launchTs ? "launched" : chatLabel(s.firstText)) });
+  marks = marks.filter((m, i) => i === 0 || (m.key ?? m.kind) !== (marks[i - 1].key ?? marks[i - 1].kind));
+  if (!marks.length || s.events.some((e) => e.a && e.ts < marks[0].ts)) marks.unshift({ ts: s.first, kind: (!marks.length && fallback) || (s.launchTs ? "launched" : "chat") });
   const steps = marks.map((m) => ({ kind: m.kind, first: m.ts, last: m.ts, turns: 0, user: 0, active: 0, carried: null,
     usage: { cache_read: 0, cache_create: 0, output: 0 }, hN: 0, hEquiv: 0, models: {} }));
   let i = 0, prev = null;
@@ -142,7 +143,7 @@ export async function summarise(file) {
         }
         if (/start_session$/.test(p.name)) s.launches.push(o.timestamp);
         // The app's task list says when a request is unrelated work: a new step, named from the request.
-        if (/update_plan$/.test(p.name) && p.input?.scope === "new_task") s.marks.push({ ts: s.lastUserTs || o.timestamp, kind: chatLabel(s.lastUserText), soft: true });
+        if (/update_plan$/.test(p.name) && p.input?.scope === "new_task") s.marks.push({ ts: s.lastUserTs || o.timestamp, kind: "chat", key: chatKey(s.lastUserText), soft: true });
       }
     }
   }
@@ -191,7 +192,7 @@ async function sessionEntry(file, hFiles, d, slug) {
 // Per-machine cache of the session entries (numbers and step labels only, no prompt), keyed by the transcript files'
 // sizes and times, so a live read parses only the transcripts that grew. CACHE_VERSION changes with summarise or
 // splitSteps, which drops every old entry. The file is replaced in one rename: a panel and a dashboard may write at once.
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const CACHE_FILE = path.join(GLOBAL_DATA, "cache", "sessions.json");
 function readCache() {
   let c = null;
@@ -398,7 +399,7 @@ export function renderBlock(m) {
     "| Column | Meaning |", "|---|---|",
     "| # | Session number: links the Sessions, Steps and Details rows (W1… = workflow sessions). |",
     "| Date / Start–end | Start date and time, then end time (`10-18 15:10` = ended on a later day). |",
-    "| Steps | The stareso steps of the session in order (`status → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat: …` = work no skill names, a request the task list marked as new. `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. `(transcript gone)` = the transcript was deleted after the session was logged: its numbers come from the sessions records, written at every `--log`. |",
+    "| Steps | The stareso steps of the session in order (`status → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat` = work no skill names, or a request the task list marked as new (never words of the request). `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. `(transcript gone)` = the transcript was deleted after the session was logged: its numbers come from the sessions records, written at every `--log`. |",
     "| Step rows | One per step, split at the step's first message; helpers go to the step that started them. The session's totals are the sum of its steps. |",
     `| Carried | For a session's later steps: share of the step's cost spent re-reading the context it started with above the base (${fmt(base)}, the median context at the first turn of this project's sessions, which every new session pays), then that extra context's size. High = a new session would have been cheaper (target < 20 %). |`,
     "| Active h | Hours of work: time between consecutive messages, pauses over 15 min left out. |",

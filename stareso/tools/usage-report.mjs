@@ -191,13 +191,19 @@ function stepOf(time, id) {
 }
 const mergedBy = new Map();
 for (const m of merges) { const s = stepOf(m.time, m.id); m.step = s; if (s) mergedBy.set(s, (mergedBy.get(s) || 0) + 1); }
+// A slice's cost: its helper's ≈ equiv measured from the helper's own transcript (slice-done, since 2026-10-22), plus an
+// even share of what is left of the merging step (the conductor, and the helpers nobody measured). A step without a
+// measured slice splits its whole cost evenly, as before. Either way the slices of a step add up to the step's cost.
+const measuredEquiv = new Map(log.filter((x) => x.helperEquiv != null).map((x) => [x.id, x.helperEquiv]));
+const stepRest = new Map([...mergedBy.keys()].map((s) => [s, Math.max(0, s.equiv - sum([...new Set(merges.filter((m) => m.step === s && measuredEquiv.has(m.id)).map((m) => m.id))].map((id) => measuredEquiv.get(id))))]));
+const sliceCost = (m) => (m?.step && mergedBy.get(m.step) ? (measuredEquiv.get(m.id) ?? 0) + stepRest.get(m.step) / mergedBy.get(m.step) : null);
 
 // ---------- table 3: milestones (≈ equiv per slice from the step that merged it, helpers included)
 const ms = milestones(root).filter((m) => m.slices.length);
 const msRows = ms.map((m) => {
   const lines = log.filter((x) => x.milestone === m.id);
   const mm = merges.filter((x) => x.id === m.id || x.id.startsWith(m.id + "."));
-  const perSlice = mm.map((x) => (x.step && mergedBy.get(x.step) ? x.step.equiv / mergedBy.get(x.step) : null));
+  const perSlice = mm.map(sliceCost);
   const known = perSlice.filter((x) => x != null);
   const built = !lines.length ? "n/a" : lines.every((x) => x.inline) ? "in chat" : lines.some((x) => x.inline) ? "mixed" : lines.some((x) => x.tokens) ? "helpers" : "not logged";
   const models = ["opus", "sonnet", "haiku"].map((k) => [k[0].toUpperCase(), lines.filter((x) => x.model === k).length]).filter(([, n]) => n).map(([k, n]) => k + n).join(" ");
@@ -235,6 +241,8 @@ const tierRows = ["light", "standard", "strong"].map((tier) => {
     tier, model: [...new Set(xs.map((x) => x.model))].join("/"), slices: xs.length, medianTokens: med,
     medianLines: median(xs.map((x) => x.lines)), per100: median(xs.map((x) => x.per100)),
     over2x: xs.filter((x) => x.tokens > 2 * med).length, fixes: xs.filter((x) => /fix/.test(x.result)).length,
+    // measured since 2026-10-22: what the helpers consumed, not their final context
+    measured: xs.filter((x) => x.helperEquiv != null).length, medianMeasured: median(xs.map((x) => x.helperEquiv)),
   };
 }).filter((r) => r.slices);
 
@@ -252,7 +260,7 @@ const sessRows = sessions.map((s) => ({
   ...s, share: before({ win: { a: s.start } }) ? null : s.equiv / workflowTotal,
 }));
 
-const sliceList = log.map((x) => { const m = merges.find((y) => y.id === x.id); const st = m?.step; return { id: x.id, milestone: x.milestone, tier: x.tier, model: x.model, inline: x.inline, tokens: x.tokens, lines: m?.lines ?? null, time: m ? m.time.toISOString().slice(0, 16) : null, equivPerSlice: st && mergedBy.get(st) ? st.equiv / mergedBy.get(st) : null, stepType: st?.type || null, session: st?.session || null }; });
+const sliceList = log.map((x) => { const m = merges.find((y) => y.id === x.id); const st = m?.step; return { id: x.id, milestone: x.milestone, tier: x.tier, model: x.model, inline: x.inline, tokens: x.tokens, lines: m?.lines ?? null, time: m ? m.time.toISOString().slice(0, 16) : null, equivPerSlice: sliceCost(m), helperEquiv: x.helperEquiv, stepType: st?.type || null, session: st?.session || null }; });
 const stepList = steps.map((s) => ({ session: s.session, type: s.type, before: !!before(s), start: s.win ? s.win.a.toISOString().slice(0, 16) : null, hours: s.hours, turns: s.turns, equiv: s.equiv, carried: Number(/^(\d+) %/.exec(s.carried)?.[1]) || null, merged: mergedBy.get(s) || 0 }));
 const report = { firstInit, workflowTotal, steps: stepList, slices: sliceList, types: typeRows, sessions: sessRows, milestones: msShown, milestonesHidden: msRows.length - msShown.length, builds: buildRows, tiers: tierRows, rounds: roundRows };
 
@@ -350,9 +358,9 @@ out.push(md(["Session", "Date", "Step type", "Slices", "Turns", "Turns per slice
   b.session, b.date, b.type, b.merged, b.turns, b.turnsPerSlice.toFixed(1), fmt(b.equiv), fmt(b.equivPerSlice), b.helpers || "", b.conductorShare == null ? "n/a" : pct(b.conductorShare, 1),
 ])));
 
-out.push("\n**5. Efficiency by tier** (helper tokens; tokens per 100 lines changed outside docs/; a slice over 2× its tier median is an outlier)\n");
-out.push(md(["Tier", "Model", "Slices", "Median tokens", "Median lines", "Tokens per 100 lines", "Over 2× median", "Fix rounds"], tierRows.map((t) => [
-  t.tier, t.model, t.slices, fmt(t.medianTokens), t.medianLines ?? "n/a", fmt(t.per100), t.over2x, t.fixes,
+out.push("\n**5. Efficiency by tier** (helper tokens as the helpers report them, their final context; Measured counts the slices whose helper was measured from its transcript, what it consumed; tokens per 100 lines changed outside docs/; a slice over 2× its tier median is an outlier)\n");
+out.push(md(["Tier", "Model", "Slices", "Median tokens", "Median lines", "Tokens per 100 lines", "Over 2× median", "Fix rounds", "Measured", "Median measured ≈ equiv"], tierRows.map((t) => [
+  t.tier, t.model, t.slices, fmt(t.medianTokens), t.medianLines ?? "n/a", fmt(t.per100), t.over2x, t.fixes, t.measured, t.measured ? fmt(t.medianMeasured) : "",
 ])));
 
 out.push("\n**6. Planning rounds** (test and improve steps that added slices)\n");

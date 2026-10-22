@@ -32,6 +32,7 @@ Append to `docs/RETROS.md` (create it from the template if missing), one entry, 
 ## Deep mode only (strong tier)
 Between steps 2 and 3: run the deep statistics on the sessions since the previous deep retro and read **the user-message timelines only** (the `U` lines of the `.txt` files the tool writes), never the transcripts:
 `node <stareso>/tools/session-stats.mjs <scratch-dir> <the project's transcript files>` (the project's transcript folder is the one `--log` used; worktrees have their own). Look for the patterns that cost the most in the three first apps: streams of one-line requests into a long session, the same subject coming back (rework), long gaps after a usage limit, decisions taken in chat that never reached PLAN. Quote at most one timeline line per pattern. Delete the scratch files afterwards (they hold prompts).
+Once the retro entry is committed, the conversation logs it read have no further use (their usage is in `docs/data/sessions.jsonl`): run `node <stareso>/tools/session-stats.mjs --prune --days 1`, say in one line how many logs and how much it would delete, and on the user's yes run it again with `--yes` and commit `docs/data/`. Chats active in the last day (a running build, this retro) are kept.
 
 ## End of a project (deep mode, when PLAN says `Phase: deployed`, `delivered` or `released`)
 Also:

@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { args, findRoot, stamp } from "./lib/roadmap.mjs";
 import { collect, localIso } from "./lib/usage.mjs";
-import { appendJsonl, buildsFile, dataDir, mergesFromGit, parseLogLine, sessionsFile, writeJsonl } from "./lib/records.mjs";
+import { buildsFile, dataDir, mergesFromGit, parseLogLine, plainChat, sessionsFile, writeJsonl } from "./lib/records.mjs";
 
 const opt = args(process.argv.slice(2));
 if (typeof opt.data === "string") process.env.STARESO_DATA = path.resolve(opt.data);
@@ -34,7 +34,7 @@ const report = [];
 if (exists(dir) && fs.readdirSync(dir).length && !opt.force) { console.error(`${path.relative(root, dir) || dir} already holds records: nothing done (--force writes them again).`); process.exit(1); }
 
 // 1. sessions: read before the data folder exists, so the old records (usage-sessions.json) fill in the gone ones
-const entries = (await collect(root, { live: true }).catch(() => [])).map(({ id, s, steps, h, inWorktree, wf, seeded, loggedOn }) => ({ id, s, steps, h, inWorktree, wf, ...(seeded ? { seeded } : {}), at: loggedOn || new Date().toISOString().slice(0, 16) }));
+const entries = (await collect(root, { live: true }).catch(() => [])).map(({ id, s, steps, h, inWorktree, wf, seeded, loggedOn }) => ({ id, s, steps, h, inWorktree, wf, ...(seeded ? { seeded } : {}), at: loggedOn || new Date().toISOString().slice(0, 16) })).map(plainChat);
 entries.sort((a, b) => a.s.first.localeCompare(b.s.first));
 
 // 2. builds: the log's dated lines in order, then every merge as usage-report counted it (lines outside docs/)

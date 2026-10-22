@@ -62,24 +62,30 @@ export const writeJsonl = (file, objs) => { fs.mkdirSync(path.dirname(file), { r
 // inWorktree, wf, seeded? }. `at` is when the line was written.
 export function readSessions(root) {
   const byId = {};
-  if (migrated(root)) for (const e of readJsonl(sessionsFile(root))) { if (e?.id && e.s) byId[e.id] = e; }
+  if (migrated(root)) for (const e of readJsonl(sessionsFile(root))) { if (e?.id && e.s) byId[e.id] = plainChat(e); }
   else {
     try { const c = JSON.parse(fs.readFileSync(path.join(root, "docs", "usage-sessions.json"), "utf8")); for (const [id, e] of Object.entries(c.sessions || {})) byId[id] = { id, ...e }; } catch { /* none */ }
   }
   return byId;
 }
 
+// Step labels that held the first words of a request ("chat: next step", before 2026-10-22) become plain "chat".
+export const plainChat = (e) => ({ ...e, steps: (e.steps || []).map((st) => (/^chat: /.test(st.kind) ? { ...st, kind: "chat" } : st)) });
+
 const sameEntry = (a, b) => { const strip = ({ at, loggedOn, ...rest }) => rest; return JSON.stringify(strip(a)) === JSON.stringify(strip(b)); };
 // Appends the entries that changed since their last line; rewrites the file with the last line per id once it holds
-// more than twice as many lines as sessions (a session still open is appended at every run).
+// more than twice as many lines as sessions (a session still open is appended at every run), or when an older line
+// still carries words of a request in a step label (the rewrite keeps one plain line per session).
 export function saveSessions(root, entries) {
   const file = sessionsFile(root);
   const lines = readJsonl(file);
+  const worded = lines.some((e) => e?.steps?.some((st) => /^chat: /.test(st.kind)));
   const last = {};
-  for (const e of lines) if (e?.id) last[e.id] = e;
+  for (const e of lines) if (e?.id) last[e.id] = plainChat(e);
   const at = new Date().toISOString().slice(0, 16);
+  entries = entries.map(plainChat);
   const fresh = entries.filter((e) => !last[e.id] || !sameEntry(last[e.id], e)).map((e) => ({ ...e, at }));
-  if (lines.length + fresh.length > 2 * (Object.keys(last).length + fresh.length) + 20) {
+  if (worded || lines.length + fresh.length > 2 * (Object.keys(last).length + fresh.length) + 20) {
     for (const e of fresh) last[e.id] = e;
     writeJsonl(file, Object.values(last).sort((a, b) => (a.s.first || "").localeCompare(b.s.first || "")));
   } else appendJsonl(file, fresh);
