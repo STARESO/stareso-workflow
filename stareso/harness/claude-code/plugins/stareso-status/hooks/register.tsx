@@ -5,9 +5,6 @@
 // cap comes within 15 minutes. Everything is drawn with the surface's own elements, so the terminal draws it too.
 // No model call: only the tools, git and the app's own usage reading.
 //
-// In a session whose folder is a stareso project (or once the panel was used there), a band above the prompt gives the
-// helpers running, the slices left and the ETA, with a button that opens or hides the panel.
-//
 //   /stareso-panel                 opens the panel, or hides it when it is open
 //   /stareso-panel <folder>        opens it on that project (remembered across sessions)
 //   /stareso-panel graph | usage | brief   opens it on that view
@@ -27,10 +24,6 @@ const EMPTY: PanelView = {
   showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false,
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
-// whether this session's folder is a stareso project: the band shows there
-const band = atom({ plugin: 'stareso-status', key: 'band' } as const, false)
-// while the panel is hidden, the band's status is read again at most this often
-const HIDDEN_EVERY_MS = 5 * 60_000
 
 type Snapshot = {
   project: string
@@ -49,7 +42,6 @@ type Seg = { text: string; color?: string }
 let inflight: Promise<void> | null = null
 let usageInflight: Promise<void> | null = null
 let ticking = false
-let lastRead = 0
 let latestMerge = ''
 let seen: { merge?: string; running: Set<string>; alerted: Set<string> } | null = null
 
@@ -154,7 +146,6 @@ function errorLine(output: string): string {
 }
 
 async function readOnce($: EngineInterface) {
-  lastRead = Date.now()
   try {
     const roots = await projectRoots($)
     const flags = await usageFlags($)
@@ -214,24 +205,13 @@ async function readUsage($: EngineInterface) {
   return usageInflight
 }
 
-// The minute timer starts once per load: it reads every minute while the panel is open, and every few minutes for the
-// band while it is hidden.
+// The minute timer starts with the first opening, and reads only while the panel is open.
 function startTicking($: EngineInterface) {
   if (ticking) return
   ticking = true
   $.clock.every(EVERY_MS, () => {
-    isOpen($).then(async open => {
-      if (open) return refresh($)
-      if ((await read($, band)) && Date.now() - lastRead > HIDDEN_EVERY_MS) return refresh($)
-    }).catch(() => undefined)
+    isOpen($).then(open => (open ? refresh($) : undefined)).catch(() => undefined)
   })
-}
-
-async function toggle($: EngineInterface) {
-  if (await isOpen($)) return $.ui.close({ id: PANE })
-  startTicking($)
-  await refresh($)
-  await show($, (await read($, panel)).view)
 }
 
 async function show($: EngineInterface, view: PanelView['view']) {
@@ -243,13 +223,6 @@ async function show($: EngineInterface, view: PanelView['view']) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    // the band, and its slow reads, only in a stareso project's own folder
-    const cwd = await $.session.cwd()
-    if (await $.fs.exists(`${cwd}/docs/ROADMAP.md`).catch(() => false)) {
-      await update($, band, () => true)
-      startTicking($)
-      void refresh($).catch(() => undefined)
-    }
     await $.command.register({
       name: 'stareso-panel',
       description: 'Live stareso status beside the chat: opens or hides it (optional: a project folder, or graph, usage, brief)',
@@ -307,28 +280,6 @@ export const register: Register = on => {
         {p.view === 'graph' && (p.graph ? graphView(ui, p, p.graph, act) : <Text dimColor>reading the graph…</Text>)}
         {p.view === 'usage' && usageView(ui, p, cols, act)}
         {p.view !== 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
-      </Box>
-    )
-  })
-
-  // the band above the prompt: a one-line status and the button that opens or hides the panel (one label for both: the
-  // band does not hear the pane's own close control)
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const p = await panelState($)
-    if (e.props.hasSurvey || !((await read($, band)) || p.root)) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const g = p.graph
-    const count = (state: SliceState) => (g ? Object.values(g.slices).filter(s => s.state === state).length : 0)
-    const left = g ? Object.values(g.slices).filter(s => s.state !== 'done').length : 0
-    const status = g
-      ? [`${count('running')} running`, `${left} left`, count('ready') ? `${count('ready')} could start` : '', count('you') ? `${count('you')} for you` : '', g.allDone ? `all done ≈ ${g.allDone}` : '']
-        .filter(Boolean).join(' · ')
-      : p.error ? 'not read' : 'reading…'
-    return (
-      <Box flexDirection="row" gap={1}>
-        <Text bold>{`stareso${p.project ? ` ${p.project}` : ''}`}</Text>
-        <Text dimColor>{status}</Text>
-        <Button key="toggle-panel" dimColor onPress={() => void toggle($).catch(() => undefined)}>Panel</Button>
       </Box>
     )
   })

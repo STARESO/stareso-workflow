@@ -83,6 +83,6 @@ export type PanelView = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'stareso-status': { panel: PanelView; band: boolean };
+    'stareso-status': { panel: PanelView };
   }
 }

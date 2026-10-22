@@ -169,24 +169,6 @@ test('the graph view draws a row per milestone, and a pressed slice opens its ca
   }
 })
 
-test('the band above the prompt gives the status and opens the panel', async ($, on) => {
-  const seen = engine(on, false)
-  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
-  await $.command.run({ command: 'stareso-panel', args: '/work/demo' })
-  const before = seen.opened
-  const BAND = {
-    plugin: 'stareso-status', component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
-  } as const
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...BAND, surface })
-    expect((await ui.find({ type: 'Text', text: /running/ }))?.text).toContain('all done ≈ 19:00')
-    await ui.press({ key: 'toggle-panel' })
-    await ui.unmount()
-  }
-  expect(seen.opened).toBeGreaterThan(before)
-})
-
 test('the usage view draws the plan windows, the tiles and the six charts', async ($, on) => {
   engine(on, false)
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
