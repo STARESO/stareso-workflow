@@ -459,6 +459,12 @@ function brief() {
   return out.join("\n");
 }
 if (opt.brief) { console.log(brief()); process.exit(0); }
+// for the live status panel: the brief, the standalone SVG and what the panel's alerts compare between refreshes
+if (opt.panel) {
+  console.log(JSON.stringify({ project: path.basename(root), root, brief: brief(), svg: svg(true), recentMerges: recent,
+    running: runningNow.map((r) => ({ id: r.id, minutes: r.minutes })), perSliceMinutes: pace?.perSliceMinutes ?? null, usage }));
+  process.exit(0);
+}
 // the widget SVG alone, passed as it is to the host's widget tool
 if (opt.widget) { process.stdout.write(svg(false)); process.exit(0); }
 if (opt.write) {
