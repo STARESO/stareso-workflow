@@ -28,7 +28,7 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 ### ▶ Progress (narrow dock)
 
 - **Tiles:** when all is done, when the next milestone is done, the build mode, slices done, slices running, the time of one slice and what waits on you, as in the Usage tab.
-- **Grid:** one row of slice numbers per milestone, each after a mark in the colour of its state (■ done green, ▶ running amber, ■ could start teal, ■ waits on you purple, ■ waiting grey). A picked slice opens its card, and the numbers not linked to it go dim.
+- **Grid:** one row of slice numbers per milestone, each after a mark in the colour of its state (■ done green, ▶ running amber, ■ could start teal, ■ waits on you purple, ■ waiting grey).
   - **Press a number for the slice's card:** its state, branch and model, what it needs and what it unblocks. The other numbers go dim, except the ones linked to it. Hovering a number previews its card under the grid, over the open card if there is one, and the pressed card stays when the pointer leaves.
   - Press a milestone's name for its card, which lists its slices.
 - **Helpers:** one line each (slice, ETA, title), pressable for its card.
@@ -40,8 +40,8 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 
 - Four tiles, the plan windows with the stop caps (│ marks 100 %), then **seven charts** (how to read them: `metrics.md`, "The usage report").
 - Charts 2, 3, 6 and 7 fold to their latest rows. **Expand** shows every row with more in each, for example each step's type, conductor and helper cost on chart 6.
-- **Chart 7** compares each ETA with what the slice took, and gives the correction factor the ETAs learned.
-- Hovering a row gives its detail, dates are written yyyy-mm-dd, and the tables are one button away.
+- **Chart 7** is a dumbbell per merged slice (○ predicted, ● what it took, green on time, amber late, blue early), and its caption gives the correction factor the ETAs learned.
+- Hovering a row gives its detail, every value is right-aligned, dates are written yyyy-mm-dd, and the tables are one button away (computed with the charts, so opening them costs nothing).
 - The report is read live from the transcripts, nothing is written in the project, and it refreshes after five minutes or a merge.
 
 Outside Claude Code, `progress-graph.mjs --write` gives the same graph as an HTML page.
