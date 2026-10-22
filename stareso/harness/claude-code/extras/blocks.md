@@ -48,3 +48,17 @@ Claude Code shows the status in the stareso-status panel plugin (button and `/st
 ```text
 name the `◧ stareso` button (right of the prompt footer) and `/stareso-panel`, which open the stareso panel beside the chat, and `/stareso-panel dashboard` for the charts in a browser (it gives the address). Never draw the graph here. If the panel is not installed: `claude plugin install stareso-status@stareso`.
 ```
+
+## usage-panel
+Claude Code shows the six usage charts live in the Usage tab of the stareso panel, so the step points to it instead of redrawing them.
+
+```text
+The Usage tab of the stareso panel (`◧ stareso` button or `/stareso-panel usage`) shows the six charts below live, and `/stareso-panel dashboard` draws them in a browser: say so in one line.
+```
+
+## build-follow
+Claude Code shows a running build live in the stareso panel.
+
+```text
+the stareso panel (`◧ stareso` button or `/stareso-panel`) shows the slices, helpers, times and usage caps live, at no token cost.
+```

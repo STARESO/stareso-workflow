@@ -39,7 +39,7 @@ Also:
 - Compare this project's totals and per-slice costs with the previous projects: `node <stareso>/tools/usage-report.mjs --projects` (the cross-project index on this machine; a project not in it is read with `usage-report.mjs --summary --root <its folder>`); one table, three to five rows.
 - Read the pack guide's section list and the project's `AGENTS.md` Stack / Commands and `docs/decisions/`: what this project did that the pack does not describe becomes a proposal to add to the pack guide (that is how the guides were born: from projects A and B); what the pack describes and the project did otherwise becomes a question (project exception or outdated default?).
 - List the CHANGELOG entries made during the project and, for each, whether a later retro measured its effect; unmeasured ones are the first thing the next project should watch.
-- Write the entry under `## Retros` as "Project retro" and, in `<stareso>/DESIGN-NOTES.md`, one dated paragraph only if a decision of the workflow changed.
+- Write the entry in `docs/RETROS.md` as "Project retro" and, in `<stareso>/DESIGN-NOTES.md`, one dated paragraph only if a decision of the workflow changed.
 
 ## What this skill never does
 Rewrite the workflow in one go, read code, propose a change without a metric, or spend more than its budget. The method is one measured change per retro.
