@@ -7,7 +7,7 @@ description: Start a new STARESO project (web app, data analysis or game) in the
 
 **Session:** strong tier · new session in the empty project folder · normal mode. If this session runs another model, say so in one line first (the user switches in the harness's model picker).
 
-**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (USAGE "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
+**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (usage report "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
 
 Talk to the user in English unless they ask for French. Shared material: `<stareso>/` (`README.md` = the manual, `templates/`, `packs/<pack>/`). Keep this step cheap: no exploring, no reading of user files.
 
@@ -25,7 +25,7 @@ Core (every pack): `AGENTS.md` (pack template, name filled in, rest left for set
 Pack `app-next`: the browser's launch file (port 3100 unless another app uses it).
 Pack `analysis-r`: `config/paths.yml`, `main/run_all.R`, `R/helpers.R`, `.lintr` (pack templates), `data/raw/`, `data/processed/`, `outputs/`, `dev/`, `tests/toy/`, `report/`, `docs/LOGBOOK.md` (template).
 Pack `godot-game`: the folders of guide §3, `tools/` from `packs/godot-game/templates/tools/` (the gate and the off-screen wrappers), `docs/PLAYTEST.md` (pack template), and the Godot console binary path in `AGENTS.md` (ask for it, and for the Godot version and renderer, in one question). The project itself (`project.godot`, `screenshot.gd`, the test runner) is built by the M0 scaffold slices, which end with `verify-offscreen` passing.
-ROADMAP, QUESTIONS, FEEDBACK and BUILD-LOG are created by setup. Doc files are named in capitals; decision records `NNNN-slug.md`.
+ROADMAP, QUESTIONS, FEEDBACK, RETROS and the records folder `docs/data/` are created by setup. Doc files are named in capitals; decision records `NNNN-slug.md`.
 **Canary:** create `private/backups/CANARY` (one word), read it with the file-reading tool and expect a refusal. Under `Pack:` in `docs/PLAN.md` write `Guard: verified (<harness>, yyyy-mm-dd)`, or `Guard: not enforced (<harness>, yyyy-mm-dd)` and tell the user.
 
 ## 4. Git

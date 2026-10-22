@@ -4,15 +4,19 @@
 // most) and usage-report.mjs --live --panel (read in the background once five minutes old or after a merge).
 //
 // Usage:  node ~/.claude/stareso/tools/dashboard.mjs [--root <project>] [--port <n>] [--idle <minutes>]
+//         node ~/.claude/stareso/tools/dashboard.mjs --write [<file.html>]   a standalone snapshot (data inlined), opened
+//         in any browser without Claude or the server; the default file is in the temp folder, and a file inside the
+//         project must be under docs/reports/ (a dated usage report kept on request). Prints the file path.
 //         The port defaults to one derived from the project folder, so each project keeps its own address. A second
 //         start on a port that already serves the same project prints its address and exits. The server stops after
 //         --idle minutes without a request (120 by default). It never writes in the project.
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { args, findRoot } from "./lib/roadmap.mjs";
+import { args, findRoot, stamp } from "./lib/roadmap.mjs";
 
 const opt = args(process.argv.slice(2));
 const root = findRoot(opt.root ? path.resolve(opt.root) : process.cwd());
@@ -51,6 +55,28 @@ function readUsage(force) {
     usageAt = Date.now(); usageMerge = merge;
     if (r.code === 0) { const j = JSON.parse(r.stdout); usage = j.charts; tables = j.tables; usageError = ""; } else usageError = errorLine(`${r.stderr}\n${r.stdout}`);
   }).finally(() => { reading = null; });
+}
+
+// --write: one standalone page with the data inlined, which any browser opens without Claude or this server (Chart.js
+// still comes from its CDN). The default file is in the temp folder; inside the project only under docs/reports/.
+if (opt.write) {
+  const name = path.basename(root);
+  const file = typeof opt.write === "string" ? path.resolve(opt.write) : path.join(os.tmpdir(), `stareso-dashboard-${name}`, `usage-${stamp().slice(0, 10)}.html`);
+  const inside = file.toLowerCase().startsWith(root.toLowerCase() + path.sep);
+  if (inside && !file.toLowerCase().startsWith(path.join(root, "docs", "reports").toLowerCase() + path.sep)) { console.error("Error: inside the project, a snapshot goes under docs/reports/ only."); process.exit(1); }
+  await readSnap();
+  readUsage(true);
+  await reading;
+  if (!usage) { console.error(`Error: ${usageError || "no usage report"}`); process.exit(1); }
+  // the project's name stands for its folder: a kept report holds no local path
+  const json = JSON.stringify({ root: name, at: Date.now(), snapshot: true, snap, snapError, usage, tables, usageAt, usageError: "", usageReading: false })
+    .split(JSON.stringify(root).slice(1, -1)).join(name).replace(/<\//g, "<\\/");
+  const html = fs.readFileSync(page, "utf8").replace("<title>stareso dashboard</title>", `<title>${name} usage ${stamp().slice(0, 10)}</title>`)
+    .replace('<script src="https://cdnjs', `<script>window.STARESO_SNAPSHOT = ${json};</script>\n<script src="https://cdnjs`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, html);
+  console.log(file);
+  process.exit(0);
 }
 
 let lastRequest = Date.now();

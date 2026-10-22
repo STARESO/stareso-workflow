@@ -7,7 +7,7 @@ description: After the grilling of a stareso project - write the short AGENTS.md
 
 **Session:** strong tier · same session as the grilling or a new one · normal mode. If this session runs another model, say so first: the quality of the briefs decides how well the cheap models build.
 
-**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (USAGE "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
+**Heavy session:** if another step already ran in this session (its context is past about 100k tokens: a build, a test, a long chat) and this skill's Session line does not name that step as fine, say in one line before anything else that starting here re-reads that context at every turn (usage report "Carried", target < 20 %) and ask: continue here or open a new session. Only once per step.
 
 Talk in English unless the user switches to French.
 
@@ -28,7 +28,7 @@ Fill `<stareso>/packs/<pack>/templates/CLAUDE.md`: short, rules plus pointers, t
 - `tier: light` for trivial slices (copy, config, a token); `standard` by default; `strong` only with a real risk written in the brief (security, legal records, migrations on real data, a statistical method); such slices also get `check: now`.
 - Slices that need the user (secrets, accounts, online database, a real data file, a library not yet approved) are marked **[human]**, with what the user must do.
 - Every milestone ends with its **tidy slice** (`M<n>.tidy`, from the template).
-- Also create `docs/QUESTIONS.md` (template, then one `(grilling)` line per "(open: …)" point of PLAN, each with the slices it blocks), `docs/FEEDBACK.md`, `docs/BUILD-LOG.md`, `docs/USAGE.md` from the templates, (godot-game) `docs/PLAYTEST.md` if init did not create it, and (app-next) the access-matrix test skeleton named in the Commands table if the pack guide asks for it.
+- Also create `docs/QUESTIONS.md` (template, then one `(grilling)` line per "(open: …)" point of PLAN, each with the slices it blocks), `docs/FEEDBACK.md` from the template, the records (`node <stareso>/tools/migrate-records.mjs`: `docs/data/` for the build and session datasets, `docs/RETROS.md`, the union-merge line of `.gitattributes`), (godot-game) `docs/PLAYTEST.md` if init did not create it, and (app-next) the access-matrix test skeleton named in the Commands table if the pack guide asks for it.
 - Run `node <stareso>/tools/roadmap-overview.mjs` to fill the overview table, then `node <stareso>/tools/docs-check.mjs`.
 
 ## 4. Review with the user

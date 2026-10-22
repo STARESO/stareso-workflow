@@ -1,6 +1,7 @@
 // Closes one slice in one call: merge its branch into the current branch with --no-ff, delete the branch,
-// tick the roadmap box, switch the IDEAS lines naming it from 🛠 to ✅, append the BUILD-LOG line,
-// regenerate the roadmap overview and commit the docs. Prints the one-line report for the user.
+// tick the roadmap box, switch the IDEAS lines naming it from 🛠 to ✅, append the build event (with the merge's time
+// and lines) to docs/data/builds.jsonl (the BUILD-LOG line in a project not migrated yet), regenerate the roadmap
+// overview and commit the docs. Prints the one-line report for the user.
 //
 // Usage (from the project folder, on main):
 //   node ~/.claude/stareso/tools/slice-done.mjs M23.4 --model sonnet --tokens 42k --note "three dropdowns; checked at 280 px"
@@ -14,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findRoot, findSlice, readText, writeText, writeOverview, stamp, args } from "./lib/roadmap.mjs";
+import { appendJsonl, buildsFile, migrated, parseLogLine } from "./lib/records.mjs";
 
 const a = args(process.argv.slice(2));
 const id = a._[0];
@@ -39,6 +41,12 @@ if (branch !== "none") {
   if (git("status", "--porcelain", "--untracked-files=no")) { console.error("Working tree not clean (modified tracked files): commit or discard first."); process.exit(1); }
   git("merge", "--no-ff", branch, "-m", `Merge slice ${id}: ${slice.title}`);
   git("branch", "-d", branch);
+}
+// The merge as the usage report counts it: its time and the lines it changed outside docs/ (read once, here).
+let merge = { at: null, lines: null };
+if (branch !== "none") {
+  const stat = git("diff", "--shortstat", "HEAD^1", "HEAD", "--", ".", ":(exclude)docs");
+  merge = { at: git("log", "-1", "--format=%ad", "--date=iso-local").slice(0, 19).replace(" ", "T"), lines: Number(/(\d+) insertion/.exec(stat)?.[1] || 0) + Number(/(\d+) deletion/.exec(stat)?.[1] || 0) };
 }
 
 // 2. Tick the box.
@@ -95,7 +103,9 @@ if (a.profile) parts.push(a.profile);
 parts.push(harness, helper, tier || "tier ?");
 if (a.note) parts.push(a.note);
 const line = "- " + parts.join(" · ");
-{
+// A migrated project keeps one event per line in docs/data/builds.jsonl (its BUILD-LOG.md is frozen in the archive).
+if (migrated(root)) appendJsonl(buildsFile(root), [{ ...parseLogLine(line), merge }]);
+else {
   const { lines, eol } = readText(logFile);
   while (lines.length && lines[lines.length - 1] === "") lines.pop();
   lines.push(line, "");

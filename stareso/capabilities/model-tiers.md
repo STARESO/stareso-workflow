@@ -13,4 +13,4 @@ A slice brief says `tier: strong | standard | light`. The older `model: opus | s
 **Manual fallback:** each step's Session line names its tier, and the user picks the matching model in the harness before starting. If the session runs another tier, the step says so in one line.
 
 ## Measure
-`slice-done` writes the tier in the BUILD-LOG line (`--tier`, default the brief's tier). The retro compares fix rounds and check-fix slices per tier, so a cheaper tier is adopted for a kind of slice only when it does not raise them (`metrics.md`).
+`slice-done` writes the tier in the build record (`--tier`, default the brief's tier). The retro compares fix rounds and check-fix slices per tier, so a cheaper tier is adopted for a kind of slice only when it does not raise them (`metrics.md`).

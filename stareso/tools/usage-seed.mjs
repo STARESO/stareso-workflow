@@ -4,12 +4,14 @@
 //
 // Reads the session, step and detail rows of that session number in `git show <rev>:docs/USAGE.md`, rebuilds the
 // aggregates session-stats keeps (numbers only, rounded as USAGE.md printed them; helper tokens split by model in
-// proportion to their turns) and adds them to docs/usage-sessions.json, where `session-stats --log` renders them
+// proportion to their turns) and adds them to docs/data/sessions.jsonl (docs/usage-sessions.json in a project not
+// migrated yet), where `session-stats` and `usage-report` read them
 // as "(transcript gone)". Use it when a session was archived before a `--log` run had kept it. Never reads transcripts.
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { findRoot } from "./lib/roadmap.mjs";
+import { appendJsonl, migrated, readSessions, sessionsFile } from "./lib/records.mjs";
 
 const root = findRoot();
 const args = process.argv.slice(2);
@@ -36,7 +38,10 @@ function range(text, yearFrom) {
 
 const cacheFile = path.join(root, "docs", "usage-sessions.json");
 let cache = { version: 1, note: "Written by session-stats --log: per-session aggregates, numbers only. A session whose transcript was deleted keeps its last entry here (shown as transcript gone). Delete an entry to drop that session.", sessions: {} };
-try { const c = JSON.parse(fs.readFileSync(cacheFile, "utf8")); if (c && c.sessions) cache = c; } catch { /* first seed */ }
+const MIGRATED = migrated(root);
+if (MIGRATED) cache.sessions = readSessions(root);
+else try { const c = JSON.parse(fs.readFileSync(cacheFile, "utf8")); if (c && c.sessions) cache = c; } catch { /* first seed */ }
+const added = [];
 
 for (let i = 0; i < args.length; i += 2) {
   const [rev, n] = [args[i], args[i + 1]];
@@ -58,7 +63,7 @@ for (let i = 0; i < args.length; i += 2) {
   }
   if (!session) { console.error(`session ${n} not found in ${rev}`); continue; }
   const { first, last, year } = range(session[1]);
-  if (Object.values(cache.sessions).some((e) => e.s?.first === first)) { console.log(`session ${n} of ${rev} (${first}) is already in docs/usage-sessions.json: skipped`); continue; }
+  if (Object.values(cache.sessions).some((e) => e.s?.first === first)) { console.log(`session ${n} of ${rev} (${first}) is already in the sessions records: skipped`); continue; }
   const kindFull = session[2];
   const launched = /\(launched by #\d+\)/.test(kindFull);
   const kind = kindFull.replace(/\s*\(launched by #\d+\)/, "").replace(/\s*\(transcript gone\)/, "").replace(/\s*\(worktree\)/, "");
@@ -88,6 +93,8 @@ for (let i = 0; i < args.length; i += 2) {
     s: { id, first, last, kind, kinds: kind.split(" → "), user, assistant, active: Math.round(Number(session[3]) * 3.6e6), compactions: Number(details?.[1]) || 0, usage, models, byModel: splitByModel(usage, models), launchTs: launched ? first : null, launches: [] },
     steps, h, inWorktree: /\(worktree\)/.test(kindFull), wf: false,
   };
+  added.push(id);
   console.log(`seeded ${id}: ${kind}, ${assistant} turns, ${hN} helpers, ≈ ${session[8]}`);
 }
-fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1) + "\n");
+if (MIGRATED) appendJsonl(sessionsFile(root), added.map((id) => ({ id, ...cache.sessions[id], at: new Date().toISOString().slice(0, 16) })));
+else fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1) + "\n");

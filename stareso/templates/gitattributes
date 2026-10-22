@@ -11,3 +11,5 @@
 *.rds binary
 *.woff binary
 *.woff2 binary
+# stareso datasets: one event per line, both sides of a merge are kept
+docs/data/*.jsonl merge=union

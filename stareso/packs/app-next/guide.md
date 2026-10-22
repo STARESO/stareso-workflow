@@ -56,7 +56,7 @@ docs/
   GLOSSARY.md              domain terms: UI word, meaning, code / DB name
   decisions/NNNN-slug.md   decision records (only hard-to-reverse, surprising, real trade-off)
   ROADMAP.md               milestones of small vertical slices, with checkboxes and test markers
-  BUILD-LOG.md             one line per built slice (result, tokens)
+  data/                    records: builds.jsonl (one event per slice), sessions.jsonl
   FEEDBACK.md              test feedback, sorted (bug / change / idea)
   QUESTIONS.md             open questions the build could not answer alone
   DEPLOY.md                deployment checklist [B] (written by stareso-deploy)

@@ -300,7 +300,7 @@ function render() {
   if (!data) return;
   $("error").textContent = data.snapError || "";
   if (data.snap) progress(data.snap);
-  $("updated").textContent = `updated ${new Date(data.at).toTimeString().slice(0, 5)}`;
+  $("updated").textContent = data.snapshot ? `snapshot of ${new Date(data.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : `updated ${new Date(data.at).toTimeString().slice(0, 5)}`;
   $("uinfo").textContent = data.usageError ? "" : data.usage ? `usage read ${new Date(data.usageAt).toTimeString().slice(0, 5)}, from the transcripts as they are now${data.usageReading ? " (reading again…)" : ""} · ${data.usage.unit}` : "reading the usage report… (a few seconds)";
   if (data.usageError) $("uinfo").innerHTML = `<span class="err">${esc(data.usageError)}</span>`;
   if (data.usage) usageCharts(data.usage);
@@ -308,6 +308,8 @@ function render() {
 }
 
 async function poll(force) {
+  // a page written by `dashboard.mjs --write` carries its data and asks no server
+  if (window.STARESO_SNAPSHOT) { data = window.STARESO_SNAPSHOT; $("refresh").hidden = true; render(); return; }
   try {
     data = await (await fetch(`/data${force ? "?force" : ""}`, { cache: "no-store" })).json();
     render();

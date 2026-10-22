@@ -11,3 +11,5 @@
 !/skills/
 /skills/*
 !/skills/stareso-*/
+# Per-machine stareso data (plan-window readings, the cross-project index): never committed.
+/stareso/data/

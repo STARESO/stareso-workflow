@@ -44,7 +44,7 @@ tests/
 outputs/                   git-ignored: <family>/<kind>/<name>.png, tables/*.csv, synthese/
 report/
   <project>_report.qmd     the report; renders to outputs/report/<project>_report.html
-docs/                      PLAN, GLOSSARY, decisions, ROADMAP (+ roadmap/), IDEAS, QUESTIONS, FEEDBACK, BUILD-LOG, LOGBOOK
+docs/                      PLAN, GLOSSARY, decisions, ROADMAP (+ roadmap/), IDEAS, QUESTIONS, FEEDBACK, RETROS, LOGBOOK, data/ (records)
 private/                   sources/locked, sources/readable, INDEX.md, backups (section 3b)
 ```
 Conventions:

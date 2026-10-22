@@ -1,5 +1,5 @@
 // Progress graph of a stareso project, from the records only (never code, never writes in the project).
-// Reads docs/roadmap/*.md (slice lines, `after:`, [human]), docs/ROADMAP.md, docs/QUESTIONS.md, docs/BUILD-LOG.md,
+// Reads docs/roadmap/*.md (slice lines, `after:`, [human]), docs/ROADMAP.md, docs/QUESTIONS.md, the build records,
 // `git worktree list` (branches slice/<id>-…, the running helpers) and the newest `Merge slice` commits.
 //
 // Usage:  node ~/.claude/stareso/tools/progress-graph.mjs [--root <project>] [--max-lanes 8]
@@ -10,8 +10,8 @@
 //                            that wraps the SVG); the default folder is the system temp folder, never the project.
 //                            Paths come back in `files`.
 //         --five <pct>@<reset>  --week <pct>@<reset>   the usage windows the host shows (percent used, ISO reset time):
-//                            kept in usage.json next to the graph files (last readings only) to work out the burn rate
-//         --caps <start>/<pause>/<weekly>   stop caps in percent, when they are not in the BUILD-LOG `caps` line
+//                            kept in ~/.claude/stareso/data/plan-windows.jsonl (per machine) to work out the burn rate
+//         --caps <start>/<pause>/<weekly>   stop caps in percent, when the build records hold no caps event
 //         --panel            for the stareso-status panel: the brief, every lane and slice (state, deps, ETA, helper),
 //                            and the alert data, as one JSON line (pass --max-lanes 99 for every open lane)
 //         `lines` holds the one-line status items ready to print: running, usage, pace, waits, ready.
@@ -21,6 +21,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { args, findRoot, milestones, stamp } from "./lib/roadmap.mjs";
+import { appendJsonl, migrated, planWindowsFile, readBuilds, readJsonlTail } from "./lib/records.mjs";
 
 const opt = args(process.argv.slice(2));
 const root = opt.root ? findRoot(path.resolve(opt.root)) : findRoot();
@@ -115,9 +116,10 @@ const ready = openNumbered.filter((s) => !s.human && !runningIds.has(s.id) && !b
   && s.after.every(isDone) && (!/\.tidy$/.test(s.id) || ms.find((m) => m.id === s.ms).slices.every((x) => x.done || x.id === s.id))).map((s) => s.id);
 const humanSlices = [...byId.values()].filter((s) => !s.done && s.human).map((s) => s.id);
 
-// ---------- pace, from the merge times of BUILD-LOG ----------
-const merges = read("docs/BUILD-LOG.md").split("\n").map((l) => /^- (\d{4}-\d\d-\d\d) (\d\d:\d\d) · (\S+) .*? · (?:[\w.-]+) · ok · [^·]*· ([\w-]+)/.exec(l)).filter(Boolean)
-  .map((m) => ({ id: m[3], profile: m[4], t: new Date(`${m[1]}T${m[2]}:00`).getTime() })).sort((a, b) => a.t - b.t);
+// ---------- pace, from the merge times of the build records ----------
+const builds = readBuilds(root);
+const merges = builds.filter((e) => e.type === "slice" && e.result === "ok" && e.t.length > 10)
+  .map((e) => ({ id: e.id, profile: e.profile || e.harness, t: new Date(e.t.replace(" ", "T") + ":00").getTime() })).sort((a, b) => a.t - b.t);
 // gaps over 90 min (a night, a pause) are left out; gaps between two serial merges (eco, day) are the time one slice takes
 const pairs = merges.slice(1).map((m, i) => [merges[i], m]);
 const gapsOf = (pred) => pairs.filter(([a, b]) => pred(a) && pred(b)).map(([a, b]) => (b.t - a.t) / 60000).filter((g) => g > 0 && g <= 90).slice(-20);
@@ -212,32 +214,37 @@ if (unit != null) {
 }
 const etaLane = (id) => { const e = eta.byMilestone[id]; return !e ? "" : e.at ? `≈ ${e.at}${e.waiting ? `, ${e.waiting} wait on you` : ""}` : e.waiting ? "waits on you" : ""; };
 
-// ---------- usage windows: readings kept next to the graph files, burn rate, stop caps ----------
+// ---------- usage windows: readings of the plan's windows, burn rate, stop caps ----------
 const outDir = typeof opt.write === "string" ? path.resolve(opt.write) : path.join(os.tmpdir(), `stareso-progress-${path.basename(root)}`);
 if (outDir.toLowerCase().startsWith(root.toLowerCase() + path.sep)) { console.error("Refusing to write inside the project."); process.exit(1); }
-const usageFile = path.join(outDir, "usage.json");
-let readings = { five: [], week: [] };
-try { readings = { ...readings, ...JSON.parse(fs.readFileSync(usageFile, "utf8")) }; } catch { /* first reading */ }
-let touched = false;
+// The readings live in ~/.claude/stareso/data/plan-windows.jsonl (the plan is the account's, so one file per machine for
+// every project): one line { t, w, pct, reset } when the percent or the window changes, or 10 min after the window's
+// last line, so the history stays small and its newest line recent. The rate uses the window's last three hours.
+const readings = { five: [], week: [] };
+for (const x of readJsonlTail(planWindowsFile(), 64e3)) if (readings[x.w] && x.t > now - 3 * 3600e3) readings[x.w].push({ t: x.t, pct: x.pct, reset: x.reset });
+const fresh = [];
 for (const k of ["five", "week"]) {
   const m = /^(\d+(?:\.\d+)?)@(.+)$/.exec(String(opt[k] || ""));
-  if (!m || isNaN(Date.parse(m[2]))) continue;
-  const r = { t: now, pct: Number(m[1]), reset: Date.parse(m[2]) };
-  // same window (same reset time), last three hours only
-  readings[k] = [...readings[k].filter((x) => Math.abs(x.reset - r.reset) < 600e3 && x.t > now - 3 * 3600e3 && now - x.t > 30e3), r].slice(-8);
-  touched = true;
+  const latest = m && !isNaN(Date.parse(m[2])) ? { t: now, pct: Number(m[1]), reset: Date.parse(m[2]) } : null;
+  const ref = latest || readings[k].at(-1);
+  // same window (same reset time) only
+  const same = ref ? readings[k].filter((x) => Math.abs(x.reset - ref.reset) < 600e3) : [];
+  if (latest) {
+    const last = same.at(-1);
+    if (!last || last.pct !== latest.pct || now - last.t >= 600e3) fresh.push({ t: now, w: k, pct: latest.pct, reset: latest.reset });
+    readings[k] = [...same.filter((x) => now - x.t > 30e3), latest].slice(-8);
+  } else readings[k] = same.slice(-8);
 }
-if (touched) { fs.mkdirSync(outDir, { recursive: true }); fs.writeFileSync(usageFile, JSON.stringify(readings)); }
+try { appendJsonl(planWindowsFile(), fresh); } catch { /* the readings are a convenience */ }
 
-// stop caps: --caps, else the newest `- yyyy-mm-dd HH:mm · caps · helper start 85 % · pause 90 % · weekly 95 % · deadline 18:30` line of BUILD-LOG (36 h at most)
+// stop caps: --caps, else the newest caps event of the build records (record.mjs caps, or a BUILD-LOG caps line), 36 h at most
 let caps = null;
-const capLine = read("docs/BUILD-LOG.md").split("\n").map((l) => /^- (\d{4}-\d\d-\d\d) (\d\d:\d\d) · caps · (.*)$/.exec(l)).filter(Boolean).at(-1);
+const capEvent = builds.filter((e) => e.type === "caps" && e.t.length > 10).at(-1);
 if (opt.caps) {
   const [start, pause, weekly] = String(opt.caps).split("/").map((x) => Number(x) || null);
   caps = { start, pause, weekly, deadline: null, source: "given" };
-} else if (capLine && now - new Date(`${capLine[1]}T${capLine[2]}:00`).getTime() < 36 * 3600e3) {
-  const g = (re) => Number((re.exec(capLine[3]) || [])[1]) || null;
-  caps = { start: g(/helper start (\d+) %/), pause: g(/pause (\d+) %/), weekly: g(/weekly (\d+) %/), deadline: (/deadline (\d\d:\d\d)/.exec(capLine[3]) || [])[1] || null, source: `BUILD-LOG ${capLine[1]} ${capLine[2]}` };
+} else if (capEvent && now - new Date(capEvent.t.replace(" ", "T") + ":00").getTime() < 36 * 3600e3) {
+  caps = { start: capEvent.start, pause: capEvent.pause, weekly: capEvent.weekly, deadline: capEvent.deadline, source: `${migrated(root) ? "build records" : "BUILD-LOG"} ${capEvent.t}` };
 }
 
 // rate from the oldest reading of the window (at least 10 min back), else the average since the window opened

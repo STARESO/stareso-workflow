@@ -39,7 +39,7 @@ assets/                    binary assets (art, audio, fonts): see 3b
 tools/                     check.sh, offscreen_override.sh, windowed.sh, screenshot.sh, verify_offscreen.sh,
                            parse_check.gd, smoke.gd, test_runner.gd, screenshot.gd, tests/, art/
 docs/                      PLAN, GLOSSARY, decisions, ROADMAP (+ roadmap/), IDEAS, QUESTIONS, FEEDBACK,
-                           BUILD-LOG, USAGE, PLAYTEST
+                           RETROS, PLAYTEST, data/ (records)
 devlog/                    optional illustrated progress log (section 13)
 _archive/                  dead scenes and scripts kept for reference, with a `.gdignore`
 private/                   sources/locked, sources/readable, INDEX.md, backups (as every stareso project)
@@ -128,7 +128,7 @@ Spikes replace a long grilling for uncertain mechanics: build the smallest playa
 - The assistant **never** touches release signing, keystores or store accounts (`deploy.md`).
 
 ## 13. Devlog (optional)
-An illustrated progress log for the author: `devlog/entries.jsonl` (one entry per slice: title, summary, how it was built, tunables, model and tokens of the helpers and of the conductor, before and after shots) and a builder that renders a self-contained page readable on a tablet (summary at the top, outline drawer, filters by kind, before and after slider). The devlog is a reading aid, the records of the workflow stay BUILD-LOG and USAGE.
+An illustrated progress log for the author: `devlog/entries.jsonl` (one entry per slice: title, summary, how it was built, tunables, model and tokens of the helpers and of the conductor, before and after shots) and a builder that renders a self-contained page readable on a tablet (summary at the top, outline drawer, filters by kind, before and after slider). The devlog is a reading aid, the records of the workflow stay the datasets in `docs/data/`.
 
 ## 14. Night runs (build profile `night`)
 For long unattended runs while the author sleeps (`/stareso-build M3-M5 night 4h`): the build skill's `night` profile. Pack-specific rules on top of it: no window and no sound (section 5), a `shot` of every visible slice viewed by the conductor at reduced scale, and a creative queue milestone `Q.md` (Kind: queue) of small content and polish slices the run takes from when its range is done. Keep at least five slices in Q.

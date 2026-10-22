@@ -20,4 +20,4 @@ The role file is the helper's whole instruction. A harness maps it onto its own 
 **Manual fallback, stated in the build step:** without helpers, run mode session. Never fall back to inline for a whole milestone, because the conductor's context then grows with every slice (project C's 49 conductor turns per slice before the 2026-10-19 review).
 
 ## Measure
-`slice-done --helper <mode>` writes the mode in the BUILD-LOG line (default from the project instructions, else subagent). The retro splits fix rounds, check-fix slices, reworks, conductor-built slices and minutes per slice by mode (`metrics.md`).
+`slice-done --helper <mode>` writes the mode in the build record (default from the project instructions, else subagent). The retro splits fix rounds, check-fix slices, reworks, conductor-built slices and minutes per slice by mode (`metrics.md`).

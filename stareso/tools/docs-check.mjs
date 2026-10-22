@@ -3,13 +3,14 @@
 //
 //   node ~/.claude/stareso/tools/docs-check.mjs
 //
-// Checks: ticked slices without a BUILD-LOG line · 🛠 ideas naming a ticked slice · `after:` pointing to
+// Checks: ticked slices without a build record · 🛠 ideas naming a ticked slice · `after:` pointing to
 // an unknown slice · PLAN.md without Phase/Pack lines · docs/ files missing from docs/README.md ·
 // package.json version vs the newest changelog entry (when both exist) · single-file roadmap over 300 lines ·
 // FEEDBACK.md blocks older than the newest two (should move to FEEDBACK-DONE.md).
 import fs from "node:fs";
 import path from "node:path";
 import { findRoot, milestones, readText } from "./lib/roadmap.mjs";
+import { logLine, migrated, readBuilds } from "./lib/records.mjs";
 
 const root = findRoot();
 const docs = path.join(root, "docs");
@@ -20,11 +21,12 @@ const ms = milestones(root);
 const all = ms.flatMap((m) => m.slices.map((s) => ({ ...s, milestone: m.id })));
 const ids = new Set(all.map((s) => s.id));
 
-// Ticked slices need a BUILD-LOG line.
-const log = read(path.join(docs, "BUILD-LOG.md"));
+// Ticked slices need a build record (docs/data/builds.jsonl, or a BUILD-LOG line before the migration).
+const log = readBuilds(root).filter((e) => e.type !== "merge").map(logLine).join("\n");
+const logName = migrated(root) ? "builds.jsonl" : "BUILD-LOG";
 for (const s of all.filter((x) => x.done)) {
   const re = new RegExp(`(^|[^A-Za-z0-9.])${s.id.replace(/\./g, "\\.")}(?![0-9A-Za-z])`, "m");
-  if (!re.test(log)) findings.push(`BUILD-LOG: no line for ticked slice ${s.id} (${s.milestone})`);
+  if (!re.test(log)) findings.push(`${logName}: no line for ticked slice ${s.id} (${s.milestone})`);
 }
 
 // 🛠 ideas naming a ticked slice.
@@ -95,6 +97,7 @@ for (const l of qs) {
 }
 // Leftover files the workflow no longer uses.
 for (const f of ["HELPER-RULES.md", "FUTURE.md"]) if (fs.existsSync(path.join(docs, f))) findings.push(`docs/${f}: no longer part of the workflow; fold it into CLAUDE.md / IDEAS / QUESTIONS in a tidy slice`);
+if (migrated(root)) for (const f of ["USAGE.md", "usage-sessions.json", "BUILD-LOG.md"]) if (fs.existsSync(path.join(docs, f))) findings.push(`docs/${f}: left from before the datasets: its records are in docs/data/, remove it (git keeps it)`);
 
 if (findings.length) { console.log(findings.map((f) => "✗ " + f).join("\n")); process.exit(1); }
 console.log(`✓ docs coherent (${ms.length} milestones, ${all.length} slices, ${all.filter((s) => s.done).length} done)`);
