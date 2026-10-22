@@ -9,7 +9,8 @@
 //         project must be under docs/reports/ (a dated usage report kept on request). Prints the file path.
 //         The port defaults to one derived from the project folder, so each project keeps its own address. A second
 //         start on a port that already serves the same project prints its address and exits. The server stops after
-//         --idle minutes without a request (120 by default). It never writes in the project.
+//         --idle minutes without a request (20 by default; an open page asks every minute), or on GET /stop (the
+//         panel's Stop button). It listens on 127.0.0.1 only, so no other machine reaches it. It never writes in the project.
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -23,7 +24,7 @@ const root = findRoot(opt.root ? path.resolve(opt.root) : process.cwd());
 const here = path.dirname(fileURLToPath(import.meta.url));
 const hash = [...root.toLowerCase()].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const port = Number(opt.port) || 4500 + (hash % 400);
-const idleMs = (Number(opt.idle) || 120) * 60e3;
+const idleMs = (Number(opt.idle) || 20) * 60e3;
 const page = path.join(here, "dashboard.html");
 
 const run = (script, argv) => new Promise((resolve) => {
@@ -89,6 +90,8 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url.pathname === "/") return send(200, "text/html; charset=utf-8", fs.readFileSync(page));
     if (url.pathname === "/health") return send(200, "application/json", JSON.stringify({ stareso: true, root }));
+    // the panel's Stop button: the port is freed at once
+    if (url.pathname === "/stop") { send(200, "text/plain", "stopped"); setTimeout(() => process.exit(0), 50); return; }
     if (url.pathname === "/data") {
       await readSnap();
       readUsage(url.searchParams.has("force"));

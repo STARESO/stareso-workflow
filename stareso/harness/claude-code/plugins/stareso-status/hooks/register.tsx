@@ -82,18 +82,42 @@ async function usageFlags($: EngineInterface): Promise<string[]> {
   }
 }
 
-// The app's chats in the project folder or below it (its worktrees), working or idle, those idle for over a day left
-// out, from its own session list; none when the app does not give it. The session the panel draws in is not listed.
+// The app's chats in the project folder or below it (its worktrees), and the chats started from them wherever they run,
+// working or idle, those idle for over a day left out, from the app's own session list; none when the app does not
+// give it. The session the panel draws in is not listed: the app leaves it out of its own list.
 async function projectChats($: EngineInterface, root: string): Promise<PanelView['chats']> {
   const norm = (f: string) => f.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   try {
     const res = await $.mcp.call('ccd_session_mgmt', 'list_sessions', { limit: 40 })
     const block = res.content.find(c => c.type === 'text') as { text?: string } | undefined
-    const rows = JSON.parse(block?.text ?? '[]') as { title?: string; cwd?: string; isRunning?: boolean; lastActivityAt?: string }[]
+    const rows = JSON.parse(block?.text ?? '[]') as { sessionId?: string; startedBy?: string; title?: string; cwd?: string; isRunning?: boolean; lastActivityAt?: string }[]
     const r = norm(root)
     const since = Date.now() - CHATS_RECENT_MS
-    return (Array.isArray(rows) ? rows : [])
-      .filter(x => x.cwd && (norm(x.cwd) === r || norm(x.cwd).startsWith(`${r}/`)))
+    const list = Array.isArray(rows) ? rows : []
+    // a chat in the project's folder, or one started from such a chat (a side chat often runs elsewhere, ~/.claude say)
+    const inProject = (x: (typeof list)[number]) => !!x.cwd && (norm(x.cwd) === r || norm(x.cwd).startsWith(`${r}/`))
+    const ids = new Set(list.filter(inProject).flatMap(x => (x.sessionId ? [x.sessionId] : [])))
+    // the app leaves the panel's own chat out of the list, which breaks the chain through it: its own family (the chat
+    // that started it, the ones it started) joins whole when one of them works in the project
+    try {
+      const fam = await $.mcp.call('ccd_session_mgmt', 'list_sessions', { linked: true, limit: 40 })
+      const famText = (fam.content.find(c => c.type === 'text') as { text?: string } | undefined)?.text ?? '[]'
+      const family = JSON.parse(famText) as typeof list
+      if (Array.isArray(family) && family.some(inProject)) for (const x of family) if (x.sessionId) ids.add(x.sessionId)
+    } catch {
+      // no family list: the folder and the chains in the list above
+    }
+    for (let grew = true; grew;) {
+      grew = false
+      for (const x of list) {
+        if (x.sessionId && !ids.has(x.sessionId) && x.startedBy && ids.has(x.startedBy)) {
+          ids.add(x.sessionId)
+          grew = true
+        }
+      }
+    }
+    return list
+      .filter(x => inProject(x) || (!!x.sessionId && ids.has(x.sessionId)))
       .filter(x => x.isRunning || !x.lastActivityAt || Date.parse(x.lastActivityAt) >= since)
       .map(x => ({ title: x.title || 'untitled chat', at: x.lastActivityAt ? clock(Date.parse(x.lastActivityAt)) : '', working: !!x.isRunning }))
       // the working ones first; the list comes most recent first
@@ -242,9 +266,10 @@ function startTicking($: EngineInterface) {
   })
 }
 
-// The dashboard server, one per project folder: started by the mod when the panel opens, it lives as long as the mod
-// is loaded (or until its idle limit). A start on a project whose dashboard already runs (started by hand, or by
-// another session) only prints that one's address, and the address is kept.
+// The dashboard server, one per project folder, started only when the person asks (the Start button at the bottom of
+// the panel, or /stareso-panel dashboard). It listens on 127.0.0.1 only, and its port is freed by the Stop button, when
+// the mod unloads (a reload, the end of the session, Claude closing), or after 20 minutes with no page asking. A start
+// on a project whose dashboard already runs (another session's) only prints that one's address, which is kept.
 const dashboards = new Map<string, string>()
 
 async function ensureDashboard($: EngineInterface): Promise<string> {
@@ -270,7 +295,7 @@ async function ensureDashboard($: EngineInterface): Promise<string> {
         // it could not start: said where the address is asked
       }
       if (!found) resolve('')
-      // our server ended: the next opening starts it again
+      // our server ended (Stop, its idle limit): the next Start starts it again
       if (ours || !found) {
         dashboards.delete(root)
         await update($, panel, p => (p.dashboard ? { ...p, dashboard: '' } : p)).catch(() => undefined)
@@ -281,36 +306,27 @@ async function ensureDashboard($: EngineInterface): Promise<string> {
   return url
 }
 
-// The Dashboard button and /stareso-panel dashboard: the page in the app's side browser when the app lets a mod reach
-// it, else in the system's own browser (a link to a local address does nothing on a click in the desktop app)
+// The address to open by hand: a link to a local address does nothing on a click in the desktop app, and a mod
+// cannot reach the app's side browser.
 async function openDashboard($: EngineInterface): Promise<string> {
   const url = await ensureDashboard($)
-  if (!url) return 'the dashboard did not start (node ~/.claude/stareso/tools/dashboard.mjs --root <project> says why)'
-  try {
-    const res = await $.mcp.call('Claude_Browser', 'preview_start', { url })
-    if (!res.isError) return `dashboard open in the side browser: ${url}`
-  } catch {
-    // no side browser for a mod: the system's browser below
-  }
-  try {
-    const windows = (await $.env.get('OS')) === 'Windows_NT'
-    const mac = !windows && ((await $.env.get('HOME')) ?? '').startsWith('/Users/')
-    const argv = windows ? ['cmd', '/c', 'start', '', url] : [mac ? 'open' : 'xdg-open', url]
-    const run = await $.process.run(argv, { timeoutMs: 10_000 })
-    if (run.exitCode === 0) return `dashboard open in the browser: ${url}`
-  } catch {
-    // said below
-  }
-  return `dashboard running at ${url}: open it in a browser`
+  return url
+    ? `dashboard running: open ${url} in a browser (Stop at the bottom of the panel frees the port)`
+    : 'the dashboard did not start (node ~/.claude/stareso/tools/dashboard.mjs --root <project> says why)'
 }
 
-// Opens the panel (the command, or the stareso button in the prompt footer): the minute timer, a read, the view, and
-// the dashboard's server, so the Dashboard button opens the page at once.
+async function stopDashboard($: EngineInterface, url: string) {
+  for (const [root, u] of dashboards) if (u === url) dashboards.delete(root)
+  await update($, panel, p => ({ ...p, dashboard: '' }))
+  // the server answers /stop and exits, which frees its port
+  await $.process.run(['node', '-e', `fetch(${JSON.stringify(`${url}/stop`)}).catch(() => {})`], { timeoutMs: 10_000 }).catch(() => undefined)
+}
+
+// Opens the panel (the command, or the stareso button in the prompt footer): the minute timer, a read, the view
 async function openPanel($: EngineInterface, view?: PanelView['view']) {
   startTicking($)
   await refresh($)
   await show($, view ?? (await read($, panel)).view)
-  void ensureDashboard($).catch(() => undefined)
 }
 
 async function show($: EngineInterface, view: PanelView['view']) {
@@ -383,7 +399,6 @@ export const register: Register = on => {
         <Box flexDirection="row" gap={1} alignItems="center">
           <Text dimColor size="footnote">{p.updated ? `updated ${p.updated}` : 'reading…'}</Text>
           <Button key="refresh" onPress={() => void refresh($, true).catch(() => undefined)}>Refresh</Button>
-          <Button key="dashboard" onPress={() => void openDashboard($).then(t => $.ui.toast(t)).catch(() => undefined)}>Dashboard ↗</Button>
           <Button key="hide" role="dismiss" dimColor onPress={() => void $.ui.close({ id: PANE }).catch(() => undefined)}>Hide</Button>
         </Box>
         <Box flexDirection="row" gap={1}>
@@ -395,6 +410,7 @@ export const register: Register = on => {
         {/* a desktop's monospaced face runs wider than the pane's columns: the charts keep a margin so no row overflows */}
         {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.9), act)}
         {p.view === 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
+        {dashboardView(ui, p, $)}
       </Box>
     )
   })
@@ -454,6 +470,31 @@ function heading(ui: UI, name: string, head = '') {
     <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
       <Text bold>{name}</Text>
       {head !== '' && <Text dimColor>{head}</Text>}
+    </Box>
+  )
+}
+
+// The last element of the panel: Start, or the address to open by hand with Copy and Stop
+function dashboardView(ui: UI, p: PanelView, $: EngineInterface) {
+  const { Box, Text, Button } = ui
+  // the state keeps the address across reloads, the server does not outlive the mod: only a live one is shown
+  const url = p.dashboard !== '' && [...dashboards.values()].includes(p.dashboard) ? p.dashboard : ''
+  return (
+    <Box flexDirection="column">
+      {heading(ui, 'Dashboard', 'the charts and the graph in a browser')}
+      {url
+        ? (
+          <Box flexDirection="row" flexWrap="wrap" columnGap={1} alignItems="center">
+            <Text tabular>{url}</Text>
+            <Button key="dashboard-copy" dimColor onPress={press => void $.ui.copy({ text: url, surface: press.surface }).then(r => $.ui.toast(r.isCopied ? 'address copied' : 'copy the address by hand')).catch(() => undefined)}>Copy</Button>
+            <Button key="dashboard-stop" dimColor onPress={() => void stopDashboard($, url).catch(() => undefined)}>Stop</Button>
+          </Box>
+        )
+        : (
+          <Box flexDirection="row">
+            <Button key="dashboard-start" dimColor onPress={() => void openDashboard($).then(t => $.ui.toast(t)).catch(() => undefined)}>Start the dashboard</Button>
+          </Box>
+        )}
     </Box>
   )
 }
@@ -529,15 +570,15 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
       <Box flexShrink={0}><Text mono>{l.slices.filter(id => g.slices[id]).map(cell)}</Text></Box>
     </Box>
   )
-  // a milestone in the list, as a helper is: name (press for its card), title, ETA; a human or queue lane's own
-  // words ("9 for you · 12 questions") follow its title
+  // a milestone in the list, as a helper is: name (press for its card), title wrapped on as many lines as it needs,
+  // ETA; a human or queue lane's own words ("9 for you · 12 questions") follow its title
   const milestone = (l: PanelLane) => {
     const t = tail(l)
     const eta = t.startsWith('≈') || t === 'waits on you'
     return (
       <Box flexDirection="row">
         <Box width={indent} flexShrink={0}><Button key={`m:${l.id}`} plain onPress={pick(l.id)}>{l.id}</Button></Box>
-        <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end">{eta || !t ? l.title : `${l.title} · ${t}`}</Text></Box>
+        <Box flexGrow={1} flexShrink={1}><Text>{eta || !t ? l.title : `${l.title} · ${t}`}</Text></Box>
         {eta && <Box flexShrink={0} marginLeft={1}><Text tabular {...tailStyle(t)}>{t}</Text></Box>}
       </Box>
     )

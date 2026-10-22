@@ -157,8 +157,9 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean, se
   on('ui.open', () => { seen.opened += 1; return { value: { isPlaced: true } } })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   // the app's session list when a test gives one, else no app tools here
+  // (the panel's own family, `linked`, is empty here)
   on('mcp.call', (_, e) => (sessions && e.tool === 'list_sessions'
-    ? { value: { content: [{ type: 'text', text: JSON.stringify(sessions) }], isError: false } }
+    ? { value: { content: [{ type: 'text', text: JSON.stringify(e.args.linked ? [] : sessions) }], isError: false } }
     : { value: { content: [], isError: true } }))
   on('process.run', (_, e) => {
     const argv = (e as { argv: string[] }).argv
@@ -225,7 +226,10 @@ test('the progress view lists the chats of the project, working or idle', async 
   const recent = new Date(Date.now() - 3600_000).toISOString()
   const old = new Date(Date.now() - 3 * 24 * 3600_000).toISOString()
   engine(on, false, [
-    { title: 'Build all open milestones (fast)', cwd: '\\work\\demo\\', isRunning: true, lastActivityAt: recent },
+    { sessionId: 'a', title: 'Build all open milestones (fast)', cwd: '\\work\\demo\\', isRunning: true, lastActivityAt: recent },
+    // started from a project chat but running elsewhere: one of the project's chats all the same
+    { sessionId: 'b', startedBy: 'a', title: 'Side chat in the home folder', cwd: '/home/me/.claude', isRunning: false, lastActivityAt: recent },
+    { sessionId: 'c', title: 'Unrelated chat', cwd: '/home/me/.claude', isRunning: true },
     { title: 'Side question', cwd: '/work/demo/.claude/worktrees/x', isRunning: true },
     { title: 'Idle manager', cwd: '/work/demo', isRunning: false, lastActivityAt: recent },
     { title: 'Last week', cwd: '/work/demo', isRunning: false, lastActivityAt: old },
@@ -235,11 +239,14 @@ test('the progress view lists the chats of the project, working or idle', async 
   await $.command.run({ command: 'stareso-panel', args: 'brief' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /^Chats$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^2 working, 1 idle$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^2 working, 2 idle$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^Side chat in the home folder$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Build all open milestones \(fast\)$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Side question$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Idle manager$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /Last week|Other project/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /Last week|Other project|Unrelated chat/ })).toBeFalsy()
+  // the dashboard is the panel's last element, started only on request
+  expect(await ui.find({ type: 'Button', key: 'dashboard-start' })).toBeTruthy()
   await ui.unmount()
 })
 
