@@ -39,7 +39,7 @@ The steps write `<stareso>` for the `stareso/` folder and `<stareso-repo>` for t
 | `stareso-build` | `/stareso-build M1 [eco\|fast]` (typed) | **standard · new, no worktree · auto** | Conductor: one fresh helper per slice, `check`, `slice-done`; checker helper and tidy slice per milestone |
 | `stareso-test` | `/stareso-test` / "test time" | standard · new · normal | Checklist of what is new, feedback logged, segmented into fix slices at "end test" |
 | `stareso-improve` | `/stareso-improve` / "I have a new idea" | strong · new · normal | One idea: discussion + grilling → PLAN → new milestone file, coherence check |
-| `stareso-status` | "where are we?" / `/stareso-status` | any | Phase, progress, debt, what waits for you, the next step with its tier and session |
+| `stareso-status` | "where are we?" / `/stareso-status` | any | Phase, progress, debt, what waits for you, the next step with its tier and session, the build mode, the helpers running, the pace, and a graph of the build |
 | `stareso-deploy` | `/stareso-deploy` (typed) | strong · new · normal | Pre-flight, prepared files, `DEPLOY.md`, the pack's provider or delivery steps one at a time |
 | `stareso-retrofit` | `/stareso-retrofit [pack]` (typed) | strong · new · normal | Existing project → standard docs, Commands, PLAN from the code, the guard canary, a retrofit milestone of behaviour-preserving slices |
 | `stareso-retro` | `/stareso-retro [quick|deep]` | quick: standard · test session · normal; deep: strong · new | Measured review from the generated records: fixed metrics, comparison with the previous retro, the harness's proposed capabilities, at most three workflow changes, entry in `docs/USAGE.md` |
@@ -102,10 +102,22 @@ Rule of thumb: a step that touches a decision runs the coherence pair (`roadmap-
 | `docs-check.mjs` | coherence of the records (ticked slice without log line, stale 🛠, broken `after:`, missing `Pack:`, docs not listed, version mismatch, old files) |
 | `roadmap-overview.mjs` | regenerates the overview (milestones with their Kind, then the open slices) of `ROADMAP.md` |
 | `roadmap-split.mjs` | one-off: splits an old single-file roadmap into the folder layout |
+| `progress-graph.mjs [--write] [--text]` | the graph of the build advancement and its data, from the records and `git worktree list` only (see "The progress graph" below); writes only outside the project |
 | `session-stats.mjs --log` | the usage reader (Claude Code transcripts): from inside a project, regenerates `docs/USAGE.md` (tokens by kind and by model, never as money; every session of the project and its worktrees, kind, active hours, models, turns, user messages, compactions, context per turn, output and cache tokens, helpers; retro sessions apart; forks counted once; glossary, totals, highlights line, cost per slice from the `Merge slice` commits, turns-per-model table). Build and test run it at the end |
 | `session-stats.mjs <out> <transcripts…>` | deep retro: per-transcript header and the user-message timeline |
 | `harness-build.mjs [--check]` | generates the Claude Code skills and agents from `skills/`, `roles/` and `harness/claude-code/`, printing each file's length before and after; `--check` exits 1 on drift |
 | `workflow-changed.mjs` | Claude Code hook, not run by hand: tells a running session that the workflow repository changed (commits, changed steps, packs, helper definitions, stale generated files) so it re-reads the step it is running. Install once per machine from `harness/claude-code/extras/settings.hooks.json`. Silent while nothing changed. |
+
+## The progress graph
+
+`/stareso-status` calls `progress-graph.mjs`, which reads `docs/roadmap/*.md`, `docs/ROADMAP.md`, `docs/QUESTIONS.md`, `docs/BUILD-LOG.md`, `docs/PLAN.md` (the pack) and `git worktree list`, and never the code. It works for every pack. Without a flag it prints one compact JSON, and `--text` prints one line per lane. `--write [dir]` also writes `progress.svg` (standalone, light and dark), `progress-widget.svg` (the host's color classes, for a chat widget) and `progress.html` (a page that wraps the SVG), in the system temp folder by default and never inside the project.
+
+- **Lanes.** One lane per milestone with open slices, each slice a small node labelled with its short id (`11.2`, `tidy`) and colored teal (done), amber (a helper is running on it) or gray (waiting), with a dashed outline when the slice is for the user. A thin line joins a slice to the next one when that one's `after:` names it. Lettered milestones (`H`, `P`, `Q`) are one block each, never slice by slice. Finished milestones collapse into one banner (`M1 to M5, M8, M9, M10 · every slice done`), and `--max-lanes` (default 8) caps the lanes, the rest being named in a line.
+- **Running.** A helper is a worktree (or the project folder) on a branch `slice/<id>-…` whose slice is still open. The newest `Merge slice` commits come back as `recentMerges`.
+- **Mode.** The indicator beside the banner shows the profile of the newest logged merge (`eco`, `fast`, `night` or `day`) and the number of helpers running now. `mode.available` lists the profiles the project's pack allows, because they vary by pack (`night` and `day` come with `godot-game`).
+- **Ready, human, questions.** `ready` holds the open slices of numbered milestones whose `after:` slices are done, that no helper runs and no open question blocks (a tidy slice waits for the rest of its milestone). `humanSlices` are the open `[human]` slices, and `questions` counts the open ones and lists those that block a slice.
+- **Pace.** The median of the gaps between consecutive merges of BUILD-LOG (gaps over 90 minutes, such as a night, are left out), times the open slices of numbered milestones, gives the hours left. `chainFloorHours` is the longest chain of open slices times the same median, because a chain cannot be parallelised.
+- **Showing it.** The status skill draws the graph with the host's widget when there is one, as a page otherwise, and prints the `text` lines as the last resort (■ done, ▶ running, □ waiting). The graph is an addition to the short status answer.
 
 ## Packs
 
