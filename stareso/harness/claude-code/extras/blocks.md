@@ -42,9 +42,9 @@ Claude Code reads the plan limits through the session tool `get_usage`, one fast
 Call `get_usage` first: each plan window gives `percentUsed` and `resetsAt`.
 ```
 
-## status-graph
-Claude Code draws the graph with the visualize tool, and falls back to an Artifact page.
+## status-panel
+Claude Code shows the status in the stareso-status panel plugin (button and `/stareso-panel`), so status points to it instead of drawing a graph.
 
 ```text
-run the tool again with `--widget` (same flags) and pass its output as it is to `mcp__visualize__show_widget` (`widget_code`, title `build_progress`, no text of its own inside, `mcp__visualize__read_me` loaded once per session first). Without the visualize tool, run it with `--write` and publish `files.html` with the Artifact tool, then give its link.
+name the `◧ stareso` button (right of the prompt footer) and `/stareso-panel`, which open the stareso panel beside the chat, and `/stareso-panel dashboard` for the charts in a browser (it gives the address). Never draw the graph here. If the panel is not installed: `claude plugin install stareso-status@stareso`.
 ```
