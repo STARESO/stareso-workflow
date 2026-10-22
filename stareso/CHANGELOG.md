@@ -96,3 +96,4 @@ One line per change to the skills, the guide or the templates: date, what change
 - 2026-10-22: panel 0.6.10. The values of every usage chart and of the plan windows sit in a box pushed to the right edge, so they line up down the whole tab. Why: a bar ending on an eighth-block glyph, which the desktop font draws at its own width, shifted the value after it.
 - 2026-10-22: panel 0.6.11. The Progress tile reads "Slices running" instead of "Helpers running". Why: it counts slices, beside "Slices done".
 - 2026-10-22: panel 0.6.12. In chart 7 an early slice is blue instead of teal. Why: teal and the on-time green looked alike on the desktop.
+- 2026-10-22: panel 0.6.13. The Progress tab opens on one row of tiles: all done (the day in the label, a date as yyyy-mm-dd), mode, slices done, slices running, per slice, waits on you, in place of the heading and the mode line. Why: the main numbers read better side by side as cards.

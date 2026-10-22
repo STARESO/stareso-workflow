@@ -564,10 +564,6 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
 
   return (
     <Box flexDirection="column" gap={1}>
-      <Box flexDirection="column">
-        <Text size="heading" weight="semibold">{g.allDone ? `All done ≈ ${g.allDone}` : 'Progress'}</Text>
-        <Text dimColor>{g.mode}</Text>
-      </Box>
       {statTiles(ui, progressTiles(g))}
 
       <Box flexDirection="column">
@@ -643,13 +639,23 @@ function statTiles(ui: UI, tiles: { label: string; value: string; color?: string
   )
 }
 
-// the Progress tab's tiles, from the graph alone: slices done, slices running, the time of one slice, what waits on
-// the person
+// the Progress tab's tiles, from the graph alone: when all is done, the build mode, slices done, slices running, the
+// time of one slice, what waits on the person
 function progressTiles(g: PanelGraph) {
   const all = Object.values(g.slices)
   const count = (state: SliceState) => all.filter(s => s.state === state).length
   const perSlice = /^(\d+) min per slice/.exec(g.pace ?? '')?.[1]
+  // "04:05 tomorrow" or "04:05 10/24" (the tool's clock): the day goes to the label, a date as yyyy-mm-dd, so the
+  // value stays a time
+  const day = /\s+(tomorrow|(\d+)\/(\d+))$/.exec(g.allDone ?? '')
+  const today = new Date()
+  const year = day?.[2] && Number(day[2]) < today.getMonth() + 1 ? today.getFullYear() + 1 : today.getFullYear()
+  const later = !day ? '' : day[1] === 'tomorrow' ? 'tomorrow' : `${year}-${day[2]!.padStart(2, '0')}-${day[3]!.padStart(2, '0')}`
+  const doneAt = (g.allDone ?? '').replace(/\s+(tomorrow|\d+\/\d+)$/, '')
   return [
+    ...(g.allDone ? [{ label: later ? `All done, ${later}` : 'All done', value: `≈ ${doneAt}` }] : []),
+    // "fast · 1 helper": the profile alone, the helpers have their tile
+    ...(g.mode ? [{ label: 'Mode', value: g.mode.split(' · ')[0] ?? g.mode }] : []),
     { label: 'Slices done', value: `${count('done')}/${all.length}`, color: STATE.done.color },
     { label: 'Slices running', value: String(count('running')), color: STATE.running.color },
     { label: 'Per slice', value: perSlice ? `${perSlice} min` : 'n/a' },
