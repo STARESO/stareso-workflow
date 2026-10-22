@@ -335,7 +335,7 @@ export const register: Register = on => {
     return { text: p.error ? `stareso panel: ${p.error}` : `stareso panel open on ${p.project}: /stareso-panel again hides it.` }
   })
 
-  // a stareso button among the mode labels at the right of the prompt footer: opens the panel, or hides it
+  // a stareso-status button, the app's own, among the mode labels at the right of the prompt footer: opens the panel, or hides it
   on('ui.render', { component: 'SessionMode' }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const modes = e.props.modes
@@ -343,7 +343,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="row" gap={1}>
         {modes.length > 0 && <Text dimColor>{modes.join(' & ')}</Text>}
-        <Button key="stareso-toggle" plain dimColor onPress={() => void toggle().catch(() => undefined)}>◧ stareso</Button>
+        <Button key="stareso-toggle" variant="secondary" onPress={() => void toggle().catch(() => undefined)}>◧ stareso-status</Button>
       </Box>
     )
   })

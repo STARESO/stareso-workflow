@@ -49,12 +49,12 @@ The tool already ran while this skill loaded, and its lines are just below. If t
 Claude Code shows the status in the stareso-status panel plugin (button and `/stareso-panel`), so status points to it instead of drawing a graph.
 
 ```text
-`↗ panel: ◧ stareso or /stareso-panel`, as plain text, nothing else on the line. Never draw the graph here.
+`↗ panel: ◧ stareso-status or /stareso-panel`, as plain text, nothing else on the line. Never draw the graph here.
 ```
 
 ## build-follow
 Claude Code shows a running build live in the stareso panel.
 
 ```text
-the stareso panel (`◧ stareso` button or `/stareso-panel`) shows the slices, helpers, times and usage caps live, at no token cost.
+the stareso panel (`◧ stareso-status` button or `/stareso-panel`) shows the slices, helpers, times and usage caps live, at no token cost.
 ```

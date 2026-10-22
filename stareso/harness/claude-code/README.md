@@ -22,7 +22,7 @@ A panel beside the chat that shows a project's status and refreshes it every min
 It runs `progress-graph.mjs --panel`, reads the app's 5-hour and weekly windows, and raises a toast when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage cap comes within 15 minutes.
 It is drawn with Claude Code's own elements, so the terminal draws it as well as the desktop app.
 
-**Open it** with the `◧ stareso` button at the right of the prompt footer, or `/stareso-panel`.
+**Open it** with the `◧ stareso-status` button at the right of the prompt footer, or `/stareso-panel`.
 `/stareso-panel <folder>` opens it on a project (remembered across sessions), and `/stareso-panel progress` or `usage` opens that view.
 
 ### ▶ Progress (narrow dock)
