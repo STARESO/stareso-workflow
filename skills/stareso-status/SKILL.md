@@ -38,7 +38,7 @@ A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: n
 ## 4. Answer: the tool's lines, then one line
 1. Print the tool's lines as they are, as plain lines (no code block, no bold, nothing added or reworded): the head (project, step, build mode, the number that matters), `⚠` a slice blocked by a question, then one line per usage window (5-hour, weekly) when a cap matters now, `□` what waits on you, `▶` the next step with its model, session and permission mode.
 2. When `▶` names `/stareso-build`, `/stareso-test` or `/stareso-improve` and this session can start sessions, end that line with "launch it in a new session?" (§5).
-3. Then the `↗` line: `↗ panel: ◧ stareso-status or /stareso-panel`, as plain text, nothing else on the line. Never draw the graph here.
+3. Then the `↗` line: `↗ panel: ◆ stareso-status or /stareso-panel`, as plain text, nothing else on the line. Never draw the graph here.
 4. Say nothing more. When the head says "(worktree)", add that a build must run in the main folder.
 
 Example (a build is running):
@@ -48,7 +48,7 @@ proj · build M11 7/13 · fast · ends ≈ 21:18
 ⚠ weekly 82 %: cap 95 % ≈ 03:57 tomorrow
 □ 9 human slices, 12 questions wait on you
 ▶ after M11: `/stareso-test` (sonnet, new session)
-↗ panel: ◧ stareso-status or /stareso-panel
+↗ panel: ◆ stareso-status or /stareso-panel
 ```
 
 ## 5. Launch from this session (manager)

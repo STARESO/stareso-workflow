@@ -44,7 +44,7 @@ proj · build M11 7/13 · fast · ends ≈ 21:18
 ⚠ weekly 82 %: cap 95 % ≈ 03:57 tomorrow
 □ 9 human slices, 12 questions wait on you
 ▶ after M11: `/stareso-test` (sonnet, new session)
-↗ panel: ◧ stareso-status or /stareso-panel
+↗ panel: ◆ stareso-status or /stareso-panel
 ```
 
 ## 5. Launch from this session (manager)

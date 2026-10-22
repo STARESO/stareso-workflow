@@ -70,7 +70,7 @@ proj · build M11 7/13 · fast · ends ≈ 21:18
 ⚠ weekly 82 %: cap 95 % ≈ 03:57 tomorrow
 □ 9 human slices, 12 questions wait on you
 ▶ after M11: /stareso-test (sonnet, new session)
-↗ panel: ◧ stareso-status or /stareso-panel
+↗ panel: ◆ stareso-status or /stareso-panel
 ```
 
 Everything else lives in the **stareso panel** beside the chat (Claude Code): milestones and their times, the slice grid with a card per slice, helpers, chats, pace, plan windows and seven usage charts. Details: [`harness/claude-code/README.md`](harness/claude-code/README.md).

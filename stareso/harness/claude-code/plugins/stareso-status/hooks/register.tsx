@@ -335,7 +335,7 @@ export const register: Register = on => {
     return { text: p.error ? `stareso panel: ${p.error}` : `stareso panel open on ${p.project}: /stareso-panel again hides it.` }
   })
 
-  // a stareso-status button, the app's own, among the mode labels at the right of the prompt footer: opens the panel, or hides it
+  // a stareso-status button, plain text at full strength, among the mode labels at the right of the prompt footer: opens the panel, or hides it
   on('ui.render', { component: 'SessionMode' }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const modes = e.props.modes
@@ -343,7 +343,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="row" gap={1}>
         {modes.length > 0 && <Text dimColor>{modes.join(' & ')}</Text>}
-        <Button key="stareso-toggle" variant="secondary" onPress={() => void toggle().catch(() => undefined)}>◧ stareso-status</Button>
+        <Button key="stareso-toggle" plain onPress={() => void toggle().catch(() => undefined)}>◆ stareso-status</Button>
       </Box>
     )
   })
@@ -647,7 +647,7 @@ function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: s
   const unblocks = Object.entries(g.slices).filter(([, x]) => x.after.includes(id)).map(([k]) => k)
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1} {...(preview ? { backgroundColor: 'inverseText', flexShrink: 1 } : {})}>
-      <Text bold>{`${id} · ${s.title}`}</Text>
+      <Text bold color={STATE[s.state].color}>{`${id} · ${s.title}`}</Text>
       <Text color={STATE[s.state].color}>{stateLine(g, id)}</Text>
       {s.branch && <Text dimColor>{`on ${s.branch}`}</Text>}
       <Text dimColor>{[s.ms, s.model, s.opus ? 'an Opus slice, the costly ones' : ''].filter(Boolean).join(' · ')}</Text>
