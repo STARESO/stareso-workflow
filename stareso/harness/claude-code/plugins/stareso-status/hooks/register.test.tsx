@@ -56,7 +56,9 @@ test('the panel draws the progress view from the tool, on every surface', async 
     expect(await ui.find({ type: 'Text', text: /demo/ })).toBeTruthy()
     // one Progress tab: the brief's context, the milestone's numbers by state with its ETA and its title, then the
     // running helper folded to one line (its mark in the running colour), its card a press away
-    expect(await ui.find({ type: 'Text', text: /^Phase: build$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^Build phase$/ })).toBeTruthy()
+    expect((await ui.find({ type: 'Text', text: /^demo$/ }))?.props.size).toBe('title')
+    expect(await ui.find({ type: 'Text', text: /^All done ≈ 19:00$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^≈ 19:00$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^First steps$/ })).toBeTruthy()
     expect((await ui.find({ type: 'Text', text: /^▶$/ }))?.props.color).toBe('warning')
@@ -202,6 +204,7 @@ test('the dashboard command starts the server and gives its address', async ($, 
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
   const ran = await $.command.run({ command: 'stareso-panel', args: 'dashboard' })
   expect(ran.text).toContain('http://127.0.0.1:4636')
+  // the link in the header needs the server alive, which a stand-in stream that ends with the command is not
 })
 
 test('the usage view draws the plan windows, the tiles and the six charts', async ($, on) => {

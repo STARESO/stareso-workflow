@@ -24,7 +24,7 @@ const USAGE_STALE_MS = 5 * 60_000
 const WIDE = 110
 const EMPTY: PanelView = {
   project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'graph', selected: '',
-  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [],
+  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [], dashboard: '',
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
 
@@ -38,7 +38,7 @@ type Snapshot = {
   perSliceMinutes: number | null
   usage: { five: UsageWindow; week: UsageWindow }
 }
-type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Markdown' | 'Code'>
+type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Markdown' | 'Code' | 'Link'>
 type Act = (fn: (p: PanelView) => PanelView) => () => void
 type Seg = { text: string; color?: string }
 
@@ -235,43 +235,55 @@ function startTicking($: EngineInterface) {
   })
 }
 
-// The dashboard server, one per project folder: started by the mod, it lives as long as the mod is loaded (or until its
-// idle limit), and a second start on the same project only prints the address of the running one.
+// The dashboard server, one per project folder: started by the mod when the panel opens, it lives as long as the mod
+// is loaded (or until its idle limit). A start on a project whose dashboard already runs (started by hand, or by
+// another session) only prints that one's address, and the address is kept.
 const dashboards = new Map<string, string>()
 
-async function openDashboard($: EngineInterface): Promise<string> {
+async function ensureDashboard($: EngineInterface): Promise<string> {
   const root = await projectRoot($)
-  let url = dashboards.get(root) ?? ''
-  if (!url) {
-    const tool = await toolPath($, 'dashboard.mjs')
-    url = await new Promise<string>(resolve => {
-      void (async () => {
-        let found = false
-        try {
-          for await (const piece of $.process.spawn({ argv: ['node', tool, '--root', root] })) {
-            const m = /http:\/\/127\.0\.0\.1:\d+/.exec(piece.text)
-            if (m && !found) {
-              found = true
-              dashboards.set(root, m[0])
-              resolve(m[0])
-            }
+  const known = dashboards.get(root)
+  if (known) return known
+  const tool = await toolPath($, 'dashboard.mjs')
+  const url = await new Promise<string>(resolve => {
+    void (async () => {
+      let found = false
+      let ours = false
+      try {
+        for await (const piece of $.process.spawn({ argv: ['node', tool, '--root', root] })) {
+          const m = /http:\/\/127\.0\.0\.1:\d+/.exec(piece.text)
+          if (m && !found) {
+            found = true
+            ours = !/already running/.test(piece.text)
+            dashboards.set(root, m[0])
+            resolve(m[0])
           }
-        } catch {
-          // it could not start: said below
         }
-        if (!found) resolve('')
-        // the child ended (or only pointed at a running one): the next opening asks again
+      } catch {
+        // it could not start: said where the address is asked
+      }
+      if (!found) resolve('')
+      // our server ended: the next opening starts it again
+      if (ours || !found) {
         dashboards.delete(root)
-      })()
-    })
-  }
+        await update($, panel, p => (p.dashboard ? { ...p, dashboard: '' } : p)).catch(() => undefined)
+      }
+    })()
+  })
+  if (url) await update($, panel, p => ({ ...p, dashboard: url }))
+  return url
+}
+
+// /stareso-panel dashboard: the address, and the page opened in the side browser when the app lets a mod do it
+async function openDashboard($: EngineInterface): Promise<string> {
+  const url = await ensureDashboard($)
   if (!url) return 'the dashboard did not start (node ~/.claude/stareso/tools/dashboard.mjs --root <project> says why)'
   try {
     const res = await $.mcp.call('Claude_Browser', 'preview_start', { url })
     if (res.isError) throw new Error('not opened')
     return `dashboard open in the side browser: ${url}`
   } catch {
-    return `dashboard running: open ${url} in the side browser`
+    return `dashboard running: ${url} (the Dashboard link in the panel opens it)`
   }
 }
 
@@ -303,12 +315,14 @@ export const register: Register = on => {
     }
     if (arg && !views[arg]) {
       await $.store.set('project', arg)
-      await update($, panel, p => ({ ...p, root: arg, selected: '', usage: null, usageMd: '', usageAt: 0, usageError: '' }))
+      await update($, panel, p => ({ ...p, root: arg, selected: '', usage: null, usageMd: '', usageAt: 0, usageError: '', dashboard: '' }))
       seen = null
     }
     startTicking($)
     await refresh($)
     await show($, views[arg] ?? (await read($, panel)).view)
+    // the dashboard's server starts with the panel, so its link in the header opens the page at once
+    void ensureDashboard($).catch(() => undefined)
     const p = await panelState($)
 
     return { text: p.error ? `stareso panel: ${p.error}` : `stareso panel open on ${p.project}: /stareso-panel again hides it.` }
@@ -316,10 +330,12 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
-    const { Box, Text, Button, Code } = ui
+    const { Box, Text, Button, Code, Link } = ui
     const p = await panelState($)
     const cols = Math.max(48, e.props.bodyColumns ?? 80)
     const act: Act = fn => () => void update($, panel, fn).catch(() => undefined)
+    // the state keeps the address across reloads, the server does not outlive the module: only a live one is linked
+    const dashboardUrl = p.dashboard !== '' && [...dashboards.values()].includes(p.dashboard) ? p.dashboard : ''
     // the Brief and Graph tabs are one Progress tab: an older 'text' view reads as it
     const tab = (view: PanelView['view'], label: string) => (
       <Button key={`view-${view}`} variant={(p.view === 'usage') === (view === 'usage') ? 'primary' : 'secondary'} onPress={() => void show($, view).catch(() => undefined)}>{label}</Button>
@@ -327,11 +343,17 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="row" gap={1}>
-          <Text bold>{p.project || 'stareso'}</Text>
-          <Text dimColor>{p.updated ? `updated ${p.updated}` : 'reading…'}</Text>
+        <Box flexDirection="column">
+          <Text size="title" weight="bold">{p.project || 'stareso'}</Text>
+          {p.brief !== '' && <Text dimColor size="footnote" wrap="truncate-end">{subtitle(p.brief, p.project)}</Text>}
+        </Box>
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Text dimColor size="footnote">{p.updated ? `updated ${p.updated}` : 'reading…'}</Text>
           <Button key="refresh" onPress={() => void refresh($, true).catch(() => undefined)}>Refresh</Button>
-          <Button key="dashboard" onPress={() => void openDashboard($).then(t => $.ui.toast(t)).catch(() => undefined)}>Dashboard</Button>
+          {/* a link the surface opens on a click, once the mod's own server answers; until then a button that starts it */}
+          {dashboardUrl
+            ? <Link href={dashboardUrl} label="Dashboard ↗" />
+            : <Button key="dashboard" onPress={() => void ensureDashboard($).then(u => $.ui.toast(u ? `dashboard ready: ${u}` : 'the dashboard did not start')).catch(() => undefined)}>Dashboard</Button>}
           <Button key="hide" role="dismiss" dimColor onPress={() => void $.ui.close({ id: PANE }).catch(() => undefined)}>Hide</Button>
         </Box>
         <Box flexDirection="row" gap={1}>
@@ -386,6 +408,14 @@ function sliceText(ui: UI, g: PanelGraph, text: string, style: { dimColor?: bool
       })}
     </Text>
   )
+}
+
+// the brief's head line under the project's name: "Build phase · godot-game · main, clean · 19 💭 ideas · 11 debt"
+function subtitle(brief: string, project: string): string {
+  return (brief.split('\n')[0] ?? '').split(' · ')
+    .filter((x, i) => i > 0 || x !== project)
+    .map(x => x.replace(/^Phase: (\w)(.*)$/, (_, a: string, b: string) => `${a.toUpperCase()}${b} phase`).replace(/^Pack: /, ''))
+    .join(' · ')
 }
 
 function heading(ui: UI, name: string, head = '') {
@@ -443,8 +473,6 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   // after the numbers: the milestone's ETA, or for a human or queue lane the brief's own words ("9 for you · …")
   const tail = (l: PanelLane) => (l.block ? (progress.find(x => x.startsWith(`${l.id} `))?.replace(/^\S+\s+\d+\/\d+\s+/, '') ?? '') : l.eta)
   const tailStyle = (t: string) => (t === 'waits on you' ? { color: STATE.you.color } : t.startsWith('≈') ? {} : { dimColor: true })
-  // the head line without the project's name, which the panel's own header gives
-  const header = (p.brief.split('\n')[0] ?? '').split(' · ').filter((x, i) => i > 0 || x !== p.project).join(' · ')
   const finished = progress.find(x => x.includes('every slice done'))?.replace(/\s*·\s*every slice done$/, '')
   const used = new Set(Object.values(g.slices).map(s => s.state))
 
@@ -495,11 +523,8 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   return (
     <Box flexDirection="column" gap={1}>
       <Box flexDirection="column">
-        <Text dimColor size="footnote">{header}</Text>
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          <Text>{g.mode}</Text>
-          {g.allDone && <Text bold>{`all done ≈ ${g.allDone}`}</Text>}
-        </Box>
+        <Text size="heading" weight="semibold">{g.allDone ? `All done ≈ ${g.allDone}` : 'Progress'}</Text>
+        <Text dimColor>{g.mode}</Text>
       </Box>
 
       <Box flexDirection="column">

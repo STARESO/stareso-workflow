@@ -82,6 +82,8 @@ export type PanelView = {
   allSessions: boolean;
   // the app's chats working in the project now (a manager, a build, a side chat), shown for information
   chats: { title: string; at: string }[];
+  // the address of the project's dashboard server the mod started, linked in the header while it runs
+  dashboard: string;
 };
 
 declare module 'claude-code' {
