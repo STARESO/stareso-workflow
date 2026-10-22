@@ -1,6 +1,6 @@
 ---
 name: stareso-retro
-description: Measured review of how the stareso workflow performed on this project - reads the generated records (USAGE, BUILD-LOG, QUESTIONS, FEEDBACK), computes a few fixed metrics, compares with the previous retro, proposes at most three workflow changes and applies the accepted ones. Quick mode after each test (standard tier); "deep" mode a few times per project (strong tier, timelines only, never transcripts).
+description: Measured review of how the stareso workflow performed on this project - reads the generated records (USAGE, BUILD-LOG, QUESTIONS, FEEDBACK), computes a few fixed metrics, compares with the previous retro, and ends with a summary and a usage analysis; it proposes (at most three) workflow changes only when the user wants changes. Quick mode after each test (standard tier); "deep" mode a few times per project (strong tier, timelines only, never transcripts).
 ---
 
 # stareso-retro
@@ -21,7 +21,8 @@ The metrics, their definitions, sources, tools, targets and reference values are
 ## 3. Reading (one paragraph, then one line per metric that moved)
 Name the **single biggest cost** of the period and its cause in the records (a session shape, a brief shape, a skipped step). Compare with the previous retro entry; say what improved after the last accepted change (that is how the workflow learns: one change, then its number).
 
-## 4. Proposals: at most three
+## 4. Proposals: at most three, only when changes are wanted
+By default the retro ends with the summary and the usage analysis (where the tokens went, per step and per slice, against the targets), and proposes nothing. Write the proposals only when the user asked for workflow changes in their request (or answers yes to a one-line offer after the summary); otherwise list the candidate changes in one line of the retro entry as "not proposed" so a later retro can pick them up.
 Each: the change (which skill, pack guide, template or tool), the metric it should move, how much. Prefer the change that removes turns from the conductor or a decision from the build. For each one the user accepts: edit the file, add a line to `<stareso>/CHANGELOG.md`, commit the workflow repository (`git -C <stareso-repo> add -A && git -C <stareso-repo> commit -m "…"`; push only with a "yes"). Refused ones are noted in the retro entry so they are not proposed again without new evidence.
 
 ## 5. Record
