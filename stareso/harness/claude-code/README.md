@@ -28,7 +28,7 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 ### ▶ Progress (narrow dock)
 
 - **Heading:** the all-done time and the build mode.
-- **Grid:** one row of slice numbers per milestone, each on a chip in the colour of its state (■ done green, ▶ running amber, could start teal, waits on you purple, □ waiting grey).
+- **Grid:** one row of slice numbers per milestone, each after a mark in the colour of its state (■ done green, ▶ running amber, could start teal, waits on you purple, □ waiting grey).
   - Hover a number for its one-line state.
   - **Press a number for the slice's card:** its state, branch and model, what it needs and what it unblocks. The other numbers go dim, except the ones linked to it.
   - Press a milestone's name for its card, which lists its slices.
@@ -39,7 +39,7 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 
 ### 📊 Usage (wide dock)
 
-- The plan windows with the stop caps, then four tiles and **seven charts** (how to read them: `metrics.md`, "The usage report").
+- Four tiles, the plan windows with the stop caps, then **seven charts** (how to read them: `metrics.md`, "The usage report").
 - Charts 2, 3, 6 and 7 fold to their latest rows. **Expand** shows every row with more in each, for example each step's type, conductor and helper cost on chart 6.
 - **Chart 7** compares each ETA with what the slice took, and gives the correction factor the ETAs learned.
 - Hovering a row gives its detail, dates are written yyyy-mm-dd, and the tables are one button away.

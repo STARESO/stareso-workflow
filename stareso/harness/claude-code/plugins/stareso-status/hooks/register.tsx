@@ -470,8 +470,8 @@ function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
 // One row of slice numbers per milestone, each number in the colour of its state, its title on a dim line under it;
 // hover a number for the slice's line, press it for the slice's card, press a milestone for its card (its slices, each
 // pressable). Then the running helpers folded to one line each (press one for its card), the chats of the project, the
-// pace and what waits for the person. Each number is a chip in its state's colour holding a plain Button, in a
-// wrapping row, so a press opens its card as a helper's does.
+// pace and what waits for the person. Each number is its state's coloured mark beside a plain Button, in a wrapping
+// row, so a press opens its card as a helper's does.
 
 function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const { Box, Text, Button } = ui
@@ -495,18 +495,19 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const finished = progress.find(x => x.includes('every slice done'))?.replace(/\s*·\s*every slice done$/, '')
   const used = new Set(Object.values(g.slices).map(s => s.state))
 
-  // each number is a chip: a plain Button (press for the slice's card, as a helper's) on a Box in the colour of its
-  // state, since a desktop draws a Button natively and drops the colour of a Text inside it. Once a slice is picked,
-  // the chips it is not linked to go dim
+  // each number is its state's coloured mark, then a plain Button (press for the slice's card, as a helper's): a
+  // desktop draws a Button natively and drops the colour of a Text inside it, so the colour sits beside it, as in the
+  // legend. Once a slice is picked, the numbers it is not linked to go dim
   const cell = (id: string) => {
     const s = g.slices[id]
     if (!s) return null
     const linked = !selSlice || id === sel || selSlice.after.includes(id) || s.after.includes(sel)
     const label = (id.split('.')[1] ?? id).replace(/^tidy(\d*)$/, 't$1')
     return (
-      <Box flexShrink={0} paddingX={1} backgroundColor={STATE[s.state].color}>
+      <Box flexDirection="row" flexShrink={0}>
+        <Text color={STATE[s.state].color} {...(id === sel ? { inverse: true } : {})}>{STATE[s.state].mark}</Text>
         <Button key={`c:${id}`} plain onPress={pick(id)} hover={{ scope: `g:${id}`, inverse: true }}
-          {...(linked ? {} : { dimColor: true })}>{id === sel ? <Text bold underline>{label}</Text> : label}</Button>
+          {...(linked ? {} : { dimColor: true })}>{label}</Button>
       </Box>
     )
   }
@@ -718,22 +719,24 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
   const pair = (...parts: (RenderElement | null | false)[]) => <Box flexDirection="column" gap={1}>{parts}</Box>
   return (
     <Box flexDirection="column" gap={2}>
-      {windowsView(ui, p.windows, Math.max(12, room - L - 7), L)}
       {p.usageError !== '' && <Text color="error">{p.usageError}</Text>}
       {!c && p.usageError === '' && <Text dimColor>reading the usage report… (a few seconds)</Text>}
       {c && (
-        <Box flexDirection="column" gap={2}>
-          <Box flexDirection="column" gap={1}>
-            <Box flexDirection="row" flexWrap="wrap" gap={1}>
-              {c.tiles.map(t => (
-                <Box flexDirection="column" borderStyle="round" paddingX={1}>
-                  <Text dimColor size="footnote">{t.label}</Text>
-                  <Text bold size="heading" tabular>{t.value}</Text>
-                </Box>
-              ))}
-            </Box>
-            <Text dimColor size="footnote">{`read ${clock(p.usageAt)}, live from the transcripts · ${c.unit}`}</Text>
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" flexWrap="wrap" gap={1}>
+            {c.tiles.map(t => (
+              <Box flexDirection="column" borderStyle="round" paddingX={1}>
+                <Text dimColor size="footnote">{t.label}</Text>
+                <Text bold size="heading" tabular>{t.value}</Text>
+              </Box>
+            ))}
           </Box>
+          <Text dimColor size="footnote">{`read ${clock(p.usageAt)}, live from the transcripts · ${c.unit}`}</Text>
+        </Box>
+      )}
+      {windowsView(ui, p.windows, Math.max(12, room - L - 7), L)}
+      {c && (
+        <Box flexDirection="column" gap={2}>
           {chart(ui, '1. Share of the workflow cost by step type', 'Where the tokens go: build should lead; a large chat bar is work done outside the steps.',
             c.shareByType.map((t, i) => ({
               scope: `u1:${i}`, label: t.type, segs: [{ v: t.share, color: KIND[t.type] ?? 'inactive' }],
