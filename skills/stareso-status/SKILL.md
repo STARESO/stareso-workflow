@@ -1,26 +1,29 @@
 ---
 name: stareso-status
 description: Where is this stareso project in its workflow and what to do next (which skill, which model, new or same session, which permission mode, the exact command), in a few short lines, with the pointer to the stareso panel. Use when the user asks for the status, is coming back to the project, or asks what to do next.
+allowed-tools: Bash(node ~/.claude/stareso/tools/progress-graph.mjs:*)
 ---
 
 # stareso-status
 
-**Session:** any model, any session. Status is the most used step, so it stays tiny: one tool call, a few reads, three to five lines of answer. It never prints the progress brief, because the panel shows it. Talk in English unless the user switches to French.
+**Session:** any model, any session. Status is the most used step, so it costs one turn: the tool computes the answer, the model only passes it on. It never prints the progress brief, because the panel shows it. Talk in English unless the user switches to French.
 
-## 1. Read (the few important facts only)
-Argument: none. An old `graph` or `dashboard` argument only means that the `↗` line of §4 names the dashboard.
-1. Call `get_usage` first: each plan window gives `percentUsed` and `resetsAt`.
-2. `node ~/.claude/stareso/tools/progress-graph.mjs --brief`, with `--five <pct>@<reset>` and `--week <pct>@<reset>` from step 1 when there are readings, and `--caps <start>/<pause>/<weekly>` only when the user gave stop caps in this conversation. It reads records and git only, in well under a second, and gives facts to read, not to print: the head line (project, Phase, Pack, branch and tree, 💭 ideas, debt), the milestone lines, the helpers running, the usage and caps, the pace, what waits for you, what could start now.
-3. Only when the rule table needs it: the newest block of `docs/FEEDBACK.md` (points without "→ slice") and the Tested column of the overview in `docs/ROADMAP.md`. Say if the folder is a worktree. Never read the code, the milestone briefs or the cost reports.
+## 1. The status lines
+Argument: none, or a project folder (then add `--root <folder>`). An old `graph` or `dashboard` argument only means that the `↗` line names the dashboard.
+The tool already ran while this skill loaded, and its lines are just below. If the line below still shows the command itself (a session that re-read the skill), run that command once. If the session works in another folder, run it again with `--root <folder>`.
 
-## 2. Work out the current step and the next one (first rule that matches)
+!`node ~/.claude/stareso/tools/progress-graph.mjs --status --models opus/sonnet/haiku`
+
+The tool reads PLAN, the roadmap, QUESTIONS, the newest FEEDBACK block, the build records, git and the newest stored usage readings (the panel stores them while it is open), in about half a second, applies the table of §2 and prints the answer. Read nothing else, and never the code, the briefs or the cost reports, unless the user asks a question the lines do not answer.
+
+## 2. The rule table (the tool applies it, first rule that matches)
 | Situation (from the facts) | Current step | Next step |
 |---|---|---|
 | no `docs/PLAN.md` | not a stareso project | `/stareso-init` (empty folder) or `/stareso-retrofit` (existing project): Opus, new session |
 | `Phase: discussion` | discussing | `/stareso-discuss` (Opus); say "let's grill" when ready |
 | `Phase: grilling` | grilling, PLAN partly filled | continue `/stareso-grill` (Opus); the walkthrough ends it |
 | `Phase: setup` and no `docs/roadmap/` | plan done, no roadmap | `/stareso-setup` (Opus) |
-| helpers or a build session run on the project | building | nothing to launch (one writer per folder): wait, or follow it in the panel |
+| helpers run on the project (slice branches) | building | nothing to launch (one writer per folder): wait, or follow it in the panel |
 | `Phase: build`, a milestone with open slices and no `[human]` / blocking question on all of them | building M<n> | `/stareso-build M<n>` (Sonnet, new session, no worktree, auto, eco) |
 | a milestone fully done but its test marker is older than its last slice | built, untested | `/stareso-test` (Sonnet, new session) |
 | FEEDBACK has a block whose points are not yet "→ slice …" | test not segmented | reopen the test session: "end test" (or `/stareso-test` and segment) |
@@ -32,20 +35,18 @@ Argument: none. An old `graph` or `dashboard` argument only means that the `↗`
 ## 3. Retro
 A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: never suggest it from status.
 
-## 4. Answer: 3 to 5 short lines, nothing more
-Plain lines, each under about 60 characters so none wraps, a symbol first: ▶ next, ⚠ blocker, □ waits on you, ↗ panel. No code block, table, heading, bold, `·` chains of facts (the head line excepted), ids lists or counts the panel already shows (ideas, debt, done milestones, helpers, pace, rates). Everything else is in the panel, so leave it out.
-1. **Head**: project, the step, the current mode, the one number that matters. For a build: milestone done/total, the profile in use (`eco`, `fast`, `night` or `day`, from the brief's Helpers line or the newest merge) and the end time.
-2. **`⚠`**, only when it changes what to do now: a blocker, or the usage cap the run reaches first (window, percent, time). One line at most.
-3. **`□`**, only when something waits on the user: the counts alone.
-4. **`▶`**: the command to type, then in brackets the model and new or same session, plus the permission mode only when it is not the default (auto for a build) and, for a build, the profile chosen (eco unless speed matters). The only code span of the answer. When this session can launch it, the launch question of §5 instead.
-5. **`↗`**: `↗ panel: ◧ stareso or /stareso-panel`, as plain text, nothing else on the line (the dashboard only when the user asked for charts or a browser: `/stareso-panel dashboard`). Never draw the graph here.
+## 4. Answer: the tool's lines, then one line
+1. Print the tool's lines as they are, as plain lines (no code block, no bold, nothing added or reworded): the head (project, step, build mode, the number that matters), `⚠` one blocker or cap when there is one, `□` what waits on you, `▶` the next step with its model, session and permission mode.
+2. When `▶` names `/stareso-build`, `/stareso-test` or `/stareso-improve` and this session can start sessions, end that line with "launch it in a new session?" (§5).
+3. Then the `↗` line: `↗ panel: ◧ stareso or /stareso-panel`, as plain text, nothing else on the line (the dashboard only when the user asked for charts or a browser: `/stareso-panel dashboard`). Never draw the graph here.
+4. Say nothing more. When the head says "(worktree)", add that a build must run in the main folder.
 
 Example (a build is running):
 ```
 proj · build M11 7/13 · fast · ends ≈ 21:18
 ⚠ weekly cap 95 % ≈ 03:13
 □ 9 human slices, 12 questions wait on you
-▶ after M11: `/stareso-test` (Sonnet, new session)
+▶ after M11: `/stareso-test` (sonnet, new session)
 ↗ panel: ◧ stareso or /stareso-panel
 ```
 

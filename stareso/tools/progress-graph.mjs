@@ -14,6 +14,8 @@
 //         --caps <start>/<pause>/<weekly>   stop caps in percent, when the build records hold no caps event
 //         --panel            for the stareso-status panel: the brief, every lane and slice (state, deps, ETA, helper),
 //                            and the alert data, as one JSON line (pass --max-lanes 99 for every open lane)
+//         --status           the answer of /stareso-status: 3 to 5 short lines, the rule table applied, the next step
+//                            (`--models opus/sonnet/haiku` names the tiers; nothing written but the plan readings)
 //         `lines` holds the one-line status items ready to print: running, usage, pace, waits, ready.
 import fs from "node:fs";
 import os from "node:os";
@@ -24,6 +26,36 @@ import { args, findRoot, milestones, stamp } from "./lib/roadmap.mjs";
 import { appendJsonl, migrated, planWindowsFile, readBuilds, readJsonlTail } from "./lib/records.mjs";
 
 const opt = args(process.argv.slice(2));
+
+// ---------- --status: the answer of /stareso-status, a few lines with the step that comes next ----------
+// The tiers come as names from the harness (`--models opus/sonnet/haiku`, strong/standard/light), else as tier words.
+const tierName = (() => { const [strong, standard, light] = String(opt.models || "").split("/"); return { strong: strong || "strong tier", standard: standard || "standard tier", light: light || "light tier" }; })();
+const next = (cmd, tier, ...more) => `\`${cmd}\` (${[tierName[tier], ...more].join(", ")})`;
+// Before a roadmap exists (no project, discussion, grilling, setup), PLAN.md alone gives the answer.
+if (opt.status) {
+  const start = opt.root ? path.resolve(opt.root) : process.cwd();
+  let dir = start, plan = null;
+  for (;;) {
+    if (fs.existsSync(path.join(dir, "docs", "ROADMAP.md"))) break;
+    if (fs.existsSync(path.join(dir, "docs", "PLAN.md"))) { plan = dir; break; }
+    const up = path.dirname(dir);
+    if (up === dir) { dir = null; break; }
+    dir = up;
+  }
+  if (!dir) {
+    const empty = fs.readdirSync(start).filter((f) => !f.startsWith(".")).length === 0;
+    console.log(`${path.basename(start)} · not a stareso project\n▶ ${next(empty ? "/stareso-init <name>" : "/stareso-retrofit", "strong", "new session")}`);
+    process.exit(0);
+  }
+  if (plan) {
+    const phase = (/^Phase: (\S+)/m.exec(fs.readFileSync(path.join(plan, "docs", "PLAN.md"), "utf8")) || [])[1] || "?";
+    const step = { discussion: ["discussing", `${next("/stareso-discuss", "strong")}, then "let's grill"`], grilling: ["grilling", `go on with ${next("/stareso-grill", "strong")}`] }[phase]
+      || ["plan done, no roadmap", next("/stareso-setup", "strong", "new session")];
+    console.log(`${path.basename(plan)} · ${step[0]}\n▶ ${step[1]}`);
+    process.exit(0);
+  }
+}
+
 const root = opt.root ? findRoot(path.resolve(opt.root)) : findRoot();
 const maxLanes = Number(opt["max-lanes"]) || 8;
 
@@ -257,7 +289,7 @@ function windowOf(k, span, capList) {
   const reach = capList.filter(([, c]) => c).map(([name, c]) => {
     if (last.pct >= c) return { name, cap: c, at: "reached" };
     const t = rate > 0 ? now + (c - last.pct) / rate * 3600e3 : Infinity;
-    return { name, cap: c, at: t < last.reset ? clock(t) : null };
+    return { name, cap: c, at: t < last.reset ? clock(t) : null, t };
   });
   return { pct: last.pct, resets: clock(last.reset), ratePerHour: rate == null ? null : +rate.toFixed(1), basis, reach };
 }
@@ -470,6 +502,75 @@ function brief() {
   return out.join("\n");
 }
 if (opt.brief) { console.log(brief()); process.exit(0); }
+
+// The rule table of the status step (stareso-status §2), first match wins, then 3 to 5 short lines: the head (project,
+// step, mode, the number that matters), ⚠ one blocker or cap, □ what waits on the user, ▶ the next step. Everything
+// else is left to the panel.
+function status() {
+  const gitDir = git("rev-parse", "--git-dir").trim(), common = git("rev-parse", "--git-common-dir").trim();
+  const name = path.basename(root) + (gitDir && common && path.resolve(root, gitDir) !== path.resolve(root, common) ? " (worktree)" : "");
+  const numbered = all.filter((l) => /^M\d+$/.test(l.id));
+  const waitsOnYou = (s) => s.human || blockedByQuestion.has(s.id) || /waits on \/stareso/.test(s.rest);
+  // the newest FEEDBACK block (newest first) with points not yet segmented ("→ slice …", "→ IDEAS", …)
+  const newest = (read("docs/FEEDBACK.md").split(/\n(?=## )/).find((b) => /^## /.test(b)) || "");
+  const unsegmented = newest.split("\n").filter((l) => /^- \[/.test(l) && !/→/.test(l)).length;
+  // the newest numbered milestone with every slice done, untested when its last test marker misses its last slice
+  const doneMs = ms.filter((m) => /^M\d+$/.test(m.id) && m.slices.every((s) => s.done)).sort((a, b) => numOf(a.id) - numOf(b.id)).at(-1);
+  const untested = doneMs && !(doneMs.tested && doneMs.tested.includes(doneMs.slices.at(-1).id)) ? doneMs : null;
+  const decision = openNumbered.some((s) => /waits on \/stareso-improve/.test(s.rest)) || /\(open:/.test(plan)
+    || (blocking.length && openNumbered.filter((s) => !s.human).every((s) => blockedByQuestion.has(s.id)));
+  const fmt = (l) => `${l.id} ${l.done}/${l.total}`;
+  const test = next("/stareso-test", "standard", "new session");
+
+  let head, go, youLine = true;
+  if (runningNow.length) {
+    const lane = numbered.find((l) => l.running) || open.find((l) => l.running);
+    const end = eta.byMilestone[lane.id]?.at;
+    head = `build ${fmt(lane)} · ${mode.last || (runningNow.length > 1 ? "fast" : "eco")}${end ? ` · ends ≈ ${end}` : ""}`;
+    go = `after ${lane.id}: ${test}`;
+  } else if (/^build$/.test(phase) && ready.length) {
+    const m = byId.get(ready[0]).ms, lane = all.find((l) => l.id === m);
+    head = `build ${fmt(lane)} · idle${mode.last ? ` (last run ${mode.last})` : ""}`;
+    go = next(`/stareso-build ${m} eco`, "standard", "new session", "auto");
+  } else if (untested) {
+    head = `${untested.id} built, untested`;
+    go = test;
+  } else if (unsegmented) {
+    head = `test not segmented (${unsegmented} points)`;
+    go = `"end test" in the test session, or ${next("/stareso-test", "standard")}`;
+  } else if (decision) {
+    head = "a decision is missing";
+    go = next("/stareso-improve", "strong", "new session");
+  } else if (openNumbered.length && openNumbered.every(waitsOnYou)) {
+    head = "waiting for you";
+    go = `your steps ${humanSlices.slice(0, 4).join(", ")}${humanSlices.length > 4 ? " …" : ""}, then \`/stareso-build\``;
+    youLine = false;
+  } else if (/^build$/.test(phase) && !openNumbered.length) {
+    head = "ready to publish or deliver";
+    go = next("/stareso-deploy", "strong", "new session");
+  } else {
+    head = `${phase}, in use`;
+    go = `new ideas: ${next("/stareso-improve", "strong", "new session")}`;
+  }
+  const out = [`${name} · ${head}`];
+
+  // ⚠ one line at most: a cap reached, a question that blocks slices, then the cap the run reaches first
+  const reach = [["5-hour", usage.five], ["weekly", usage.week]].flatMap(([w, u]) => (u ? u.reach.map((r) => ({ ...r, w, u })) : []));
+  const hit = reach.find((r) => r.at === "reached");
+  const soon = reach.filter((r) => r.at && r.at !== "reached").sort((a, b) => a.t - b.t)[0];
+  const full = [["5-hour", usage.five], ["weekly", usage.week]].find(([, u]) => u && u.pct >= 90);
+  const blockedNumbered = openNumbered.filter((s) => blockedByQuestion.has(s.id)).map((s) => s.id);
+  if (hit) out.push(`⚠ ${hit.w} ${hit.u.pct} %: ${hit.name} cap ${hit.cap} % reached`);
+  else if (blockedNumbered.length) out.push(`⚠ ${blockedNumbered.length} slice${blockedNumbered.length > 1 ? "s wait" : " waits"} on a question: ${blockedNumbered.slice(0, 3).join(", ")}${blockedNumbered.length > 3 ? " …" : ""}`);
+  else if (soon && (runningNow.length || ready.length)) out.push(`⚠ ${soon.name === "weekly" ? "weekly" : soon.w} cap ${soon.cap} % ≈ ${soon.at}`);
+  else if (full) out.push(`⚠ ${full[0]} ${full[1].pct} %, resets ${full[1].resets}`);
+
+  const you = [humanSlices.length && `${humanSlices.length} human slice${humanSlices.length > 1 ? "s" : ""}`, questions.length && `${questions.length} question${questions.length > 1 ? "s" : ""}`].filter(Boolean);
+  if (youLine && you.length) out.push(`□ ${you.join(", ")} wait${you.length > 1 || humanSlices.length > 1 || questions.length > 1 ? "" : "s"} on you`);
+  out.push(`▶ ${go}`);
+  return out.join("\n");
+}
+if (opt.status) { console.log(status()); process.exit(0); }
 // for the live status panel: the brief, every milestone and slice for its own drawing of the graph, and what the panel's
 // alerts compare between refreshes. A slice is done, running, ready (could start now), you (waits on the user: a [human]
 // slice, a blocking question, a lettered milestone) or waiting (on a chain or a helper).

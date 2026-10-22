@@ -20,7 +20,9 @@
     "argument-hint: \"[app-next | analysis-r | godot-game]\""
   ],
   "stareso-setup": [],
-  "stareso-status": [],
+  "stareso-status": [
+    "allowed-tools: Bash(node ~/.claude/stareso/tools/progress-graph.mjs:*)"
+  ],
   "stareso-test": [],
   "stareso-usage": [
     "argument-hint: \"[--all]\""
