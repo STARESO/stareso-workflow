@@ -39,8 +39,8 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 ### 📊 Usage (wide dock)
 
 - Four tiles, the plan windows with the stop caps (│ marks 100 %), then **seven charts** (how to read them: `metrics.md`, "The usage report").
-- Charts 2, 3, 6 and 7 fold to their latest rows. **Expand** shows every row with more in each, for example each step's type, conductor and helper cost on chart 6.
-- Under chart 1, two small charts: **1b** the gates inside the builds (passed and failed runs per gate, with the checking cost and the flakes in its caption) and **1c** the plan interventions per milestone (slices built as planned and off plan, with their cost and the manager messages that steered the plan). Definitions: `metrics.md`.
+- Charts 2, 3, 6, 7 and 9 fold to their latest rows. **Expand** shows every row with more in each, for example each step's type, conductor and helper cost on chart 6.
+- At the bottom, after chart 7, two small charts: **8** the gates inside the builds (passed and failed runs per gate, with the checking cost and the flakes in its caption) and **9** the plan interventions per milestone (slices built as planned and off plan, with their cost and the manager messages that steered the plan). Definitions: `metrics.md`.
 - **Chart 7** is a dumbbell per merged slice (○ predicted, ● what it took, green on time, amber late, blue early), and its caption gives the correction factor the ETAs learned.
 - Hovering a row gives its detail, every value is right-aligned, dates are written yyyy-mm-dd, and the tables are one button away (computed with the charts, so opening them costs nothing).
 - The report is read live from the transcripts, nothing is written in the project, and it refreshes after five minutes or a merge.

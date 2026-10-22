@@ -241,11 +241,11 @@ test('the usage view draws the plan windows, the tiles and the seven charts', as
     expect(await ui.find({ type: 'Text', text: /Plan usage now/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^166\.6M$/ })).toBeTruthy()
     for (const n of [1, 2, 3, 4, 5, 6, 7]) expect(await ui.find({ type: 'Text', text: new RegExp(`^${n}\\. `) })).toBeTruthy()
-    // the two measures as charts under chart 1: the gates (passed, failed) and the plan interventions per milestone
-    expect(await ui.find({ type: 'Text', text: /^1b\. Gates inside the builds$/ })).toBeTruthy()
+    // the two measures as charts at the bottom, 8 and 9: the gates (passed, failed) and the plan interventions per milestone
+    expect(await ui.find({ type: 'Text', text: /^8\. Gates inside the builds$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /30 runs · 17 %/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /mostly test_boost/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^1c\. Plan interventions, per milestone$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^9\. Plan interventions, per milestone$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /2\/3 off · 4\.0M/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /2 of 12 manager messages steered the plan/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /over 300 turns/ })).toBeTruthy()

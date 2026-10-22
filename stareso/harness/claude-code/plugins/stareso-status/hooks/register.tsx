@@ -810,8 +810,6 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
               scope: `u1:${i}`, label: t.type, segs: [{ v: t.share, color: KIND[t.type] ?? 'inactive' }],
               value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns${t.carried != null ? `, median carried ${t.carried} %` : ''}`,
             })), L, room, Math.max(...c.shareByType.map(x => x.share)))}
-          {gatesChart(ui, c, room, L)}
-          {c.plan && pair(planChart(ui, c, room, L, open('u1c')), more('u1c', planRows(c).length, FOLDED.u1c))}
           {pair(cumulativeChart(ui, c, room, L, open('u2')), more('u2', c.cumulative.days.length, FOLDED.u2))}
           {pair(milestoneChart(ui, c, room, L, open('u3')), more('u3', measuredMilestones(c).length, FOLDED.u3))}
           {pair(sessionChart(ui, c, room, L, p.allSessions), c.sessions.filter(s => s.ctx != null).length > RECENT_SESSIONS && (
@@ -846,6 +844,8 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
             )
           })()}
           {pair(etaChart(ui, p.etaTrack, room, L, open('u7')), p.etaTrack && more('u7', p.etaTrack.rows.length, FOLDED.u7))}
+          {gatesChart(ui, c, room, L)}
+          {c.plan && pair(planChart(ui, c, room, L, open('u9')), more('u9', planRows(c).length, FOLDED.u9))}
           {pair(
             <Box flexDirection="row">
               <Button key="tables" dimColor onPress={act(q => ({ ...q, showTables: !q.showTables }))}>{p.showTables ? 'Hide the tables' : 'Show the tables'}</Button>
@@ -963,36 +963,36 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
 
 // 2. the running total of each step type at the end of each day, stacked (the stacked variant of the skill's chart 2)
 // the rows a folded chart keeps (its latest); the Expand button shows them all
-const FOLDED = { u1c: 8, u2: 14, u3: 12, u6: 8, u7: 6 }
+const FOLDED = { u2: 14, u3: 12, u6: 8, u7: 6, u9: 8 }
 
-// 1b. the gates run inside the builds (metrics.md, "Failing"): one bar per gate, its passed runs then its failed ones;
+// 8. the gates run inside the builds (metrics.md, "Failing"): one bar per gate, its passed runs then its failed ones;
 // the caption gives what checking costs and the flakes
 function gatesChart(ui: UI, c: UsageCharts, room: number, L: number) {
   const f = c.failing
   if (!f || !f.byGate.length) return null
   const failPct = (runs: number, fails: number) => (runs ? Math.round((100 * fails) / runs) : 0)
-  return chart(ui, '1b. Gates inside the builds',
+  return chart(ui, '8. Gates inside the builds',
     `Checking ≈ ${fmt(f.equiv)}, ${f.share ?? 'n/a'} % of the build cost${f.perSlice != null ? `, ${f.perSlice} runs per built slice` : ''}. ${f.flakes} flake${f.flakes === 1 ? '' : 's'} (a fail, then a pass with no edit) ≈ ${fmt(f.flakeEquiv)}${f.flaky.length ? `, mostly ${f.flaky.slice(0, 2).map(x => x.name).join(' and ')}` : ''}.`,
     f.byGate.map((g, i) => ({
-      scope: `u1b:${i}`, label: g.gate, segs: [{ v: g.runs - g.fails, color: 'success' }, { v: g.fails, color: 'error' }],
+      scope: `u8:${i}`, label: g.gate, segs: [{ v: g.runs - g.fails, color: 'success' }, { v: g.fails, color: 'error' }],
       value: `${g.runs} runs · ${failPct(g.runs, g.fails)} %`, ...(failPct(g.runs, g.fails) > 25 ? { valueColor: 'error' } : {}),
       detail: `${g.gate}: ${g.runs} runs, ${g.fails} failed`,
     })), L, room, Math.max(...f.byGate.map(g => g.runs)),
     [{ text: '█ passed', color: 'success' }, { text: '█ failed', color: 'error' }, { text: 'value: runs · failed %' }])
 }
 
-// 1c. how much of each milestone's build left the plan written before it (metrics.md, "Plan interventions"): its built
+// 9. how much of each milestone's build left the plan written before it (metrics.md, "Plan interventions"): its built
 // slices as planned, then off plan; the caption gives the cost and the manager messages that steered the plan
 const planRows = (c: UsageCharts) => (c.plan?.milestones ?? []).filter(x => x.offBuilt + x.planned > 0)
 function planChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
   const p = c.plan
   const list = planRows(c)
   if (!p || !list.length) return null
-  const rows = all ? list : list.slice(-FOLDED.u1c)
-  return chart(ui, '1c. Plan interventions, per milestone',
+  const rows = all ? list : list.slice(-FOLDED.u9)
+  return chart(ui, '9. Plan interventions, per milestone',
     `Slices built off the plan written before the build (added, rewritten or re-chained after its first merge) ≈ ${fmt(p.offEquiv)}, ${p.share ?? 'n/a'} % of the build cost.${p.messages ? ` ${p.steered} of ${p.messages} manager messages steered the plan.` : ''}`,
     rows.map((x, i) => ({
-      scope: `u1c:${i}`, label: x.id, segs: [{ v: x.planned, color: 'suggestion' }, { v: x.offBuilt, color: 'warning' }],
+      scope: `u9:${i}`, label: x.id, segs: [{ v: x.planned, color: 'suggestion' }, { v: x.offBuilt, color: 'warning' }],
       value: `${x.offBuilt}/${x.offBuilt + x.planned} off · ${x.offBuilt ? fmt(x.offEquiv) : '0'}`,
       detail: `${x.id}: ${x.commits} plan commits during its build, ${x.added} slices added, ${x.rewritten} rewritten, ${x.chain} re-chained; ${x.offBuilt} of ${x.offBuilt + x.planned} built off plan ≈ ${fmt(x.offEquiv)}`,
     })), L, room, Math.max(...rows.map(x => x.offBuilt + x.planned)),
