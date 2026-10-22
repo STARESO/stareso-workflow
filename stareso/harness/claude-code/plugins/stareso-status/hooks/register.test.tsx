@@ -236,7 +236,7 @@ test('the usage view draws the plan windows, the tiles and the seven charts', as
     // chart 7 a dumbbell per slice: ○ predicted, ● what it took, in the colour of the miss
     // (chart 5's scatter points use the same glyphs, so chart 7's are the last three)
     const tones = (await ui.findAll({ type: 'Text', text: /^[○●◉][─○●]*$/ })).map(x => x.props.color).slice(-3)
-    expect(tones).toEqual(['success', 'warning', 'planMode'])
+    expect(tones).toEqual(['success', 'warning', 'suggestion'])
     await ui.unmount()
   }
 })

@@ -946,8 +946,8 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
   const rows = all ? t.rows : t.rows.slice(-FOLDED.u7)
   const miss = (r: EtaTrack['rows'][number]) => Math.round(((r.actual - r.predicted) / Math.max(1, r.predicted)) * 100)
   const signed = (m: number) => `${m > 0 ? '+' : ''}${m} %`
-  // on time (within 25 %) green, late by more amber, early by more teal
-  const tone = (m: number) => (m > 25 ? 'warning' : m < -25 ? 'planMode' : 'success')
+  // on time (within 25 %) green, late by more amber, early by more blue (teal looked like the green on a desktop)
+  const tone = (m: number) => (m > 25 ? 'warning' : m < -25 ? 'suggestion' : 'success')
   // the value's parts in columns of their own, as chart() aligns them
   const parts = rows.map(r => [`${r.predicted} → ${r.actual} min`, ...(all ? [signed(miss(r)), r.at] : [])])
   const widths = parts.reduce<number[]>((w, ps) => ps.map((x, i) => Math.max(w[i] ?? 0, x.length)), [])
@@ -987,7 +987,7 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         <Text size="footnote" color="success">{'○─● on time ±25 %'}</Text>
         <Text size="footnote" color="warning">{'○──● late'}</Text>
-        <Text size="footnote" color="planMode">{'●──○ early'}</Text>
+        <Text size="footnote" color="suggestion">{'●──○ early'}</Text>
       </Box>
       {rows.map((r, i) => (
         <Box display="none" hover={{ scope: `u7:${i}`, display: 'flex' }}>
