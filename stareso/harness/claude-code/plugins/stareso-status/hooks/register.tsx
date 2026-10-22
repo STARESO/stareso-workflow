@@ -755,7 +755,7 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
               value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns`,
             })), L, room, Math.max(...c.shareByType.map(x => x.share)))}
           {pair(cumulativeChart(ui, c, room, L, open('u2')), more('u2', c.cumulative.days.length, FOLDED.u2))}
-          {pair(milestoneChart(ui, c, room, L, open('u3')), more('u3', c.milestones.length, FOLDED.u3))}
+          {pair(milestoneChart(ui, c, room, L, open('u3')), more('u3', measuredMilestones(c).length, FOLDED.u3))}
           {pair(sessionChart(ui, c, room, L, p.allSessions), c.sessions.filter(s => s.ctx != null).length > RECENT_SESSIONS && (
             <Box flexDirection="row">
               <Button key="sessions" dimColor onPress={act(q => ({ ...q, allSessions: !q.allSessions }))}>
@@ -943,15 +943,21 @@ function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number, all: b
 }
 
 // 3. cost per slice by milestone, coloured by who built it, with the reference slice cost as a ┆ mark
+// the milestones with a cost per slice: a planned one with no merged slice measured yet has no bar to draw
+function measuredMilestones(c: UsageCharts) {
+  return c.milestones.filter(m => m.equivPerSlice != null)
+}
+
 function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
   const ref = c.referencePerSlice?.equiv ?? 0
-  const max = Math.max(ref, ...c.milestones.map(m => m.equivPerSlice ?? 0))
+  const measured = measuredMilestones(c)
+  const max = Math.max(ref, ...measured.map(m => m.equivPerSlice ?? 0))
   // the reference as a row of its own too: the ┆ mark hides under bars that pass it
   const refRow: Row[] = ref ? [{
     scope: 'u3:ref', label: 'ref', segs: [{ v: ref, color: 'inactive' }], value: fmt(ref),
     detail: `reference: ${c.referencePerSlice!.label}, ${fmt(ref)} per slice`,
   }] : []
-  const rows: Row[] = (all ? c.milestones : c.milestones.slice(-FOLDED.u3)).map((m, i) => ({
+  const rows: Row[] = (all ? measured : measured.slice(-FOLDED.u3)).map((m, i) => ({
     scope: `u3:${i}`, label: m.id, segs: [{ v: m.equivPerSlice ?? 0, color: BUILT[m.built] ?? 'claude' }],
     value: (m.equivPerSlice == null ? 'n/a' : fmt(m.equivPerSlice)) + (all ? ` · ${m.slices} sl · ${m.built}` : ''), marks: ref ? [ref] : [],
     detail: m.equivPerSlice == null

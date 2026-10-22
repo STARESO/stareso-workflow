@@ -136,7 +136,8 @@ const CHARTS = {
   tiles: [{ label: 'Workflow cost', value: '166.6M' }, { label: 'Slices built', value: '3' }],
   shareByType: [{ type: 'build', share: 60, equiv: 1e8, hours: 5, turns: 300 }, { type: 'chat', share: 40, equiv: 6e7, hours: 2, turns: 200 }],
   cumulative: { kinds: ['build', 'chat'], days: [{ day: 0, date: '2026-10-21' }, { day: 1, date: '2026-10-22' }], points: [{ day: 0.2, build: 10, chat: 5 }, { day: 1.4, build: 100, chat: 60 }] },
-  milestones: [{ id: 'M1', built: 'helpers', equivPerSlice: 4.8e6, measured: '3/3', slices: 3 }],
+  milestones: [{ id: 'M1', built: 'helpers', equivPerSlice: 4.8e6, measured: '3/3', slices: 3 },
+    { id: 'M2', built: 'helpers', equivPerSlice: null, measured: '0/4', slices: 4 }],
   referencePerSlice: { label: 'project A M5', equiv: 335000 },
   conductorVsHelpers: [{ session: '6', date: '2026-10-21', type: 'build', merged: 3, conductor: 2e6, helpers: 6e6, helperCount: 3 }],
   sessions: [{ n: 1, date: '2026-10-21', ctx: 120000, turns: 120, equiv: 1e7, helpers: 2, over300: false }, { n: 2, date: '2026-10-22', ctx: 400000, turns: 900, equiv: 9e7, helpers: 0, over300: true }],
@@ -220,6 +221,9 @@ test('the usage view draws the plan windows, the tiles and the seven charts', as
     expect(await ui.find({ type: 'Text', text: /^166\.6M$/ })).toBeTruthy()
     for (const n of [1, 2, 3, 4, 5, 6, 7]) expect(await ui.find({ type: 'Text', text: new RegExp(`^${n}\\. `) })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /over 300 turns/ })).toBeTruthy()
+    // chart 3 leaves out a planned milestone with no cost per slice yet
+    expect(await ui.find({ type: 'Text', text: /^M1 +$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^M2 +$/ })).toBeFalsy()
     await ui.unmount()
   }
 })
