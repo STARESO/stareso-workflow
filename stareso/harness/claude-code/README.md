@@ -28,9 +28,9 @@ It is drawn with Claude Code's own elements, so the terminal draws it as well as
 ### ▶ Progress (narrow dock)
 
 - **Heading:** the all-done time and the build mode.
-- **Grid:** one row of slice numbers per milestone, each in the colour of its state (■ done green, ▶ running amber, could start teal, waits on you purple, □ waiting grey).
+- **Grid:** one row of slice numbers per milestone, each on a chip in the colour of its state (■ done green, ▶ running amber, could start teal, waits on you purple, □ waiting grey).
   - Hover a number for its one-line state.
-  - **Press a number for the slice's card:** its goal, when it is done, its files, state, branch, model, what it needs and what it unblocks.
+  - **Press a number for the slice's card:** its state, branch and model, what it needs and what it unblocks. The other numbers go dim, except the ones linked to it.
   - Press a milestone's name for its card, which lists its slices.
 - **Milestones:** each milestone's ETA, then its title.
 - **Helpers:** one line each (slice, ETA, title), pressable for its card.

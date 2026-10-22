@@ -607,16 +607,6 @@ if (opt.status) { console.log(status()); process.exit(0); }
 // alerts compare between refreshes. A slice is done, running, ready (could start now), you (waits on the user: a [human]
 // slice, a blocking question, a lettered milestone) or waiting (on a chain or a helper).
 function panelGraph() {
-  // the brief of each slice, for its card: the Goal, Files and Done when lines under its slice line
-  const briefs = {};
-  for (const m of ms) for (const s of m.slices) {
-    const b = {};
-    for (let i = s.line + 1; i < m.lines.length && /^\s+(- |\S)/.test(m.lines[i]); i++) {
-      const f = /^\s+- (Goal|Files|Done when):\s*(.+)$/.exec(m.lines[i]);
-      if (f) b[{ Goal: "goal", Files: "files", "Done when": "done" }[f[1]]] = f[2].length > 240 ? `${f[2].slice(0, 239)}…` : f[2];
-    }
-    if (Object.keys(b).length) briefs[s.id] = b;
-  }
   const readySet = new Set(ready);
   const runOf = new Map(runningNow.map((r) => [r.id, r]));
   const slices = {};
@@ -627,7 +617,7 @@ function panelGraph() {
       : s.human || q || /waits on \/stareso/.test(s.rest) || lettered({ id: s.ms }) ? "you" : "waiting";
     slices[s.id] = { title: s.title, ms: s.ms, state, after: s.after, ...(s.model ? { model: s.model } : {}), ...(s.opus ? { opus: true } : {}),
       ...(r ? { minutes: r.minutes, started: r.minutes != null ? clock(now - r.minutes * 60000) : null, branch: r.branch } : {}),
-      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}), ...(q ? { question: q.text } : {}), ...(briefs[s.id] ? { brief: briefs[s.id] } : {}) };
+      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}), ...(q ? { question: q.text } : {}) };
   }
   const lane = (l) => ({ id: l.id, title: l.title, kind: l.kind, done: l.done, total: l.total, block: l.block, eta: etaLane(l.id), slices: l.nodes.map((n) => n.id) });
   return { mode: mode.label, allDone: eta.allDone ?? null, pace: pace?.line ?? null, lanes: shown.map(lane), finished: finished.map(lane), hidden, slices };

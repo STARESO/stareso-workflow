@@ -470,8 +470,8 @@ function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
 // One row of slice numbers per milestone, each number in the colour of its state, its title on a dim line under it;
 // hover a number for the slice's line, press it for the slice's card, press a milestone for its card (its slices, each
 // pressable). Then the running helpers folded to one line each (press one for its card), the chats of the project, the
-// pace and what waits for the person. Each number is a plain Button holding a monospaced Text in its state's colour,
-// in a wrapping row, so a press opens its card as a helper's does.
+// pace and what waits for the person. Each number is a chip in its state's colour holding a plain Button, in a
+// wrapping row, so a press opens its card as a helper's does.
 
 function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const { Box, Text, Button } = ui
@@ -495,17 +495,19 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const finished = progress.find(x => x.includes('every slice done'))?.replace(/\s*·\s*every slice done$/, '')
   const used = new Set(Object.values(g.slices).map(s => s.state))
 
-  // each number is a plain Button (press for the slice's card, as a helper's) holding a Text in the colour of its state
+  // each number is a chip: a plain Button (press for the slice's card, as a helper's) on a Box in the colour of its
+  // state, since a desktop draws a Button natively and drops the colour of a Text inside it. Once a slice is picked,
+  // the chips it is not linked to go dim
   const cell = (id: string) => {
     const s = g.slices[id]
     if (!s) return null
-    const linked = !!selSlice && (selSlice.after.includes(id) || s.after.includes(sel))
-    const label = `${(id.split('.')[1] ?? id).replace(/^tidy(\d*)$/, 't$1').padStart(2)}`
+    const linked = !selSlice || id === sel || selSlice.after.includes(id) || s.after.includes(sel)
+    const label = (id.split('.')[1] ?? id).replace(/^tidy(\d*)$/, 't$1')
     return (
-      <Button key={`c:${id}`} plain onPress={pick(id)} hover={{ scope: `g:${id}`, inverse: true }}>
-        <Text mono color={STATE[s.state].color} bold={s.state !== 'waiting'}
-          {...(id === sel ? { inverse: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
-      </Button>
+      <Box flexShrink={0} paddingX={1} backgroundColor={STATE[s.state].color}>
+        <Button key={`c:${id}`} plain onPress={pick(id)} hover={{ scope: `g:${id}`, inverse: true }}
+          {...(linked ? {} : { dimColor: true })}>{id === sel ? <Text bold underline>{label}</Text> : label}</Button>
+      </Box>
     )
   }
   // the graph row holds the numbers alone, so it fits a narrow dock: the title and the ETA are in the list below it
@@ -634,9 +636,6 @@ function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: s
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>{`${id} · ${s.title}`}</Text>
       <Text color={STATE[s.state].color}>{stateLine(g, id)}</Text>
-      {s.brief?.goal && <Box marginTop={1}><Text>{s.brief.goal}</Text></Box>}
-      {s.brief?.done && <Text dimColor>{`done when ${s.brief.done}`}</Text>}
-      {s.brief?.files && <Text dimColor size="footnote">{`files: ${s.brief.files}`}</Text>}
       {s.branch && <Text dimColor>{`on ${s.branch}`}</Text>}
       <Text dimColor>{[s.ms, s.model, s.opus ? 'an Opus slice, the costly ones' : ''].filter(Boolean).join(' · ')}</Text>
       {s.after.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>needs</Text>{chips('needs', s.after.filter(a => g.slices[a]))}</Box>}
@@ -715,14 +714,16 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
       </Button>
     </Box>
   ) : null)
+  // a chart and its button stay together, with a wider gap to the next chart's title
+  const pair = (...parts: (RenderElement | null | false)[]) => <Box flexDirection="column" gap={1}>{parts}</Box>
   return (
-    <Box flexDirection="column" gap={1}>
+    <Box flexDirection="column" gap={2}>
       {windowsView(ui, p.windows, Math.max(12, room - L - 7), L)}
       {p.usageError !== '' && <Text color="error">{p.usageError}</Text>}
       {!c && p.usageError === '' && <Text dimColor>reading the usage report… (a few seconds)</Text>}
       {c && (
-        <Box flexDirection="column" gap={1}>
-          <Box flexDirection="column">
+        <Box flexDirection="column" gap={2}>
+          <Box flexDirection="column" gap={1}>
             <Box flexDirection="row" flexWrap="wrap" gap={1}>
               {c.tiles.map(t => (
                 <Box flexDirection="column" borderStyle="round" paddingX={1}>
@@ -738,18 +739,15 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
               scope: `u1:${i}`, label: t.type, segs: [{ v: t.share, color: KIND[t.type] ?? 'inactive' }],
               value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns`,
             })), L, room, Math.max(...c.shareByType.map(x => x.share)))}
-          {cumulativeChart(ui, c, room, L, open('u2'))}
-          {more('u2', c.cumulative.days.length, FOLDED.u2)}
-          {milestoneChart(ui, c, room, L, open('u3'))}
-          {more('u3', c.milestones.length, FOLDED.u3)}
-          {sessionChart(ui, c, room, L, p.allSessions)}
-          {c.sessions.filter(s => s.ctx != null).length > RECENT_SESSIONS && (
+          {pair(cumulativeChart(ui, c, room, L, open('u2')), more('u2', c.cumulative.days.length, FOLDED.u2))}
+          {pair(milestoneChart(ui, c, room, L, open('u3')), more('u3', c.milestones.length, FOLDED.u3))}
+          {pair(sessionChart(ui, c, room, L, p.allSessions), c.sessions.filter(s => s.ctx != null).length > RECENT_SESSIONS && (
             <Box flexDirection="row">
               <Button key="sessions" dimColor onPress={act(q => ({ ...q, allSessions: !q.allSessions }))}>
                 {p.allSessions ? `Only the last ${RECENT_SESSIONS} sessions` : `All ${c.sessions.filter(s => s.ctx != null).length} sessions`}
               </Button>
             </Box>
-          )}
+          ))}
           {scatterChart(ui, c, room)}
           {(() => {
             const all = c.conductorVsHelpers.filter(b => b.conductor != null || b.helpers != null)
@@ -774,12 +772,13 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
               </Box>
             )
           })()}
-          {etaChart(ui, p.etaTrack, room, L, open('u7'))}
-          {p.etaTrack && more('u7', p.etaTrack.rows.length, FOLDED.u7)}
-          <Box flexDirection="row">
-            <Button key="tables" dimColor onPress={act(q => ({ ...q, showTables: !q.showTables }))}>{p.showTables ? 'Hide the tables' : 'Show the tables'}</Button>
-          </Box>
-          {p.showTables && p.usageMd !== '' && <Markdown text={p.usageMd} />}
+          {pair(etaChart(ui, p.etaTrack, room, L, open('u7')), p.etaTrack && more('u7', p.etaTrack.rows.length, FOLDED.u7))}
+          {pair(
+            <Box flexDirection="row">
+              <Button key="tables" dimColor onPress={act(q => ({ ...q, showTables: !q.showTables }))}>{p.showTables ? 'Hide the tables' : 'Show the tables'}</Button>
+            </Box>,
+            p.showTables && p.usageMd !== '' && <Markdown text={p.usageMd} />,
+          )}
         </Box>
       )}
     </Box>

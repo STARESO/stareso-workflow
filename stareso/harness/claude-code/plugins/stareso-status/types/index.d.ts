@@ -14,8 +14,6 @@ export type PanelSlice = {
   branch?: string;
   eta?: string;
   question?: string;
-  // the slice's brief, for its card: the Goal, Files and Done when lines
-  brief?: { goal?: string; files?: string; done?: string };
 };
 
 export type PanelLane = {

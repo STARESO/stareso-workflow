@@ -186,8 +186,10 @@ test('the progress view draws a row per milestone, a pressed milestone lists its
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /≈ 19:00/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^M1\.2 · Second step$/ })).toBeFalsy()
-    // each slice number in the colour of its state, a Text inside a plain Button that opens the slice's card
-    expect((await ui.find({ type: 'Text', text: /^ 2$/ }))?.props.color).toBe('warning')
+    // each slice number a plain Button that opens the slice's card, on a chip in its state's colour (a desktop drops
+    // the colour of a Text inside a Button)
+    expect((await ui.find({ type: 'Button', key: 'c:M1.2' }))?.text).toBe('2')
+    expect((await ui.findAll({ type: 'Box' })).filter(b => b.props.backgroundColor === 'warning')).toHaveLength(1)
     await ui.press({ key: 'c:M1.2' })
     expect(await ui.find({ type: 'Text', text: /^M1.2 · Second step$/ })).toBeTruthy()
     await ui.press({ key: 'close-card' })
