@@ -5,10 +5,10 @@ description: Where is this stareso project in its workflow and what to do next (
 
 # stareso-status
 
-**Session:** any model, any session. Status is the most used step, so it stays tiny: one tool call, a few reads, a few lines of answer. It never prints the progress brief, because the panel shows it. Talk in English unless the user switches to French.
+**Session:** any model, any session. Status is the most used step, so it stays tiny: one tool call, a few reads, three to five lines of answer. It never prints the progress brief, because the panel shows it. Talk in English unless the user switches to French.
 
 ## 1. Read (the few important facts only)
-Argument: none. An old `graph` or `dashboard` argument only means that the panel line of §4 names the dashboard first.
+Argument: none. An old `graph` or `dashboard` argument only means that the `↗` line of §4 names the dashboard.
 1. <!-- harness:status-usage -->When the harness shows the usage windows, read them first.<!-- /harness -->
 2. `node <stareso>/tools/progress-graph.mjs --brief`, with `--five <pct>@<reset>` and `--week <pct>@<reset>` from step 1 when there are readings, and `--caps <start>/<pause>/<weekly>` only when the user gave stop caps in this conversation. It reads records and git only, in well under a second, and gives facts to read, not to print: the head line (project, Phase, Pack, branch and tree, 💭 ideas, debt), the milestone lines, the helpers running, the usage and caps, the pace, what waits for you, what could start now.
 3. Only when the rule table needs it: the newest block of `docs/FEEDBACK.md` (points without "→ slice") and the Tested column of the overview in `docs/ROADMAP.md`. Say if the folder is a worktree. Never read the code, the milestone briefs or the cost reports.
@@ -32,20 +32,21 @@ Argument: none. An old `graph` or `dashboard` argument only means that the panel
 ## 3. Retro
 A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: never suggest it from status.
 
-## 4. Answer: 5 to 8 short lines of plain text
-No code block, no table, no heading, no copy of the brief, no workflow line. One fact per line, a small symbol first, at most about 100 characters a line, numbers instead of sentences. The symbols: ▶ the next step, ■ done, □ waiting, ⚠ a blocker, ↗ the panel, 💭 ideas.
-1. **Head**: project, the current step in **bold**, and the one number that matters.
-2. **Blockers and waits**, only those that exist: `⚠` a blocker, or a usage cap that comes within the hour (window, percent, time), `□` what waits for you (count and a few ids), `💭` the ideas count when there are any, `■` what just finished when it matters.
-3. **`▶ Next`**: the skill, the **model** (the tier of §2), **new or same session**, the **permission mode** (auto for build only) and the profile of a build (eco unless speed matters), then the exact command to type in a code span, or the launch question of §5 when this session can launch it. The one next step only, never a menu.
-4. **`↗ Panel`**: <!-- harness:status-panel -->this harness has no panel: `node <stareso>/tools/progress-graph.mjs --write` writes the progress page and `usage-report.mjs` the usage report.<!-- /harness --> One line says what the panel holds, so that nothing of it is repeated above: milestones with their times, helpers, pace and what waits for you (Progress), the plan windows and six usage charts (Usage), and the charts in a browser on request (dashboard).
+## 4. Answer: 3 to 5 short lines, nothing more
+Plain lines, each under about 60 characters so none wraps, a symbol first: ▶ next, ⚠ blocker, □ waits on you, ↗ panel. No code block, table, heading, bold, `·` chains of facts (the head line excepted), ids lists or counts the panel already shows (ideas, debt, done milestones, helpers, pace, rates). Everything else is in the panel, so leave it out.
+1. **Head**: project, the step, the one number that matters (for a build: milestone done/total and its end time).
+2. **`⚠`**, only when it changes what to do now: a blocker, or the usage cap the run reaches first (window, percent, time). One line at most.
+3. **`□`**, only when something waits on the user: the counts alone.
+4. **`▶`**: the command to type, then in brackets the model and new or same session, plus the permission mode only when it is not the default (auto for a build) and the profile only when it is not eco. The only code span of the answer. When this session can launch it, the launch question of §5 instead.
+5. **`↗`**: <!-- harness:status-panel -->this harness has no panel: `node <stareso>/tools/progress-graph.mjs --write` writes the progress page.<!-- /harness -->
 
-Example, written as plain lines (a build is running, a cap is in sight):
+Example (a build is running):
 ```
-proj · **build** M11 7/13 · 3 helpers · all done ≈ 21:13
-⚠ 5-hour window 41 % (+20 %/h): the pause cap comes ≈ 23:02
-□ waits on you: 9 [human] slices (H.1 …), 12 questions, none blocking · 💭 19
-▶ Next: wait for the build, then `/stareso-test` (Sonnet, new session, default mode)
-↗ Panel: ◧ stareso button or `/stareso-panel` (Progress, Usage), `/stareso-panel dashboard` for browser charts
+proj · build M11 7/13 · ends ≈ 21:18
+⚠ weekly cap 95 % ≈ 03:13
+□ 9 human slices, 12 questions wait on you
+▶ after M11: `/stareso-test` (Sonnet, new session)
+↗ panel: ◧ stareso or /stareso-panel
 ```
 
 ## 5. Launch from this session (manager)

@@ -46,7 +46,7 @@ Call `get_usage` first: each plan window gives `percentUsed` and `resetsAt`.
 Claude Code shows the status in the stareso-status panel plugin (button and `/stareso-panel`), so status points to it instead of drawing a graph.
 
 ```text
-name the `◧ stareso` button (right of the prompt footer) and `/stareso-panel`, which open the stareso panel beside the chat, and `/stareso-panel dashboard` for the charts in a browser (it gives the address). Never draw the graph here. If the panel is not installed: `claude plugin install stareso-status@stareso`.
+`↗ panel: ◧ stareso or /stareso-panel`, as plain text, nothing else on the line (the dashboard only when the user asked for charts or a browser: `/stareso-panel dashboard`). Never draw the graph here.
 ```
 
 ## usage-panel
