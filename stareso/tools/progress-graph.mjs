@@ -12,6 +12,8 @@
 //         --five <pct>@<reset>  --week <pct>@<reset>   the usage windows the host shows (percent used, ISO reset time):
 //                            kept in usage.json next to the graph files (last readings only) to work out the burn rate
 //         --caps <start>/<pause>/<weekly>   stop caps in percent, when they are not in the BUILD-LOG `caps` line
+//         --panel            for the stareso-status panel: the brief, every lane and slice (state, deps, ETA, helper),
+//                            and the alert data, as one JSON line (pass --max-lanes 99 for every open lane)
 //         `lines` holds the one-line status items ready to print: running, usage, pace, waits, ready.
 import fs from "node:fs";
 import os from "node:os";
@@ -422,9 +424,11 @@ function brief() {
   if (hidden.length) out.push(`  + ${hidden.length} more open: ${hidden.join(", ")}`);
 
   out.push("", runningNow.length ? `Helpers   ${mode.last || "build"} profile, ${runningNow.length} running` : `Helpers   none running (${mode.label})`);
+  if (runningNow.length) out.push(`  ${pad("Slice", 8)} ${pad("Model", 7)} ${pad("Started", 7)} ${pad("Running", 8)} ${pad("ETA", 8)} Title`);
   for (const r of [...runningNow].sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0))) {
     const s = byId.get(r.id);
-    out.push(`  ${pad(r.id, 8)} ${pad(s.model || "?", 7)} ${pad(r.minutes != null ? `${r.minutes} min` : "", 8)} ${pad(eta.bySlice[r.id] ? `≈ ${eta.bySlice[r.id]}` : "", 8)} ${cut(s.title, 48)}`);
+    const started = r.minutes != null ? clock(now - r.minutes * 60000) : "";
+    out.push(`  ${pad(r.id, 8)} ${pad(s.model || "?", 7)} ${pad(started, 7)} ${pad(r.minutes != null ? `${r.minutes} min` : "", 8)} ${pad(eta.bySlice[r.id] ? `≈ ${eta.bySlice[r.id]}` : "", 8)} ${cut(s.title, 48)}`);
   }
 
   if (usage.five || usage.week || caps) {
@@ -459,9 +463,27 @@ function brief() {
   return out.join("\n");
 }
 if (opt.brief) { console.log(brief()); process.exit(0); }
-// for the live status panel: the brief, the standalone SVG and what the panel's alerts compare between refreshes
+// for the live status panel: the brief, every milestone and slice for its own drawing of the graph, and what the panel's
+// alerts compare between refreshes. A slice is done, running, ready (could start now), you (waits on the user: a [human]
+// slice, a blocking question, a lettered milestone) or waiting (on a chain or a helper).
+function panelGraph() {
+  const readySet = new Set(ready);
+  const runOf = new Map(runningNow.map((r) => [r.id, r]));
+  const slices = {};
+  for (const s of byId.values()) {
+    const r = runOf.get(s.id);
+    const q = questions.find((x) => x.blocks.includes(s.id));
+    const state = s.done ? "done" : r ? "running" : readySet.has(s.id) ? "ready"
+      : s.human || q || /waits on \/stareso/.test(s.rest) || lettered({ id: s.ms }) ? "you" : "waiting";
+    slices[s.id] = { title: s.title, ms: s.ms, state, after: s.after, ...(s.model ? { model: s.model } : {}), ...(s.opus ? { opus: true } : {}),
+      ...(r ? { minutes: r.minutes, started: r.minutes != null ? clock(now - r.minutes * 60000) : null, branch: r.branch } : {}),
+      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}), ...(q ? { question: q.text } : {}) };
+  }
+  const lane = (l) => ({ id: l.id, title: l.title, kind: l.kind, done: l.done, total: l.total, block: l.block, eta: etaLane(l.id), slices: l.nodes.map((n) => n.id) });
+  return { mode: mode.label, allDone: eta.allDone ?? null, pace: pace?.line ?? null, lanes: shown.map(lane), finished: finished.map(lane), hidden, slices };
+}
 if (opt.panel) {
-  console.log(JSON.stringify({ project: path.basename(root), root, brief: brief(), svg: svg(true), recentMerges: recent,
+  console.log(JSON.stringify({ project: path.basename(root), root, brief: brief(), graph: panelGraph(), recentMerges: recent,
     running: runningNow.map((r) => ({ id: r.id, minutes: r.minutes })), perSliceMinutes: pace?.perSliceMinutes ?? null, usage }));
   process.exit(0);
 }

@@ -1,51 +1,60 @@
 // Live stareso status: a pane beside the chat that runs ~/.claude/stareso/tools/progress-graph.mjs every minute while
-// it is open and draws its brief (text), its graph (SVG) or the project's usage (usage-report.mjs: charts and tables),
-// with toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage cap comes
-// within 15 minutes. No model call: only the tools, git and the app's own usage reading.
+// it is open and draws its brief (text), its graph (one row of slices per milestone, to hover and press) or the
+// project's usage (the plan windows, then the tiles and six charts of the stareso-usage skill from usage-report.mjs
+// --live), with toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage
+// cap comes within 15 minutes. Everything is drawn with the surface's own elements, so the terminal draws it too.
+// No model call: only the tools, git and the app's own usage reading.
+//
+// In a session whose folder is a stareso project (or once the panel was used there), a band above the prompt gives the
+// helpers running, the slices left and the ETA, with a button that opens or hides the panel.
 //
 //   /stareso-panel                 opens the panel, or hides it when it is open
 //   /stareso-panel <folder>        opens it on that project (remembered across sessions)
 //   /stareso-panel graph | usage | brief   opens it on that view
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderElement } from 'claude-code'
 
-import type { PanelView } from '../types'
+import type { PanelGraph, PanelLane, PanelSlice, PanelView, SliceState, UsageCharts, UsageWindow } from '../types'
 
 const PANE = 'stareso-status'
 const TITLE = 'stareso status'
 const EVERY_MS = 60_000
-const USAGE_EVERY_MS = 10 * 60_000
+// the usage report (a few seconds) is read again while its view is open once it is older than this, or a slice merged
+const USAGE_STALE_MS = 5 * 60_000
 const WIDE = 110
 const EMPTY: PanelView = {
-  project: '', root: '', brief: '', svg: '', updated: '', error: '', view: 'text', usageNote: '',
-  usageMd: '', usageSvg: '', usageTiles: '', usageAt: 0, usageError: '',
+  project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'text', selected: '',
+  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false,
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
+// whether this session's folder is a stareso project: the band shows there
+const band = atom({ plugin: 'stareso-status', key: 'band' } as const, false)
+// while the panel is hidden, the band's status is read again at most this often
+const HIDDEN_EVERY_MS = 5 * 60_000
 
-type Window = { pct: number; resets: string; reach: { name: string; cap: number; at: string | null }[] } | null
 type Snapshot = {
   project: string
   root: string
   brief: string
-  svg: string
+  graph: PanelGraph
   recentMerges: { id: string; at: string }[]
   running: { id: string; minutes: number | null }[]
   perSliceMinutes: number | null
-  usage: { five: Window; week: Window }
+  usage: { five: UsageWindow; week: UsageWindow }
 }
-type Charts = {
-  tiles: { label: string; value: string }[]
-  shareByType: { type: string; share: number; equiv: number }[]
-  milestones: { id: string; equivPerSlice: number | null; slices: number }[]
-  referencePerSlice?: { label: string; equiv: number }
-}
+type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Markdown' | 'Code'>
+type Act = (fn: (p: PanelView) => PanelView) => () => void
+type Seg = { text: string; color?: string }
 
 let inflight: Promise<void> | null = null
+let usageInflight: Promise<void> | null = null
 let ticking = false
+let lastRead = 0
+let latestMerge = ''
 let seen: { merge?: string; running: Set<string>; alerted: Set<string> } | null = null
 
-function clock(): string {
-  const d = new Date()
+function clock(at = Date.now()): string {
+  const d = new Date(at)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
@@ -104,7 +113,8 @@ function alerts($: EngineInterface, s: Snapshot) {
 }
 
 // One read at a time: a refresh asked while one runs (the command right after a timer read) waits, then reads again.
-async function refresh($: EngineInterface) {
+// `force` reads the usage report too when its view is open (the Refresh button).
+async function refresh($: EngineInterface, force = false) {
   while (inflight) await inflight
   inflight = readOnce($)
   try {
@@ -112,6 +122,8 @@ async function refresh($: EngineInterface) {
   } finally {
     inflight = null
   }
+  const p = await panelState($)
+  if (p.view === 'usage' && (force || usageDue(p))) await readUsage($)
 }
 
 // the panel state with every field: a state kept from an older version of the mod lacks the newer ones
@@ -130,7 +142,7 @@ async function projectRoots($: EngineInterface): Promise<string[]> {
 }
 
 async function projectRoot($: EngineInterface): Promise<string> {
-  return (await projectRoots($))[0]
+  return (await projectRoots($))[0] ?? ''
 }
 
 // Node prints the throwing source line (and a caret) before the error itself: keep the "Error: ..." line, without its
@@ -142,6 +154,7 @@ function errorLine(output: string): string {
 }
 
 async function readOnce($: EngineInterface) {
+  lastRead = Date.now()
   try {
     const roots = await projectRoots($)
     const flags = await usageFlags($)
@@ -149,7 +162,7 @@ async function readOnce($: EngineInterface) {
     let run: Awaited<ReturnType<typeof $.process.run>> | null = null
     let firstError = ''
     for (const root of roots) {
-      run = await $.process.run(['node', tool, '--root', root, '--panel', ...flags], { timeoutMs: 20_000 })
+      run = await $.process.run(['node', tool, '--root', root, '--panel', '--max-lanes', '99', ...flags], { timeoutMs: 20_000 })
       if (run.exitCode === 0) break
       firstError ||= `${root}: ${errorLine(run.stderr) || `progress-graph.mjs exited with ${run.exitCode}`}`
     }
@@ -160,55 +173,83 @@ async function readOnce($: EngineInterface) {
     }
     const s = JSON.parse(run.stdout) as Snapshot
     await $.store.set('project', s.root)
+    latestMerge = s.recentMerges[0]?.id ?? ''
     alerts($, s)
     await update($, panel, p => ({
-      ...p, project: s.project, root: s.root, brief: s.brief, svg: s.svg, updated: clock(), error: '',
+      ...p, project: s.project, root: s.root, brief: s.brief, graph: s.graph, windows: s.usage, updated: clock(), error: '',
       usageNote: flags.length ? '' : 'usage windows not readable here',
     }))
-    const p = await panelState($)
-    if (p.view === 'usage' && Date.now() - p.usageAt > USAGE_EVERY_MS) await readUsage($)
   } catch (err) {
     await update($, panel, p => ({ ...p, updated: clock(), error: String(err).slice(0, 200) }))
   }
 }
 
-// usage-report.mjs takes a few seconds: read only for the Usage view, then every ten minutes at most
+function usageDue(p: PanelView): boolean {
+  return !p.usageAt || Date.now() - p.usageAt > USAGE_STALE_MS || (latestMerge !== '' && latestMerge !== p.usageMerge)
+}
+
+// usage-report.mjs --live --panel: current numbers from the transcripts (nothing written in the project), charts and
+// tables from one run of a few seconds; one at a time
 async function readUsage($: EngineInterface) {
-  try {
-    const root = await projectRoot($)
-    const tool = await toolPath($, 'usage-report.mjs')
-    const [tables, charts] = await Promise.all([
-      $.process.run(['node', tool], { cwd: root, timeoutMs: 60_000 }),
-      $.process.run(['node', tool, '--charts'], { cwd: root, timeoutMs: 60_000 }),
-    ])
-    if (tables.exitCode !== 0 || charts.exitCode !== 0) {
-      const failed = tables.exitCode !== 0 ? tables : charts
-      const why = errorLine(`${failed.stderr}\n${failed.stdout}`) || 'no usage report'
-      await update($, panel, p => ({ ...p, usageAt: Date.now(), usageError: why }))
-      return
+  if (usageInflight) return usageInflight
+  usageInflight = (async () => {
+    try {
+      const root = await projectRoot($)
+      const run = await $.process.run(['node', await toolPath($, 'usage-report.mjs'), '--live', '--panel'], { cwd: root, timeoutMs: 90_000 })
+      if (run.exitCode !== 0) {
+        const why = errorLine(`${run.stderr}\n${run.stdout}`) || 'no usage report'
+        await update($, panel, p => ({ ...p, usageAt: Date.now(), usageMerge: latestMerge, usageError: why }))
+        return
+      }
+      const r = JSON.parse(run.stdout) as { charts: UsageCharts; tables: string }
+      await update($, panel, p => ({
+        ...p, usageAt: Date.now(), usageMerge: latestMerge, usageError: '', usage: r.charts, usageMd: r.tables.trim(),
+      }))
+    } catch (err) {
+      await update($, panel, p => ({ ...p, usageAt: Date.now(), usageError: String(err).slice(0, 200) }))
+    } finally {
+      usageInflight = null
     }
-    const c = JSON.parse(charts.stdout) as Charts
-    await update($, panel, p => ({
-      ...p, usageAt: Date.now(), usageError: '', usageMd: tables.stdout.trim(), usageSvg: usageSvg(c),
-      usageTiles: c.tiles.map(t => `${t.label} ${t.value}`).join(' · '),
-    }))
-  } catch (err) {
-    await update($, panel, p => ({ ...p, usageAt: Date.now(), usageError: String(err).slice(0, 200) }))
-  }
+  })()
+  return usageInflight
+}
+
+// The minute timer starts once per load: it reads every minute while the panel is open, and every few minutes for the
+// band while it is hidden.
+function startTicking($: EngineInterface) {
+  if (ticking) return
+  ticking = true
+  $.clock.every(EVERY_MS, () => {
+    isOpen($).then(async open => {
+      if (open) return refresh($)
+      if ((await read($, band)) && Date.now() - lastRead > HIDDEN_EVERY_MS) return refresh($)
+    }).catch(() => undefined)
+  })
+}
+
+async function toggle($: EngineInterface) {
+  if (await isOpen($)) return $.ui.close({ id: PANE })
+  startTicking($)
+  await refresh($)
+  await show($, (await read($, panel)).view)
 }
 
 async function show($: EngineInterface, view: PanelView['view']) {
   await update($, panel, p => ({ ...p, view }))
   // the graph and the usage charts want a wide dock; a width the person dragged wins
   await $.ui.open({ id: PANE, title: TITLE, ...(view === 'text' ? {} : { columns: WIDE }) })
-  if (view === 'usage') {
-    const p = await panelState($)
-    if (!p.usageMd || Date.now() - p.usageAt > USAGE_EVERY_MS) await readUsage($)
-  }
+  if (view === 'usage' && usageDue(await panelState($))) await readUsage($)
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    // the band, and its slow reads, only in a stareso project's own folder
+    const cwd = await $.session.cwd()
+    if (await $.fs.exists(`${cwd}/docs/ROADMAP.md`).catch(() => false)) {
+      await update($, band, () => true)
+      startTicking($)
+      void refresh($).catch(() => undefined)
+    }
     await $.command.register({
       name: 'stareso-panel',
       description: 'Live stareso status beside the chat: opens or hides it (optional: a project folder, or graph, usage, brief)',
@@ -227,16 +268,10 @@ export const register: Register = on => {
     }
     if (arg && !views[arg]) {
       await $.store.set('project', arg)
-      await update($, panel, p => ({ ...p, root: arg, usageMd: '', usageSvg: '', usageAt: 0 }))
+      await update($, panel, p => ({ ...p, root: arg, selected: '', usage: null, usageMd: '', usageAt: 0, usageError: '' }))
       seen = null
     }
-    // the minute timer starts with the first opening, and reads only while the panel is open
-    if (!ticking) {
-      ticking = true
-      $.clock.every(EVERY_MS, () => {
-        isOpen($).then(open => (open ? refresh($) : undefined)).catch(() => undefined)
-      })
-    }
+    startTicking($)
     await refresh($)
     await show($, views[arg] ?? (await read($, panel)).view)
     const p = await panelState($)
@@ -248,10 +283,8 @@ export const register: Register = on => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button, Code } = ui
     const p = await panelState($)
-    const canDraw = 'Svg' in ui && e.surface !== 'terminal'
-    const Svg = (ui as { Svg?: typeof ui.Box }).Svg
-    const Markdown = (ui as { Markdown?: typeof ui.Box }).Markdown
-    const width = Math.min(1000, Math.max(320, Math.round((e.props.bodyColumns ?? 80) * 7.2)))
+    const cols = Math.max(48, e.props.bodyColumns ?? 80)
+    const act: Act = fn => () => void update($, panel, fn).catch(() => undefined)
     const tab = (view: PanelView['view'], label: string) => (
       <Button key={`view-${view}`} variant={p.view === view ? 'primary' : 'secondary'} onPress={() => void show($, view).catch(() => undefined)}>{label}</Button>
     )
@@ -261,74 +294,428 @@ export const register: Register = on => {
         <Box flexDirection="row" gap={1}>
           <Text bold>{p.project || 'stareso'}</Text>
           <Text dimColor>{p.updated ? `updated ${p.updated}` : 'reading…'}</Text>
-          <Button key="refresh" onPress={() => void refresh($).catch(() => undefined)}>Refresh</Button>
+          <Button key="refresh" onPress={() => void refresh($, true).catch(() => undefined)}>Refresh</Button>
+          <Button key="hide" role="dismiss" dimColor onPress={() => void $.ui.close({ id: PANE }).catch(() => undefined)}>Hide</Button>
         </Box>
         <Box flexDirection="row" gap={1}>
           {tab('text', 'Brief')}
-          {canDraw && tab('graph', 'Graph')}
+          {tab('graph', 'Graph')}
           {tab('usage', 'Usage')}
         </Box>
-        {p.error !== '' && <Text color="red">{p.error}</Text>}
-        {p.view === 'graph' && canDraw && Svg && p.svg !== '' && <Svg source={p.svg} alt="Build progress graph" width={width} height={heightAt(p.svg, width)} isInteractive />}
-        {(p.view === 'text' || (p.view === 'graph' && !canDraw)) && p.brief !== '' && <Code source={p.brief} language="text" />}
-        {p.view === 'usage' && p.usageError !== '' && <Text color="red">{p.usageError}</Text>}
-        {p.view === 'usage' && p.usageError === '' && p.usageMd === '' && <Text dimColor>reading the usage report…</Text>}
-        {p.view === 'usage' && p.usageTiles !== '' && <Text bold>{p.usageTiles}</Text>}
-        {p.view === 'usage' && canDraw && Svg && p.usageSvg !== '' && <Svg source={p.usageSvg} alt="Usage charts" width={width} height={heightAt(p.usageSvg, width)} />}
-        {p.view === 'usage' && p.usageMd !== '' && (Markdown ? <Markdown text={p.usageMd} /> : <Code source={p.usageMd} language="markdown" />)}
+        {p.error !== '' && <Text color="error">{p.error}</Text>}
+        {p.view === 'text' && p.brief !== '' && <Code source={p.brief} language="text" />}
+        {p.view === 'graph' && (p.graph ? graphView(ui, p, p.graph, act) : <Text dimColor>reading the graph…</Text>)}
+        {p.view === 'usage' && usageView(ui, p, cols, act)}
         {p.view !== 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
+      </Box>
+    )
+  })
+
+  // the band above the prompt: a one-line status and the button that opens or hides the panel (one label for both: the
+  // band does not hear the pane's own close control)
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const p = await panelState($)
+    if (e.props.hasSurvey || !((await read($, band)) || p.root)) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const g = p.graph
+    const count = (state: SliceState) => (g ? Object.values(g.slices).filter(s => s.state === state).length : 0)
+    const left = g ? Object.values(g.slices).filter(s => s.state !== 'done').length : 0
+    const status = g
+      ? [`${count('running')} running`, `${left} left`, count('ready') ? `${count('ready')} could start` : '', count('you') ? `${count('you')} for you` : '', g.allDone ? `all done ≈ ${g.allDone}` : '']
+        .filter(Boolean).join(' · ')
+      : p.error ? 'not read' : 'reading…'
+    return (
+      <Box flexDirection="row" gap={1}>
+        <Text bold>{`stareso${p.project ? ` ${p.project}` : ''}`}</Text>
+        <Text dimColor>{status}</Text>
+        <Button key="toggle-panel" dimColor onPress={() => void toggle($).catch(() => undefined)}>Panel</Button>
       </Box>
     )
   })
 }
 
-// Two bar charts from usage-report --charts: the share of the cost by step type, and ≈ equiv per slice by milestone
-// (with the reference slice cost as a dashed line). Light and dark from the page's own color scheme.
-function usageSvg(c: Charts): string {
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-  const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(Math.round(n)))
-  const X0 = 120, BAR = 380, ROW = 22
-  const out: string[] = []
-  let y = 20
-  const title = (t: string) => { out.push(`<text class="h" x="20" y="${y}">${esc(t)}</text>`); y += 14 }
-  title('Share of the workflow cost by step type')
-  for (const s of c.shareByType) {
-    const w = Math.max(2, (BAR * s.share) / 100)
-    out.push(`<text class="l" x="${X0 - 8}" y="${y + 12}" text-anchor="end">${esc(s.type)}</text><rect class="b" x="${X0}" y="${y + 2}" width="${w}" height="14" rx="3"/><text class="v" x="${X0 + w + 6}" y="${y + 12}">${s.share} % · ${fmt(s.equiv)}</text>`)
-    y += ROW
-  }
-  y += 18
-  const ms = c.milestones.filter(m => m.equivPerSlice != null)
-  if (ms.length) {
-    title('≈ equiv per slice, by milestone (the step that merged it)')
-    const ref = c.referencePerSlice?.equiv ?? 0
-    const max = Math.max(ref, ...ms.map(m => m.equivPerSlice ?? 0)) || 1
-    const top = y
-    for (const m of ms) {
-      const w = Math.max(2, (BAR * (m.equivPerSlice ?? 0)) / max)
-      out.push(`<text class="l" x="${X0 - 8}" y="${y + 12}" text-anchor="end">${esc(m.id)}</text><rect class="b2" x="${X0}" y="${y + 2}" width="${w}" height="14" rx="3"/><text class="v" x="${X0 + w + 6}" y="${y + 12}">${fmt(m.equivPerSlice ?? 0)}</text>`)
-      y += ROW
-    }
-    if (ref) {
-      const x = X0 + (BAR * ref) / max
-      out.push(`<line class="r" x1="${x}" y1="${top}" x2="${x}" y2="${y}"/><text class="l" x="${x + 4}" y="${y + 12}">reference ${fmt(ref)} (${esc(c.referencePerSlice?.label ?? '')})</text>`)
-      y += 18
-    }
-  }
-  const style = `<style>
-:root{--t:#2c2c2a;--s:#5f5e5a;--b:#1D9E75;--b2:#7F77DD;--r:#888780}
-@media (prefers-color-scheme:dark){:root{--t:#f1efe8;--s:#b4b2a9;--b:#5DCAA5;--b2:#AFA9EC;--r:#B4B2A9}}
-text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.h{font-size:13px;font-weight:500;fill:var(--t)}
-.l,.v{font-size:12px;fill:var(--s)}.b{fill:var(--b)}.b2{fill:var(--b2)}.r{stroke:var(--r);stroke-dasharray:4 3}
-</style>`
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="680" viewBox="0 0 680 ${y + 10}" role="img"><title>Usage</title>${style}${out.join('')}</svg>`
+// ---------- the graph: one row of slices per milestone; hover a slice for its line, press it for its card ----------
+
+const STATE: Record<SliceState, { color: string; label: string; mark: string }> = {
+  done: { color: 'success', label: 'done', mark: '■' },
+  running: { color: 'warning', label: 'running', mark: '▶' },
+  ready: { color: 'suggestion', label: 'could start now', mark: '■' },
+  you: { color: 'permission', label: 'waits on you', mark: '■' },
+  waiting: { color: 'inactive', label: 'waiting', mark: '□' },
 }
 
-// The height of an SVG drawn at this width, from its viewBox: progress-graph's SVG says width="100%" and no height, so
-// the frame would otherwise fall back to its small default height and shrink the graph to fit it
-function heightAt(svg: string, width: number): number | undefined {
-  const m = /viewBox="[\d.-]+ [\d.-]+ ([\d.]+) ([\d.]+)"/.exec(svg)
-  return m ? Math.round((width * Number(m[2])) / Number(m[1])) : undefined
+function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
+  const { Box, Text, Button } = ui
+  const pick = (id: string) => act(q => ({ ...q, selected: q.selected === id ? '' : id }))
+  const lanes = [...(p.showFinished ? g.finished : []), ...g.lanes]
+  const ids = lanes.flatMap(l => l.slices).filter(id => g.slices[id])
+  const of = (state: SliceState) => Object.entries(g.slices).filter(([, s]) => s.state === state).map(([id]) => id)
+  const sel = p.selected
+  const selSlice = g.slices[sel] as PanelSlice | undefined
+  const selLane = [...g.lanes, ...g.finished].find(l => l.id === sel)
+
+  const cell = (id: string) => {
+    const s = g.slices[id]
+    if (!s) return null
+    const filled = s.state !== 'waiting'
+    const linked = !!selSlice && (selSlice.after.includes(id) || s.after.includes(sel))
+    const label = ` ${(id.split('.')[1] ?? id).replace(/^tidy$/, 't').padStart(2)} `
+    return (
+      <Button key={`s:${id}`} plain hover={{ scope: `g:${id}`, bold: true }} onPress={pick(id)}>
+        <Text mono {...(filled ? { backgroundColor: STATE[s.state].color, color: 'inverseText' } : { color: 'inactive' })}
+          {...(id === sel ? { inverse: true, bold: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
+      </Button>
+    )
+  }
+  const laneRow = (l: PanelLane) => (
+    <Box flexDirection="row" gap={1}>
+      <Button key={`l:${l.id}`} plain onPress={pick(l.id)}><Text mono bold {...(l.id === sel ? { inverse: true } : {})}>{l.id.padEnd(4)}</Text></Button>
+      <Text mono dimColor>{`${l.done}/${l.total}`.padEnd(6)}</Text>
+      <Box flexDirection="row" flexWrap="wrap" flexShrink={1}>{l.slices.filter(id => g.slices[id]).map(cell)}</Box>
+      {l.eta !== '' && <Text dimColor>{l.eta}</Text>}
+    </Box>
+  )
+  const chips = (where: string, list: string[]) => list.map(id => (
+    <Button key={`${where}:${id}`} plain onPress={pick(id)}>
+      <Text color={STATE[g.slices[id]?.state ?? 'waiting'].color}>{STATE[g.slices[id]?.state ?? 'waiting'].mark} </Text>{id}
+    </Button>
+  ))
+  const chipRow = (label: string, where: string, list: string[]) => list.length > 0 && (
+    <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+      <Text dimColor>{label}</Text>
+      {chips(where, list)}
+    </Box>
+  )
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+        <Text>{g.mode}</Text>
+        {g.allDone && <Text bold>{`all done ≈ ${g.allDone}`}</Text>}
+      </Box>
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+        {(Object.keys(STATE) as SliceState[]).map(k => <Text color={STATE[k].color}>{`${STATE[k].mark} ${STATE[k].label}`}</Text>)}
+      </Box>
+      <Box flexDirection="column">
+        {lanes.map(laneRow)}
+        {g.finished.length > 0 && (
+          <Box flexDirection="row" marginTop={1}>
+            <Button key="finished" dimColor onPress={act(q => ({ ...q, showFinished: !q.showFinished }))}>
+              {p.showFinished ? 'Hide the finished milestones' : `Show the ${g.finished.length} finished milestones`}
+            </Button>
+          </Box>
+        )}
+        {ids.map(id => (
+          <Box display="none" hover={{ scope: `g:${id}`, display: 'flex' }}>
+            <Text wrap="truncate-end">{`${id} · ${g.slices[id]?.title ?? ''} · ${stateLine(g, id)}`}</Text>
+          </Box>
+        ))}
+      </Box>
+      {selSlice && sliceCard(ui, g, sel, act, chips)}
+      {!selSlice && selLane && laneCard(ui, g, selLane, act)}
+      {chipRow('Running', 'run', of('running'))}
+      {chipRow('Could start now', 'ready', of('ready'))}
+      {chipRow('For you', 'you', of('you').filter(id => !g.finished.some(l => l.slices.includes(id))))}
+      {g.pace && <Text dimColor>{g.pace}</Text>}
+    </Box>
+  )
+}
+
+// what a slice is doing, in one line
+function stateLine(g: PanelGraph, id: string): string {
+  const s = g.slices[id]
+  if (!s) return ''
+  const eta = s.eta ? ` · ETA ≈ ${s.eta}` : ''
+  if (s.state === 'done') return 'done'
+  if (s.state === 'running') return `running since ${s.started ?? '?'} (${s.minutes ?? '?'} min)${eta}`
+  if (s.state === 'ready') return `could start now${eta}`
+  if (s.state === 'you') return s.question ? `waits on your answer: ${s.question}` : 'waits on you'
+  const open = s.after.filter(a => g.slices[a] && g.slices[a].state !== 'done')
+  return `${open.length ? `waits on ${open.join(', ')}` : 'waits for a helper'}${eta}`
+}
+
+function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: string, list: string[]) => RenderElement[]) {
+  const { Box, Text, Button } = ui
+  const s = g.slices[id]
+  if (!s) return null
+  const unblocks = Object.entries(g.slices).filter(([, x]) => x.after.includes(id)).map(([k]) => k)
+  return (
+    <Box flexDirection="column" borderStyle="round" paddingX={1}>
+      <Text bold>{`${id} · ${s.title}`}</Text>
+      <Text color={STATE[s.state].color}>{stateLine(g, id)}</Text>
+      {s.branch && <Text dimColor>{`on ${s.branch}`}</Text>}
+      <Text dimColor>{[s.ms, s.model, s.opus ? 'an Opus slice, the costly ones' : ''].filter(Boolean).join(' · ')}</Text>
+      {s.after.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>needs</Text>{chips('needs', s.after.filter(a => g.slices[a]))}</Box>}
+      {unblocks.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>unblocks</Text>{chips('unblocks', unblocks)}</Box>}
+      <Box flexDirection="row"><Button key="close-card" dimColor onPress={act(q => ({ ...q, selected: '' }))}>Close</Button></Box>
+    </Box>
+  )
+}
+
+function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act) {
+  const { Box, Text, Button } = ui
+  const count = (state: SliceState) => l.slices.filter(id => g.slices[id]?.state === state).length
+  return (
+    <Box flexDirection="column" borderStyle="round" paddingX={1}>
+      <Text bold>{`${l.id} · ${l.title}`}</Text>
+      <Text>{`${l.done} of ${l.total} done${l.eta ? ` · ${l.eta}` : ''}`}</Text>
+      <Text dimColor>{(['running', 'ready', 'you', 'waiting'] as const).filter(k => count(k)).map(k => `${count(k)} ${STATE[k].label}`).join(' · ') || 'every slice done'}</Text>
+      <Box flexDirection="row"><Button key="close-card" dimColor onPress={act(q => ({ ...q, selected: '' }))}>Close</Button></Box>
+    </Box>
+  )
+}
+
+// ---------- usage: the plan windows, then the tiles and the six charts of the stareso-usage skill ----------
+
+const KIND: Record<string, string> = {
+  build: 'suggestion', test: 'success', improve: 'claude', chat: 'warning', 'status & retro': 'inactive', status: 'inactive', retro: 'inactive', usage: 'inactive',
+}
+const TIER: Record<string, string> = { light: 'success', standard: 'suggestion', strong: 'claude' }
+const BUILT: Record<string, string> = { helpers: 'suggestion', chat: 'warning' }
+const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
+
+function fmt(n: number | null | undefined): string {
+  return n == null || isNaN(n) ? 'n/a' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(Math.round(n))
+}
+
+// a bar of `cells` cells at most, to the eighth of a cell
+function bar(v: number, max: number, cells: number): string {
+  const e = max > 0 ? Math.round((Math.max(0, v) / max) * cells * 8) : 0
+  const s = '█'.repeat(Math.floor(e / 8)) + EIGHTHS[e % 8]
+  return v > 0 && !s ? '▏' : s
+}
+
+// the rest of a track after `used` cells, with a ┆ at each mark the bar has not reached
+function rest(used: number, cells: number, marks: number[] = []): string {
+  return Array.from({ length: Math.max(0, cells - used) }, (_, i) => (marks.includes(used + i) ? '┆' : ' ')).join('')
+}
+
+function usageView(ui: UI, p: PanelView, cols: number, act: Act) {
+  const { Box, Text, Button, Markdown } = ui
+  const c = p.usage
+  const L = 9, V = 22
+  const n = Math.max(12, cols - L - V - 4)
+  return (
+    <Box flexDirection="column" gap={1}>
+      {windowsView(ui, p.windows, n, L)}
+      {p.usageError !== '' && <Text color="error">{p.usageError}</Text>}
+      {!c && p.usageError === '' && <Text dimColor>reading the usage report… (a few seconds)</Text>}
+      {c && (
+        <Box flexDirection="column" gap={1}>
+          <Text dimColor>{`read ${clock(p.usageAt)}, from the transcripts as they are now · ${c.unit}`}</Text>
+          <Box flexDirection="row" flexWrap="wrap" gap={1}>
+            {c.tiles.map(t => (
+              <Box flexDirection="column" borderStyle="round" paddingX={1}>
+                <Text dimColor size="caption">{t.label}</Text>
+                <Text bold size="heading">{t.value}</Text>
+              </Box>
+            ))}
+          </Box>
+          {chart(ui, '1. Share of the workflow cost by step type', 'Where the tokens go: build should lead; a large chat bar is work done outside the steps.',
+            c.shareByType.map((t, i) => ({
+              scope: `u1:${i}`, label: t.type, segs: [{ text: bar(t.share, Math.max(...c.shareByType.map(x => x.share)), n), color: KIND[t.type] ?? 'inactive' }],
+              value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns`,
+            })), L, n)}
+          {cumulativeChart(ui, c, n, L)}
+          {milestoneChart(ui, c, n, L)}
+          {sessionChart(ui, c, n, L)}
+          {scatterChart(ui, c, cols)}
+          {chart(ui, '6. Conductor against helpers, per step that merged slices', 'A launched build should be mostly helpers; a bar all conductor is a chat or a test that built itself.',
+            c.conductorVsHelpers.filter(b => b.conductor != null || b.helpers != null).map((b, i, all) => {
+              const max = Math.max(...all.map(x => (x.conductor ?? 0) + (x.helpers ?? 0)))
+              const cs = bar(b.conductor ?? 0, max, n)
+              const hs = bar(b.helpers ?? 0, max, n)
+              const total = (b.conductor ?? 0) + (b.helpers ?? 0)
+              return {
+                scope: `u6:${i}`, label: `#${b.session}`, segs: [{ text: cs, color: 'warning' }, { text: hs, color: 'suggestion' }],
+                value: `${b.merged} slices · ${total ? Math.round((100 * (b.conductor ?? 0)) / total) : 0} %`,
+                detail: `#${b.session} ${b.type} ${b.date}: conductor ${fmt(b.conductor)}, helpers ${fmt(b.helpers)} (${b.helperCount} helpers), ${b.merged} slices merged`,
+              }
+            }), L, n, [{ text: '█ conductor', color: 'warning' }, { text: '█ helpers', color: 'suggestion' }, { text: 'value: slices merged · conductor share (target under 50 %)' }])}
+          <Box flexDirection="row">
+            <Button key="tables" dimColor onPress={act(q => ({ ...q, showTables: !q.showTables }))}>{p.showTables ? 'Hide the tables' : 'Show the tables'}</Button>
+          </Box>
+          {p.showTables && p.usageMd !== '' && <Markdown text={p.usageMd} />}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+type Row = { scope: string; label: string; segs: Seg[]; value: string; detail: string; marks?: number[]; valueColor?: string }
+
+// one chart of horizontal bars: label, bar (segments), value; hovering a row reveals its detail line under the chart
+function chart(ui: UI, title: string, caption: string, rows: Row[], L: number, n: number, legend: Seg[] = []) {
+  const { Box, Text } = ui
+  if (!rows.length) return null
+  return (
+    <Box flexDirection="column">
+      <Text bold>{title}</Text>
+      <Text dimColor>{caption}</Text>
+      {rows.map(r => {
+        const used = r.segs.reduce((k, s) => k + s.text.length, 0)
+        return (
+          <Box flexDirection="row" hover={{ scope: r.scope }}>
+            <Text mono hover={{ scope: r.scope, underline: true }}>{r.label.slice(0, L).padEnd(L)}</Text>
+            {r.segs.filter(s => s.text !== '').map(s => <Text mono {...(s.color ? { color: s.color } : {})}>{s.text}</Text>)}
+            <Text mono dimColor>{rest(used, n, r.marks)}</Text>
+            <Text mono {...(r.valueColor ? { color: r.valueColor } : { dimColor: true })}>{` ${r.value}`}</Text>
+          </Box>
+        )
+      })}
+      {legend.length > 0 && (
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          {legend.map(s => <Text {...(s.color ? { color: s.color } : { dimColor: true })}>{s.text}</Text>)}
+        </Box>
+      )}
+      {rows.map(r => <Box display="none" hover={{ scope: r.scope, display: 'flex' }}><Text>{r.detail}</Text></Box>)}
+    </Box>
+  )
+}
+
+// the plan's 5-hour and weekly windows from the minute reads, with the stop caps as ┆ marks
+function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number) {
+  const { Box, Text } = ui
+  const rows = ([['5-hour', windows?.five], ['weekly', windows?.week]] as const).filter(([, w]) => w)
+  if (!rows.length) return null
+  return (
+    <Box flexDirection="column">
+      <Text bold>Plan usage now</Text>
+      {rows.map(([name, w]) => {
+        const win = w!
+        const used = bar(win.pct, 100, n)
+        const marks = win.reach.map(r => Math.round((r.cap / 100) * n))
+        const near = win.reach.some(r => r.at === 'reached')
+        return (
+          <Box flexDirection="column">
+            <Box flexDirection="row">
+              <Text mono>{name.padEnd(L)}</Text>
+              <Text mono color={near ? 'error' : 'suggestion'}>{used}</Text>
+              <Text mono dimColor>{rest(used.length, n, marks)}</Text>
+              <Text mono>{` ${win.pct} %${win.ratePerHour != null ? ` +${win.ratePerHour} %/h` : ''}`}</Text>
+            </Box>
+            <Text dimColor>{`${' '.repeat(L)}${[...win.reach.map(r => `${r.name} cap ${r.cap} % ${r.at === 'reached' ? 'reached' : r.at ? `at about ${r.at}` : 'not before the reset'}`), `resets ${win.resets}`].join(' · ')}`}</Text>
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
+// 2. the running total of each step type at the end of each day, stacked (the stacked variant of the skill's chart 2)
+function cumulativeChart(ui: UI, c: UsageCharts, n: number, L: number) {
+  const pts = [...c.cumulative.points].sort((a, b) => a.day - b.day)
+  if (!pts.length) return null
+  const total = (q: { [key: string]: number }) => c.cumulative.kinds.reduce((k, kind) => k + (q[kind] ?? 0), 0)
+  const max = Math.max(...pts.map(total))
+  // the tool's days run to the day after the last step: stop at today
+  const today = new Date()
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const days = c.cumulative.days.filter(d => d.date <= iso).map(d => ({ d, q: [...pts].reverse().find(q => q.day < d.day + 1) })).filter(x => x.q).slice(-14)
+  const rows: Row[] = days.map(({ d, q }, i) => {
+    const segs = c.cumulative.kinds.map(kind => ({ text: '█'.repeat(Math.round(((q![kind] ?? 0) / max) * n)), color: KIND[kind] ?? 'inactive' }))
+    return {
+      scope: `u2:${i}`, label: d.date.slice(5), segs, value: `${total(q!).toFixed(1)}M`,
+      detail: `${d.date}, total so far: ${c.cumulative.kinds.map(k => `${k} ${(q![k] ?? 0).toFixed(1)}M`).join(' · ')}`,
+    }
+  })
+  return chart(ui, '2. Cumulative cost by step type, at the end of each day', 'A row that grows a lot is a day of big steps; the colours show which type made it (≈ equiv, millions).',
+    rows, L, n, c.cumulative.kinds.map(k => ({ text: `█ ${k}`, color: KIND[k] ?? 'inactive' })))
+}
+
+// 3. cost per slice by milestone, coloured by who built it, with the reference slice cost as a ┆ mark
+function milestoneChart(ui: UI, c: UsageCharts, n: number, L: number) {
+  const ref = c.referencePerSlice?.equiv ?? 0
+  const max = Math.max(ref, ...c.milestones.map(m => m.equivPerSlice ?? 0))
+  const mark = ref ? [Math.round((ref / max) * n)] : []
+  // the reference as a row of its own too: the ┆ mark hides under bars that pass it
+  const refRow: Row[] = ref ? [{
+    scope: 'u3:ref', label: 'ref', segs: [{ text: bar(ref, max, n), color: 'inactive' }], value: fmt(ref),
+    detail: `reference: ${c.referencePerSlice!.label}, ${fmt(ref)} per slice`,
+  }] : []
+  const rows: Row[] = c.milestones.map((m, i) => ({
+    scope: `u3:${i}`, label: m.id, segs: [{ text: m.equivPerSlice == null ? '' : bar(m.equivPerSlice, max, n), color: BUILT[m.built] ?? 'claude' }],
+    value: m.equivPerSlice == null ? 'no transcript' : fmt(m.equivPerSlice), marks: mark,
+    detail: `${m.id}: ${fmt(m.equivPerSlice)} per slice, built by ${m.built}, measured ${m.measured}, ${m.slices} slices`,
+  }))
+  return chart(ui, '3. Cost per slice by milestone', 'Launched builds should sit near the reference; chat-built milestones sit far above it.', [...refRow, ...rows], L, n,
+    [{ text: '█ helpers', color: 'suggestion' }, { text: '█ chat', color: 'warning' }, { text: '█ mixed', color: 'claude' },
+      ...(ref ? [{ text: `ref: ${c.referencePerSlice!.label}` }] : [])])
+}
+
+// 4. context per turn by session (cache read ÷ turns), red past 300 turns, with the base of a launched session marked
+function sessionChart(ui: UI, c: UsageCharts, n: number, L: number) {
+  const list = c.sessions.filter(s => s.ctx != null).slice(-30)
+  const BASE = 100e3
+  const max = Math.max(BASE, ...list.map(s => s.ctx ?? 0))
+  const baseRow: Row = { scope: 'u4:base', label: 'base', segs: [{ text: bar(BASE, max, n), color: 'inactive' }], value: fmt(BASE), detail: 'a launched session re-reads about 100k per turn' }
+  const rows: Row[] = [baseRow, ...list.map((s, i) => ({
+    scope: `u4:${i}`, label: `#${s.n}`, segs: [{ text: bar(s.ctx ?? 0, max, n), color: s.over300 ? 'error' : 'suggestion' }],
+    value: `${fmt(s.ctx)} · ${s.turns} turns`, marks: [Math.round((BASE / max) * n)], ...(s.over300 ? { valueColor: 'error' } : {}),
+    detail: `#${s.n} ${s.date}: ${fmt(s.ctx)} re-read per turn, ${s.turns} turns, ${fmt(s.equiv)} ≈ equiv, ${s.helpers} helpers${s.over300 ? ': should have been split' : ''}`,
+  }))]
+  return chart(ui, '4. Context per turn by session', 'Launched sessions sit near the base; long mixed sessions climb past 200k. Red: over 300 turns.', rows, L, n,
+    [{ text: 'base: a launched session, 100k' }, { text: '█ over 300 turns', color: 'error' }])
+}
+
+// 5. helper tokens against lines changed, one point per slice, both scales logarithmic; hover a point for its slices
+function scatterChart(ui: UI, c: UsageCharts, cols: number) {
+  const { Box, Text } = ui
+  const pts = c.slices.filter(s => s.tokens > 0 && s.lines > 0)
+  if (!pts.length) return null
+  const W = Math.max(24, Math.min(80, cols - 10)), H = 10
+  const lx = pts.map(s => Math.log10(s.lines)), ly = pts.map(s => Math.log10(s.tokens))
+  const [x0, x1, y0, y1] = [Math.min(...lx), Math.max(...lx), Math.min(...ly), Math.max(...ly)]
+  const xi = (v: number) => Math.min(W - 1, Math.max(0, x1 > x0 ? Math.round(((Math.log10(v) - x0) / (x1 - x0)) * (W - 1)) : 0))
+  const yi = (v: number) => H - 1 - Math.min(H - 1, Math.max(0, y1 > y0 ? Math.round(((Math.log10(v) - y0) / (y1 - y0)) * (H - 1)) : 0))
+  type Cell = { list: typeof pts; median?: string }
+  const grid = new Map<string, Cell>()
+  for (const s of pts) {
+    const k = `${xi(s.lines)},${yi(s.tokens)}`
+    grid.set(k, { list: [...(grid.get(k)?.list ?? []), s] })
+  }
+  for (const m of c.tierMedians) {
+    if (m.tokens == null || m.lines == null) continue
+    const k = `${xi(m.lines)},${yi(m.tokens)}`
+    if (!grid.has(k)) grid.set(k, { list: [], median: m.tier })
+  }
+  const glyph = (cell: Cell): Seg => cell.median ? { text: '+', color: TIER[cell.median] ?? 'inactive' }
+    : cell.list.some(s => s.outlier) ? { text: '◉', color: 'error' } : { text: cell.list.length > 1 ? '◆' : '●', color: TIER[cell.list[0]?.tier ?? ''] ?? 'inactive' }
+  const yLabel = (y: number) => (y === 0 ? fmt(10 ** y1) : y === H - 1 ? fmt(10 ** y0) : '').padStart(6)
+  const rows = Array.from({ length: H }, (_, y) => {
+    const out: RenderElement[] = []
+    let blank = ''
+    for (let x = 0; x < W; x++) {
+      const cell = grid.get(`${x},${y}`)
+      if (!cell) { blank += ' '; continue }
+      if (blank) { out.push(<Text mono>{blank}</Text>); blank = '' }
+      const g = glyph(cell)
+      out.push(<Text mono color={g.color!} hover={{ scope: `u5:${x},${y}`, inverse: true }}>{g.text}</Text>)
+    }
+    if (blank) out.push(<Text mono>{blank}</Text>)
+    return <Box flexDirection="row"><Text mono dimColor>{`${yLabel(y)} │`}</Text>{out}</Box>
+  })
+  const cells = [...grid.entries()]
+  const minL = Math.round(10 ** x0), maxL = Math.round(10 ** x1)
+  return (
+    <Box flexDirection="column">
+      <Text bold>5. Helper tokens against lines changed, one point per slice</Text>
+      <Text dimColor>Both scales logarithmic. Compare a point with its own tier's cloud, never across tiers; a ringed point cost over twice its tier's median.</Text>
+      {rows}
+      <Text mono dimColor>{`${' '.repeat(6)} └${'─'.repeat(W)}`}</Text>
+      <Text mono dimColor>{`${' '.repeat(8)}${`${minL} lines`.padEnd(Math.max(0, W - String(maxL).length - 6))}${maxL} lines`}</Text>
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+        {c.tierMedians.map(m => <Text color={TIER[m.tier] ?? 'inactive'}>{`● ${m.tier} (${m.model}) median ${fmt(m.tokens)} · ${m.lines ?? 'n/a'} lines · ${fmt(m.per100)} per 100 lines`}</Text>)}
+        <Text color="error">◉ over twice its tier median</Text>
+        <Text dimColor>◆ several slices · + a tier median</Text>
+      </Box>
+      {cells.map(([k, cell]) => (
+        <Box display="none" hover={{ scope: `u5:${k}`, display: 'flex' }}>
+          <Text>{cell.median ? `${cell.median} median` : cell.list.slice(0, 4).map(s => `${s.id} ${s.tier} ${fmt(s.tokens)} tokens, ${s.lines} lines${s.outlier ? ' (outlier)' : ''}`).join(' · ') + (cell.list.length > 4 ? ` · ${cell.list.length - 4} more` : '')}</Text>
+        </Box>
+      ))}
+    </Box>
+  )
 }
 
 // minutes from now to "HH:MM" (today, or tomorrow when it is earlier than now)

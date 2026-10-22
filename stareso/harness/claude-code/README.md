@@ -18,9 +18,13 @@ The workflow was built and measured on Claude Code, so every capability here is 
 
 ## The live status panel (plugin `stareso-status`)
 
-`plugins/` is a local plugin marketplace (`plugins/.claude-plugin/marketplace.json`) holding one Claude Code plugin, `stareso-status`: a panel beside the chat that shows the status brief of a project and refreshes it every minute while it is open, with no model call. It runs `progress-graph.mjs --panel` (and `usage-report.mjs` for the Usage view), reads the app's 5-hour and weekly windows when the app allows it, and raises toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage cap comes within 15 minutes.
+`plugins/` is a local plugin marketplace (`plugins/.claude-plugin/marketplace.json`) holding one Claude Code plugin, `stareso-status`: a panel beside the chat that shows the status of a project and refreshes it every minute while it is open, with no model call. It runs `progress-graph.mjs --panel`, reads the app's 5-hour and weekly windows when the app allows it, and raises toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage cap comes within 15 minutes. Everything is drawn with Claude Code's own elements, so the terminal draws it as well as the desktop app.
 
-- `/stareso-panel` opens the panel, or hides it when it is open. `/stareso-panel <project folder>` opens it on a project, remembered across sessions. `/stareso-panel graph`, `usage` or `brief` opens it on that view, and the buttons switch views.
+- **Brief** is the status brief as text, with a start time and an ETA for each running helper.
+- **Graph** gives one row of slices per milestone, coloured by state (done, running, could start now, waits on you, waiting). Hovering a slice gives its line, and pressing it opens its card with its state, branch, model, the slices it needs and the ones it unblocks, each pressable in turn. A milestone's name opens its own card. Under the rows, the running slices, the ones that could start now and the ones that wait on you are listed as chips, and the finished milestones can be shown again.
+- **Usage** gives the plan windows with the stop caps, then the four tiles and the six charts of `/stareso-usage`, from `usage-report.mjs --live --panel`: numbers read from the transcripts as they are now, with nothing written in the project. Hovering a row gives its detail under its chart, and the tables are one button away. The report is read again while the view is open once it is five minutes old or a slice has merged, and the Refresh button reads it at once.
+- In a session whose folder is a stareso project, a band above the prompt gives the helpers running, the slices left and the ETA, with a **Panel** button that opens or hides the panel. While the panel is hidden, that status is read again every five minutes at most. The panel has its own Hide button.
+- `/stareso-panel` opens the panel, or hides it when it is open. `/stareso-panel <project folder>` opens it on a project, remembered across sessions, and a side session that starts outside the project reads the last project any session read. `/stareso-panel graph`, `usage` or `brief` opens it on that view, and the buttons switch views.
 - Graph and Usage ask for a wide dock (110 columns), and a width the person dragged wins.
 - It exists only where Claude Code draws panels (desktop app, terminal, IDE extensions). Outside Claude Code, the same graph is `progress-graph.mjs --write` (an HTML page, or an Artifact).
 
@@ -31,7 +35,7 @@ claude plugin marketplace add ~/.claude/stareso/harness/claude-code/plugins
 claude plugin install stareso-status@stareso
 ```
 
-The plugin is read from this folder itself: after an edit (or a `git pull`), `/reload-plugins` in a session picks it up, with no reinstall. `claude plugin validate` and `claude plugin test` in `plugins/` check it (six tests in `hooks/register.test.tsx`).
+The plugin is read from this folder itself: after an edit (or a `git pull`), `/reload-plugins` in a session picks it up, with no reinstall. `claude plugin validate` and `claude plugin test` in `plugins/` check it (seven tests in `hooks/register.test.tsx`).
 
 ## Install on a new machine
 1. Clone the `stareso-workflow` repository as `~/.claude` (or copy `skills/stareso-*`, `agents/stareso-*` and `stareso/` into it).

@@ -6,22 +6,32 @@
 //   node usage-report.mjs --json     the same numbers as JSON
 //   node usage-report.mjs --charts   ready-made chart series as JSON (share by step type, cumulative cost, cost per slice
 //                                    by milestone, context per turn by session, tokens against lines by tier)
+//   node usage-report.mjs --panel    the chart series and the markdown tables in one JSON line, for the status panel
+//   --live                           reads the numbers from `session-stats --log --dry-run` instead of docs/USAGE.md,
+//                                    so they are current and nothing is written in the project
 //
-// Run `session-stats --log` first so USAGE.md is fresh. Numbers only: no paths, no names, no prompts.
+// Run `session-stats --log` first so USAGE.md is fresh (or pass --live). Numbers only: no paths, no names, no prompts.
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { findRoot, milestones } from "./lib/roadmap.mjs";
 
 const argv = process.argv.slice(2);
 const ALL = argv.includes("--all");
 const JSON_OUT = argv.includes("--json");
 const CHARTS = argv.includes("--charts");
+const PANEL = argv.includes("--panel");
+const LIVE = argv.includes("--live");
 const MAX_MILESTONES = 30;
 
 const root = findRoot();
 const read = (rel) => (fs.existsSync(path.join(root, rel)) ? fs.readFileSync(path.join(root, rel), "utf8") : "");
-const usage = read("docs/USAGE.md");
+const liveBlock = () => {
+  const block = execFileSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "session-stats.mjs"), "--log", "--dry-run"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 << 20 });
+  return `<!-- usage:start -->\n${block}\n<!-- usage:end -->`;
+};
+const usage = LIVE ? liveBlock() : read("docs/USAGE.md");
 if (!usage.includes("<!-- usage:start -->")) {
   console.error("docs/USAGE.md has no usage block: run `node ~/.claude/stareso/tools/session-stats.mjs --log` first.");
   process.exit(1);
@@ -237,7 +247,8 @@ const report = { firstInit, workflowTotal, steps: stepList, slices: sliceList, t
 if (JSON_OUT) { console.log(JSON.stringify(report, null, 1)); process.exit(0); }
 
 // ---------- chart series: everything a chart needs, so the report step copies and never reshapes
-if (CHARTS) {
+let charts = null;
+if (CHARTS || PANEL) {
   const day0 = new Date((firstInit ? localDate(firstInit) : sessions[0].date) + "T00:00");
   const dayOf = (d) => Math.round(((d - day0) / 864e5) * 100) / 100;
   const dateOfDay = (n) => { const d = new Date(day0); d.setDate(d.getDate() + n); return localDate(d); };
@@ -251,7 +262,7 @@ if (CHARTS) {
   }
   const lastDay = Math.ceil(cumulative.at(-1)?.day || 1);
   const tierMed = Object.fromEntries(tierRows.map((t) => [t.tier, t.medianTokens]));
-  const charts = {
+  charts = {
     unit: "≈ equiv = cache read × 0.1 + cache write × 1.25 + output × 5 (frozen weights, not money)",
     tiles: (() => {
       const beforeEquiv = sum(steps.filter(before).map((s) => s.equiv));
@@ -272,8 +283,7 @@ if (CHARTS) {
     slices: sliceEff.filter((x) => x.lines != null).map((x) => ({ id: x.id, tier: x.tier, tokens: x.tokens, lines: x.lines, outlier: x.tokens > 2 * tierMed[x.tier] })),
     tierMedians: tierRows.map((t) => ({ tier: t.tier, model: t.model, tokens: t.medianTokens, lines: t.medianLines, per100: t.per100 })),
   };
-  console.log(JSON.stringify(charts));
-  process.exit(0);
+  if (CHARTS) { console.log(JSON.stringify(charts)); process.exit(0); }
 }
 
 // ---------- markdown
@@ -314,4 +324,6 @@ out.push(md(["Round", "Started", "Session", "Slices planned", "≈ equiv", "Per 
   r.name, r.date, r.session, r.planned, fmt(r.equiv), fmt(r.perPlanned), r.carried,
 ])));
 
-console.log(out.join("\n"));
+// the panel takes the chart series and the tables from one run (the git reads take a few seconds)
+if (PANEL) console.log(JSON.stringify({ charts, tables: out.join("\n") }));
+else console.log(out.join("\n"));
