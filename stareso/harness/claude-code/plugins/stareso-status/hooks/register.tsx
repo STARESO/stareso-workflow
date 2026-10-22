@@ -1,6 +1,6 @@
 // Live stareso status: a pane beside the chat that runs ~/.claude/stareso/tools/progress-graph.mjs every minute while
-// it is open and draws its brief (aligned columns, slices in the colour of their state, the chats computing in the
-// project), its graph (one row of slices per milestone, to hover and press) or the
+// it is open and draws its progress (the brief's context, one row of slices per milestone in the colour of their
+// state to hover and press, the running helpers, the chats computing in the project, the pace, what waits) or the
 // project's usage (the plan windows, then the tiles and six charts of the stareso-usage skill from usage-report.mjs
 // --live), with toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage
 // cap comes within 15 minutes. Everything is drawn with the surface's own elements, so the terminal draws it too.
@@ -8,7 +8,7 @@
 //
 //   /stareso-panel                 opens the panel, or hides it when it is open
 //   /stareso-panel <folder>        opens it on that project (remembered across sessions)
-//   /stareso-panel graph | usage | brief   opens it on that view
+//   /stareso-panel progress | usage   opens it on that view (graph and brief open Progress)
 //   /stareso-panel dashboard       starts ~/.claude/stareso/tools/dashboard.mjs for the project (the Chart.js charts of
 //                                  /stareso-usage and the progress graph, refreshing itself) and opens it in the side browser
 import { atom, read, update } from 'claude-code'
@@ -23,7 +23,7 @@ const EVERY_MS = 60_000
 const USAGE_STALE_MS = 5 * 60_000
 const WIDE = 110
 const EMPTY: PanelView = {
-  project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'text', selected: '',
+  project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'graph', selected: '',
   showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [],
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
@@ -277,8 +277,8 @@ async function openDashboard($: EngineInterface): Promise<string> {
 
 async function show($: EngineInterface, view: PanelView['view']) {
   await update($, panel, p => ({ ...p, view }))
-  // the graph and the usage charts want a wide dock; a width the person dragged wins
-  await $.ui.open({ id: PANE, title: TITLE, ...(view === 'text' ? {} : { columns: WIDE }) })
+  // the usage charts want a wide dock (Progress is laid out for a narrow one); a width the person dragged wins
+  await $.ui.open({ id: PANE, title: TITLE, ...(view === 'usage' ? { columns: WIDE } : {}) })
   if (view === 'usage' && usageDue(await panelState($))) await readUsage($)
 }
 
@@ -286,8 +286,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'stareso-panel',
-      description: 'Live stareso status beside the chat: opens or hides it (optional: a project folder, graph, usage, brief, or dashboard)',
-      argumentHint: '[project folder | graph | usage | brief | dashboard]',
+      description: 'Live stareso status beside the chat: opens or hides it (optional: a project folder, progress, usage, or dashboard)',
+      argumentHint: '[project folder | progress | usage | dashboard]',
     })
 
     return next(e)
@@ -295,7 +295,7 @@ export const register: Register = on => {
 
   on('command.run', { command: 'stareso-panel' }, async ($, e) => {
     const arg = (e.args ?? '').trim().replace(/^"|"$/g, '')
-    const views: Record<string, PanelView['view']> = { graph: 'graph', usage: 'usage', brief: 'text', text: 'text' }
+    const views: Record<string, PanelView['view']> = { progress: 'graph', graph: 'graph', brief: 'graph', text: 'graph', usage: 'usage' }
     if (arg === 'dashboard') return { text: `stareso ${await openDashboard($)}` }
     if (!arg && (await isOpen($))) {
       await $.ui.close({ id: PANE })
@@ -320,8 +320,9 @@ export const register: Register = on => {
     const p = await panelState($)
     const cols = Math.max(48, e.props.bodyColumns ?? 80)
     const act: Act = fn => () => void update($, panel, fn).catch(() => undefined)
+    // the Brief and Graph tabs are one Progress tab: an older 'text' view reads as it
     const tab = (view: PanelView['view'], label: string) => (
-      <Button key={`view-${view}`} variant={p.view === view ? 'primary' : 'secondary'} onPress={() => void show($, view).catch(() => undefined)}>{label}</Button>
+      <Button key={`view-${view}`} variant={(p.view === 'usage') === (view === 'usage') ? 'primary' : 'secondary'} onPress={() => void show($, view).catch(() => undefined)}>{label}</Button>
     )
 
     return (
@@ -334,13 +335,11 @@ export const register: Register = on => {
           <Button key="hide" role="dismiss" dimColor onPress={() => void $.ui.close({ id: PANE }).catch(() => undefined)}>Hide</Button>
         </Box>
         <Box flexDirection="row" gap={1}>
-          {tab('text', 'Brief')}
-          {tab('graph', 'Graph')}
+          {tab('graph', 'Progress')}
           {tab('usage', 'Usage')}
         </Box>
         {p.error !== '' && <Text color="error">{p.error}</Text>}
-        {p.view === 'text' && (p.graph ? briefView(ui, p, p.graph, cols) : p.brief !== '' && <Code source={p.brief} language="text" />)}
-        {p.view === 'graph' && (p.graph ? graphView(ui, p, p.graph, act) : <Text dimColor>reading the graph…</Text>)}
+        {p.view !== 'usage' && (p.graph ? progressView(ui, p, p.graph, act) : p.brief !== '' ? <Code source={p.brief} language="text" /> : <Text dimColor>reading…</Text>)}
         {/* a desktop's monospaced face runs wider than the pane's columns: the charts keep a margin so no row overflows */}
         {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.85), act)}
         {p.view === 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
@@ -352,8 +351,9 @@ export const register: Register = on => {
 const STATE: Record<SliceState, { color: string; label: string; mark: string }> = {
   done: { color: 'success', label: 'done', mark: '■' },
   running: { color: 'warning', label: 'running', mark: '▶' },
-  ready: { color: 'suggestion', label: 'could start now', mark: '■' },
-  you: { color: 'permission', label: 'waits on you', mark: '■' },
+  // teal and purple: the theme's two blues for these looked alike on the desktop
+  ready: { color: 'planMode', label: 'could start now', mark: '■' },
+  you: { color: 'merged', label: 'waits on you', mark: '■' },
   waiting: { color: 'inactive', label: 'waiting', mark: '□' },
 }
 
@@ -398,98 +398,6 @@ function heading(ui: UI, name: string, head = '') {
   )
 }
 
-// Laid out for a narrow dock: fixed columns for the short values (milestone, count), every longer text cut
-// at the edge rather than wrapped, one face per column, and a two-line card per helper instead of a wide table. The
-// plan windows are left to the Usage tab.
-function briefView(ui: UI, p: PanelView, g: PanelGraph, cols: number) {
-  const { Box, Text } = ui
-  const sec = sections(p.brief)
-  const progress = sec.get('Progress')?.lines ?? []
-  const idW = Math.max(3, ...g.lanes.map(l => l.id.length)) + 2
-  const cntW = Math.max(4, ...g.lanes.map(l => `${l.done}/${l.total}`.length)) + 2
-  const sqW = Math.min(Math.max(1, ...g.lanes.map(l => l.slices.length)), Math.max(6, cols - idW - cntW - 14))
-  // what follows the squares: the milestone's ETA, or for a human or queue lane the brief's own words
-  const tail = (l: PanelLane) => (l.block ? (progress.find(x => x.startsWith(`${l.id} `))?.replace(/^\S+\s+\d+\/\d+\s+/, '') ?? '') : l.eta)
-  // one glyph for every state, the colour telling them apart: ▶ and ■ are not the same width in every face
-  const runs = (l: PanelLane) => {
-    const out: { state: SliceState; n: number }[] = []
-    for (const id of l.slices.filter(x => g.slices[x]).slice(0, sqW)) {
-      const state = g.slices[id]?.state ?? 'waiting'
-      const last = out.at(-1)
-      if (last?.state === state) last.n += 1
-      else out.push({ state, n: 1 })
-    }
-    return out
-  }
-  const glyph = (state: SliceState) => (state === 'waiting' ? '□' : '■')
-  const finished = progress.find(x => x.includes('every slice done'))?.replace(/\s*·\s*every slice done$/, '')
-  const used = new Set(Object.values(g.slices).map(s => s.state))
-  const running = Object.entries(g.slices).filter(([, s]) => s.state === 'running')
-    .sort(([, a], [, b]) => (a.started ?? '').localeCompare(b.started ?? ''))
-  const etaStyle = (t: string) => (t === 'waits on you' ? { color: STATE.you.color } : t.startsWith('≈') ? {} : { dimColor: true })
-  // the header line without the project's name, which the panel's own header already gives
-  const header = (p.brief.split('\n')[0] ?? '').split(' · ').filter((x, i) => i > 0 || x !== p.project).join(' · ')
-
-  return (
-    <Box flexDirection="column" gap={1}>
-      <Text dimColor size="footnote">{header}</Text>
-
-      <Box flexDirection="column">
-        {heading(ui, 'Progress')}
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          {(Object.keys(STATE) as SliceState[]).filter(k => used.has(k)).map(k => (
-            <Text size="footnote"><Text color={STATE[k].color}>{glyph(k)}</Text>{` ${STATE[k].label}`}</Text>
-          ))}
-        </Box>
-        {g.lanes.map(l => {
-          const t = tail(l)
-          return (
-            <Box flexDirection="row">
-              <Box width={idW} flexShrink={0}><Text bold>{l.id}</Text></Box>
-              <Box width={cntW} flexShrink={0}><Text dimColor tabular>{`${l.done}/${l.total}`}</Text></Box>
-              <Box width={sqW + 2} flexShrink={0}>
-                <Text mono>{runs(l).map(r => <Text color={STATE[r.state].color}>{glyph(r.state).repeat(r.n)}</Text>)}</Text>
-              </Box>
-              <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end" tabular {...etaStyle(t)}>{t}</Text></Box>
-            </Box>
-          )
-        })}
-        {finished && <Text dimColor wrap="truncate-end"><Text color={STATE.done.color}>{'✓ '}</Text>{`${finished} finished`}</Text>}
-      </Box>
-
-      <Box flexDirection="column">
-        {heading(ui, 'Helpers', sec.get('Helpers')?.head)}
-        {running.map(([id, s]) => (
-          <Box flexDirection="column">
-            <Box flexDirection="row">
-              <Box width={idW + cntW} flexShrink={0}><Text bold color={STATE.running.color}>{id}</Text></Box>
-              <Box flexShrink={1}><Text wrap="truncate-end">{s.title}</Text></Box>
-            </Box>
-            <Box marginLeft={idW + cntW}>
-              <Text dimColor tabular wrap="truncate-end">
-                {[s.model, s.started ? `since ${s.started}` : '', s.minutes != null ? `${s.minutes} min` : '', s.eta ? `ETA ≈ ${s.eta}` : ''].filter(Boolean).join(' · ')}
-              </Text>
-            </Box>
-          </Box>
-        ))}
-      </Box>
-
-      {chatsView(ui, p.chats ?? [], idW + cntW)}
-
-      {(['Pace', 'Waits for you', 'Could start now'] as const).map(name => {
-        const s = sec.get(name)
-        if (!s) return null
-        return (
-          <Box flexDirection="column">
-            {heading(ui, name, s.head)}
-            {s.lines.map((x, i) => sliceText(ui, g, x, i > 0 ? { dimColor: true } : {}))}
-          </Box>
-        )
-      })}
-    </Box>
-  )
-}
-
 // the chats working in the project now, outside the roadmap: for information only
 function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
   const { Box, Text } = ui
@@ -507,25 +415,39 @@ function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
   )
 }
 
-// ---------- the graph: one row of slices per milestone, each number in the colour of its state; hover a slice for
-// its line, press a milestone for its slices and a slice there (or in a chip row) for its card ----------
+// ---------- progress: the brief's context and sections around the graph, laid out for a narrow dock ----------
+//
+// One row of slice numbers per milestone, each number in the colour of its state, its title on a dim line under it;
+// hover a number for the slice's line, press a milestone for its card (its slices, each pressable). Then the running
+// helpers folded to one line each (press one for its card), the chats computing outside the roadmap, the pace and
+// what waits for the person. Numbers sit in one monospaced Text per lane: plain Text, not a Button (a desktop draws a
+// Button natively and drops the colour inside it), and not a Box per number (a desktop spaces and wraps the boxes).
 
-function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
+function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const { Box, Text, Button } = ui
   const pick = (id: string) => act(q => ({ ...q, selected: q.selected === id ? '' : id }))
+  const sec = sections(p.brief)
+  const progress = sec.get('Progress')?.lines ?? []
   const lanes = [...(p.showFinished ? g.finished : []), ...g.lanes]
   const ids = lanes.flatMap(l => l.slices).filter(id => g.slices[id])
-  const of = (state: SliceState) => Object.entries(g.slices).filter(([, s]) => s.state === state).map(([id]) => id)
   const sel = p.selected
   const selSlice = g.slices[sel] as PanelSlice | undefined
   const selLane = [...g.lanes, ...g.finished].find(l => l.id === sel)
+  const running = Object.entries(g.slices).filter(([, s]) => s.state === 'running')
+    .sort(([, a], [, b]) => (a.started ?? '').localeCompare(b.started ?? ''))
 
-  // one monospaced Text per lane, each number a nested Text in the colour of its state: plain Text, not a Button (a
-  // desktop draws a Button natively and drops the colour inside it), and not a Box per number (a desktop spaces and
-  // wraps the boxes); the lane's columns have fixed widths and its ETA is cut at the edge rather than wrapped
   const idW = Math.max(3, ...lanes.map(l => l.id.length)) + 2
   const cntW = Math.max(4, ...lanes.map(l => `${l.done}/${l.total}`.length)) + 2
   const cellsW = 3 * Math.max(1, ...lanes.map(l => l.slices.length)) + 1
+  const indent = idW + cntW
+  // after the numbers: the milestone's ETA, or for a human or queue lane the brief's own words ("9 for you · …")
+  const tail = (l: PanelLane) => (l.block ? (progress.find(x => x.startsWith(`${l.id} `))?.replace(/^\S+\s+\d+\/\d+\s+/, '') ?? '') : l.eta)
+  const tailStyle = (t: string) => (t === 'waits on you' ? { color: STATE.you.color } : t.startsWith('≈') ? {} : { dimColor: true })
+  // the head line without the project's name, which the panel's own header gives
+  const header = (p.brief.split('\n')[0] ?? '').split(' · ').filter((x, i) => i > 0 || x !== p.project).join(' · ')
+  const finished = progress.find(x => x.includes('every slice done'))?.replace(/\s*·\s*every slice done$/, '')
+  const used = new Set(Object.values(g.slices).map(s => s.state))
+
   const cell = (id: string) => {
     const s = g.slices[id]
     if (!s) return null
@@ -536,66 +458,93 @@ function graphView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
         {...(id === sel ? { inverse: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
     )
   }
-  const laneRow = (l: PanelLane) => (
-    <Box flexDirection="row">
-      <Box width={idW} flexShrink={0}>
-        <Button key={`l:${l.id}`} plain onPress={pick(l.id)}><Text bold {...(l.id === sel ? { inverse: true } : {})}>{l.id}</Text></Button>
+  const lane = (l: PanelLane) => {
+    const t = tail(l)
+    return (
+      <Box flexDirection="column">
+        <Box flexDirection="row">
+          <Box width={idW} flexShrink={0}>
+            <Button key={`l:${l.id}`} plain onPress={pick(l.id)}><Text bold {...(l.id === sel ? { inverse: true } : {})}>{l.id}</Text></Button>
+          </Box>
+          <Box width={cntW} flexShrink={0}><Text dimColor tabular>{`${l.done}/${l.total}`}</Text></Box>
+          <Box width={cellsW} flexShrink={0}><Text mono>{l.slices.filter(id => g.slices[id]).map(cell)}</Text></Box>
+          <Box flexGrow={1} flexShrink={1}><Text tabular wrap="truncate-end" {...tailStyle(t)}>{t}</Text></Box>
+        </Box>
+        <Box marginLeft={indent}><Text dimColor size="footnote" wrap="truncate-end">{l.title}</Text></Box>
       </Box>
-      <Box width={cntW} flexShrink={0}><Text dimColor tabular>{`${l.done}/${l.total}`}</Text></Box>
-      <Box width={cellsW} flexShrink={0}><Text mono>{l.slices.filter(id => g.slices[id]).map(cell)}</Text></Box>
-      <Box flexGrow={1} flexShrink={1}><Text dimColor tabular wrap="truncate-end">{l.eta}</Text></Box>
-    </Box>
-  )
-  // the coloured mark beside the Button, for the same reason
+    )
+  }
+  // a slice id to press, its coloured mark beside the Button for the same reason as the numbers
   const chips = (where: string, list: string[]) => list.map(id => (
     <Box flexDirection="row">
       <Text color={STATE[g.slices[id]?.state ?? 'waiting'].color}>{`${STATE[g.slices[id]?.state ?? 'waiting'].mark} `}</Text>
       <Button key={`${where}:${id}`} plain onPress={pick(id)}>{id}</Button>
     </Box>
   ))
-  const chipRow = (label: string, where: string, list: string[]) => list.length > 0 && (
-    <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-      <Text dimColor>{label}</Text>
-      {chips(where, list)}
+  // a running helper folded to one line: mark, slice (press for its card), title, ETA
+  const helper = ([id, s]: [string, PanelSlice]) => (
+    <Box flexDirection="row">
+      <Box width={2} flexShrink={0}><Text color={STATE.running.color}>{STATE.running.mark}</Text></Box>
+      <Box width={indent - 2} flexShrink={0}><Button key={`h:${id}`} plain onPress={pick(id)}>{id}</Button></Box>
+      <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end">{s.title}</Text></Box>
+      {s.eta && <Box flexShrink={0} marginLeft={1}><Text dimColor tabular>{`≈ ${s.eta}`}</Text></Box>}
     </Box>
   )
+  const card = selSlice ? sliceCard(ui, g, sel, act, chips) : selLane ? laneCard(ui, g, selLane, act, pick) : null
 
   return (
     <Box flexDirection="column" gap={1}>
-      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-        <Text>{g.mode}</Text>
-        {g.allDone && <Text bold>{`all done ≈ ${g.allDone}`}</Text>}
-      </Box>
-      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-        {(Object.keys(STATE) as SliceState[]).map(k => <Text color={STATE[k].color}>{`${STATE[k].mark} ${STATE[k].label}`}</Text>)}
-      </Box>
       <Box flexDirection="column">
-        {lanes.map(laneRow)}
-        {g.finished.length > 0 && (
-          <Box flexDirection="row" marginTop={1}>
-            <Button key="finished" dimColor onPress={act(q => ({ ...q, showFinished: !q.showFinished }))}>
-              {p.showFinished ? 'Hide the finished milestones' : `Show the ${g.finished.length} finished milestones`}
-            </Button>
-          </Box>
-        )}
+        <Text dimColor size="footnote">{header}</Text>
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          <Text>{g.mode}</Text>
+          {g.allDone && <Text bold>{`all done ≈ ${g.allDone}`}</Text>}
+        </Box>
+      </Box>
+
+      <Box flexDirection="column">
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
+          {(Object.keys(STATE) as SliceState[]).filter(k => used.has(k)).map(k => (
+            <Text size="footnote"><Text color={STATE[k].color}>{STATE[k].mark}</Text>{` ${STATE[k].label}`}</Text>
+          ))}
+        </Box>
+        {lanes.map(lane)}
         {ids.map(id => (
           <Box display="none" hover={{ scope: `g:${id}`, display: 'flex' }}>
             <Text wrap="truncate-end">{`${id} · ${g.slices[id]?.title ?? ''} · ${stateLine(g, id)}`}</Text>
           </Box>
         ))}
+        {g.finished.length > 0 && (
+          <Box flexDirection="row" columnGap={1} marginTop={1}>
+            <Box flexShrink={1}>
+              <Text dimColor size="footnote" wrap="truncate-end"><Text color={STATE.done.color}>{'✓ '}</Text>{`${finished ?? g.finished.map(l => l.id).join(', ')} finished`}</Text>
+            </Box>
+            <Button key="finished" dimColor onPress={act(q => ({ ...q, showFinished: !q.showFinished }))}>{p.showFinished ? 'Hide' : 'Show'}</Button>
+          </Box>
+        )}
       </Box>
-      {selSlice && sliceCard(ui, g, sel, act, chips)}
-      {!selSlice && selLane && laneCard(ui, g, selLane, act, pick)}
-      {chipRow('Running', 'run', of('running'))}
-      {(p.chats ?? []).length > 0 && (
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          <Text dimColor>Chats computing</Text>
-          {(p.chats ?? []).map(c => <Text><Text color="claude">◐ </Text>{c.title}</Text>)}
+      {card && selSlice?.state !== 'running' && card}
+
+      {running.length > 0 && (
+        <Box flexDirection="column">
+          {heading(ui, 'Helpers', sec.get('Helpers')?.head)}
+          {running.map(helper)}
         </Box>
       )}
-      {chipRow('Could start now', 'ready', of('ready'))}
-      {chipRow('For you', 'you', of('you').filter(id => !g.finished.some(l => l.slices.includes(id))))}
-      {g.pace && <Text dimColor>{g.pace}</Text>}
+      {selSlice?.state === 'running' && card}
+
+      {chatsView(ui, p.chats ?? [], indent)}
+
+      {(['Pace', 'Waits for you'] as const).map(name => {
+        const s = sec.get(name)
+        if (!s) return null
+        return (
+          <Box flexDirection="column">
+            {heading(ui, name, s.head)}
+            {s.lines.map((x, i) => sliceText(ui, g, x, i > 0 ? { dimColor: true } : {}))}
+          </Box>
+        )
+      })}
     </Box>
   )
 }

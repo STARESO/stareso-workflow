@@ -33,7 +33,7 @@ const SNAPSHOT = {
   usage: { five: { pct: 42, resets: '21:00', ratePerHour: 8, basis: 'last readings', reach: [{ name: 'pause', cap: 90, at: '19:10' }] }, week: null },
 }
 
-test('the panel draws the brief from the tool, on every surface', async ($, on) => {
+test('the panel draws the progress view from the tool, on every surface', async ($, on) => {
   on('command.register', () => ({ value: { command: 'stareso-panel' } }))
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))
@@ -54,14 +54,20 @@ test('the panel draws the brief from the tool, on every surface', async ($, on) 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /demo/ })).toBeTruthy()
-    // the brief drawn natively: a helper card in the running colour, the milestone's squares by state, its ETA
-    expect((await ui.find({ type: 'Text', text: /^M1\.2$/ }))?.props.color).toBe('warning')
-    expect(await ui.find({ type: 'Text', text: /^sonnet · since 16:55 · 5 min · ETA ≈ 17:30$/ })).toBeTruthy()
-    // the plan windows are left to the Usage tab
-    expect(await ui.find({ type: 'Text', text: /5-hour/ })).toBeFalsy()
-    expect((await ui.find({ type: 'Text', text: /^■$/ }))?.props.color).toBe('success')
+    // one Progress tab: the brief's context, the milestone's numbers by state with its ETA and its title, then the
+    // running helper folded to one line (its mark in the running colour), its card a press away
+    expect(await ui.find({ type: 'Text', text: /^Phase: build$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^≈ 19:00$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^First steps$/ })).toBeTruthy()
+    expect((await ui.find({ type: 'Text', text: /^▶$/ }))?.props.color).toBe('warning')
     expect(await ui.find({ type: 'Text', text: /^Second step$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^running since/ })).toBeFalsy()
+    await ui.press({ key: 'h:M1.2' })
+    expect((await ui.find({ type: 'Text', text: /^running since/ }))?.text).toContain('16:55')
+    await ui.press({ key: 'close-card' })
+    // the plan windows are left to the Usage tab, the Brief and Graph tabs are one
+    expect(await ui.find({ type: 'Text', text: /5-hour/ })).toBeFalsy()
+    expect(await ui.find({ type: 'Button', key: 'view-text' })).toBeFalsy()
     await ui.unmount()
   }
 })
@@ -167,7 +173,7 @@ test('the same command hides an open panel', async ($, on) => {
   expect(ran.text).toContain('hidden')
 })
 
-test('the graph view draws a row per milestone, a pressed milestone lists its slices, and a pressed slice opens its card', async ($, on) => {
+test('the progress view draws a row per milestone, a pressed milestone lists its slices, and a pressed slice opens its card', async ($, on) => {
   engine(on, false)
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'stareso-panel', args: 'graph' })
@@ -212,7 +218,7 @@ test('the usage view draws the plan windows, the tiles and the six charts', asyn
   }
 })
 
-test('the brief lists the chats working in the project, outside the roadmap', async ($, on) => {
+test('the progress view lists the chats working in the project, outside the roadmap', async ($, on) => {
   engine(on, false, [
     { title: 'Build all open milestones (fast)', cwd: '\\work\\demo\\', isRunning: true, lastActivityAt: '2026-10-22T17:09:11.264Z' },
     { title: 'Side question', cwd: '/work/demo/.claude/worktrees/x', isRunning: true },
