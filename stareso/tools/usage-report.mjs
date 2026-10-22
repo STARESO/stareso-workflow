@@ -175,7 +175,7 @@ const typeRows = [...types.values()].sort((a, b) => (a.type === "before the work
 // ---------- build records: one event per slice
 const log = builds.filter((e) => e.type === "slice").map((e) => ({
   id: e.id, title: e.title, time: new Date(e.t.replace(" ", "T")), milestone: e.id.split(".")[0], model: e.model, tier: e.tier, result: e.result,
-  tokens: e.tokens || null, inline: e.inline, profile: e.profile || "", note: e.note || "",
+  tokens: e.tokens || null, inline: e.inline, profile: e.profile || "", note: e.note || "", helperEquiv: e.usage?.equiv ?? null,
 }));
 
 // ---------- merges, with the lines they changed outside docs/: kept in the build records, else from git (one diff per merge)
@@ -364,10 +364,10 @@ out.push(md(["Round", "Started", "Session", "Slices planned", "≈ equiv", "Per 
 // migrated projects: this table is where it is read now)
 if (PANEL) {
   const shown = ALL ? log : log.slice(-MAX_BUILDS);
-  out.push(`\n**7. Builds** (${shown.length === log.length ? "every slice" : `the ${shown.length} most recent of ${log.length}`}, newest first; lines changed outside docs/)\n`);
-  out.push(md(["Merged", "Slice", "Title", "Model", "Tier", "Result", "Helper tokens", "Lines", "Profile", "Note"], [...shown].reverse().map((x) => {
+  out.push(`\n**7. Builds** (${shown.length === log.length ? "every slice" : `the ${shown.length} most recent of ${log.length}`}, newest first; helper tokens as reported, helper ≈ equiv measured from its transcript since 2026-10-22; lines changed outside docs/)\n`);
+  out.push(md(["Merged", "Slice", "Title", "Model", "Tier", "Result", "Helper tokens", "Helper ≈ equiv", "Lines", "Profile", "Note"], [...shown].reverse().map((x) => {
     const m = merges.find((y) => y.id === x.id);
-    return [localDate(x.time) + " " + x.time.toTimeString().slice(0, 5), x.id, x.title, x.model, x.tier, x.result, x.inline ? "in chat" : fmt(x.tokens), m?.lines ?? "n/a", x.profile, x.note.replace(/\|/g, "/")];
+    return [localDate(x.time) + " " + x.time.toTimeString().slice(0, 5), x.id, x.title, x.model, x.tier, x.result, x.inline ? "in chat" : fmt(x.tokens), x.helperEquiv == null ? "" : fmt(x.helperEquiv), m?.lines ?? "n/a", x.profile, x.note.replace(/\|/g, "/")];
   })));
   console.log(JSON.stringify({ charts, tables: out.join("\n") }));
 }

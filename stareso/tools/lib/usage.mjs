@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { execSync } from "node:child_process";
-import { logLine, readBuilds, readSessions } from "./records.mjs";
+import { GLOBAL_DATA, logLine, readBuilds, readSessions } from "./records.mjs";
 
 const PROJECTS = path.join(os.homedir(), ".claude", "projects");
 
@@ -175,31 +175,83 @@ export function transcriptDirs(root) {
 const isWorkflowSession = (s, dirName) => /workflow-review|retro/.test(s.kinds?.[0] || "") || /workflow-review|stareso-retro|workflow-improvement/.test(dirName);
 const strip = (s) => ({ id: s.id, first: s.first, last: s.last, kind: s.kind, kinds: s.kinds, user: s.user, assistant: s.assistant, active: s.active, compactions: s.compactions, usage: s.usage, models: s.models, byModel: s.byModel, launchTs: s.launchTs, launches: s.launches });
 
-// Every session entry of the project: { id, s, steps, h, inWorktree, wf, gone }. Live: read from the transcripts, the
-// records adding the sessions whose transcript is gone (archiving or clearing a session deletes it). Not live: the
-// records only (sessions.jsonl, or docs/usage-sessions.json in an unmigrated project).
+// One session read from its transcript and its helpers' (null when it has no assistant turn).
+async function sessionEntry(file, hFiles, d, slug) {
+  const s = await summarise(file);
+  if (!s.assistant) return null;
+  const helpers = [];
+  for (const hf of hFiles) helpers.push(await summarise(hf));
+  const h = helpers.reduce((a, x) => { a.n++; a.out += x.usage.output; a.cr += x.usage.cache_read; a.cw += x.usage.cache_create; a.equiv += equiv(x.usage); for (const [m, n] of Object.entries(x.models)) a.models[m] = (a.models[m] || 0) + n; for (const [m, u] of Object.entries(x.byModel)) addKinds(a.byModel, m, u); return a; }, { n: 0, out: 0, cr: 0, cw: 0, equiv: 0, models: {}, byModel: {} });
+  const wf = isWorkflowSession(s, d);
+  // A session with no step mark (e.g. a review run in a worktree named for it) keeps the session's label.
+  const steps = splitSteps(s, helpers, wf ? "workflow review" : null);
+  return { id: s.id, s: strip(s), steps, h, inWorktree: d !== slug, wf };
+}
+
+// Per-machine cache of the session entries (numbers and step labels only, no prompt), keyed by the transcript files'
+// sizes and times, so a live read parses only the transcripts that grew. CACHE_VERSION changes with summarise or
+// splitSteps, which drops every old entry. The file is replaced in one rename: a panel and a dashboard may write at once.
+const CACHE_VERSION = 1;
+const CACHE_FILE = path.join(GLOBAL_DATA, "cache", "sessions.json");
+function readCache() {
+  let c = null;
+  try { c = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8")); } catch { /* first run */ }
+  return { version: CACHE_VERSION, sessions: c?.version === CACHE_VERSION && c.sessions ? c.sessions : {}, seen: new Set() };
+}
+function writeCache({ version, sessions }) {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    const tmp = `${CACHE_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ version, sessions }));
+    fs.renameSync(tmp, CACHE_FILE);
+  } catch { /* the cache is a convenience */ }
+}
+
+// Every session entry of the project: { id, s, steps, h, inWorktree, wf, gone, rescued }. Live: read from the
+// transcripts (through the cache), the cache and then the records adding the sessions whose transcript is gone
+// (archiving or clearing a session deletes it). `rescued` marks a gone session the records do not hold yet (or hold
+// in an older state), which `--log` saves. Not live: the records only (sessions.jsonl, or docs/usage-sessions.json).
 export async function collect(root, { live = true } = {}) {
   const stored = readSessions(root);
   const out = [];
   const seen = new Set();
   if (live) {
     const { slug, dirs } = transcriptDirs(root);
+    const cache = readCache();
+    let changed = false;
     for (const d of dirs) {
       const dir = path.join(PROJECTS, d);
       for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".jsonl"))) {
-        const s = await summarise(path.join(dir, f));
-        if (!s.assistant) continue;
-        const hDir = path.join(dir, s.id, "subagents");
-        const helpers = [];
-        if (fs.existsSync(hDir)) for (const hf of fs.readdirSync(hDir).filter((x) => x.endsWith(".jsonl"))) helpers.push(await summarise(path.join(hDir, hf)));
-        const h = helpers.reduce((a, x) => { a.n++; a.out += x.usage.output; a.cr += x.usage.cache_read; a.cw += x.usage.cache_create; a.equiv += equiv(x.usage); for (const [m, n] of Object.entries(x.models)) a.models[m] = (a.models[m] || 0) + n; for (const [m, u] of Object.entries(x.byModel)) addKinds(a.byModel, m, u); return a; }, { n: 0, out: 0, cr: 0, cw: 0, equiv: 0, models: {}, byModel: {} });
-        const wf = isWorkflowSession(s, d);
-        // A session with no step mark (e.g. a review run in a worktree named for it) keeps the session's label.
-        const steps = splitSteps(s, helpers, wf ? "workflow review" : null);
-        out.push({ id: s.id, s: strip(s), steps, h, inWorktree: d !== slug, wf });
-        seen.add(s.id);
+        const file = path.join(dir, f);
+        const hDir = path.join(dir, f.slice(0, -6), "subagents");
+        const hFiles = fs.existsSync(hDir) ? fs.readdirSync(hDir).filter((x) => x.endsWith(".jsonl")).sort().map((x) => path.join(hDir, x)) : [];
+        // a session is read again only when its transcript or one of its helpers' changed (size or time)
+        const key = [file, ...hFiles].map((x) => { const st = fs.statSync(x); return `${path.basename(x)}:${st.size}:${st.mtimeMs}`; }).join("|") + `|${d}`;
+        let entry = cache.sessions[file]?.key === key ? cache.sessions[file].entry : undefined;
+        if (entry === undefined) {
+          entry = await sessionEntry(file, hFiles, d, slug);
+          cache.sessions[file] = { key, entry };
+          changed = true;
+        }
+        cache.seen.add(file);
+        if (!entry) continue;
+        out.push(entry);
+        seen.add(entry.id);
       }
     }
+    // A session of this project whose transcript is gone (archived or cleared in the app) keeps its last reading here,
+    // so a session that any live read saw (the panel, the dashboard) is never lost before the next `--log` saves it.
+    for (const [file, c] of Object.entries(cache.sessions)) {
+      // this project's folders by name, even one the app removed with its last transcript
+      const folder = path.relative(PROJECTS, file).split(path.sep)[0];
+      if (cache.seen.has(file) || !c.entry || !(folder === slug || folder.startsWith(slug + "--claude-worktrees-"))) continue;
+      if (!c.gone) { c.gone = new Date().toISOString().slice(0, 10); changed = true; }
+      const s = stored[c.entry.id];
+      if (seen.has(c.entry.id) || (s?.s && s.s.last >= c.entry.s.last)) continue;
+      out.push({ ...c.entry, gone: true, rescued: true });
+      seen.add(c.entry.id);
+    }
+    if (changed) writeCache(cache);
   }
   // without reading the transcripts, a session is gone when its file is (a stat per session, nothing read)
   const { dirs } = live ? { dirs: [] } : transcriptDirs(root);
@@ -387,4 +439,43 @@ export function renderBlock(m) {
     "", ...glossary,
     "", `≈ equiv = cache read × 0.1 + cache write × 1.25 + output × 5, frozen weights between token kinds (a fixed exchange rate taken once from the standard tier's ratios, not money: they never follow prices), session and its helpers together. Forks of a session are counted once. Updated ${localIso(new Date()).slice(0, 16).replace("T", " ")}.`,
   ];
+}
+
+// The helpers that built one slice, measured from their own transcripts: every builder helper of the project whose
+// first message names the slice's branch (`branch slice/M7.3-…`; `slice/M7.tidy2` is not `slice/M7.tidy`). `context` is
+// the last turn's context, the figure a helper reports as its tokens; the kinds and ≈ equiv are what it consumed.
+// null when no transcript names the slice (built in chat, or the transcript is gone).
+export async function helperUsage(root, id) {
+  const { dirs } = transcriptDirs(root);
+  const branch = new RegExp(`slice/${id.split(".").join("[.]")}(?=[^\\w.]|$)`);
+  const files = [];
+  for (const d of dirs) {
+    const dir = path.join(PROJECTS, d);
+    for (const sess of fs.readdirSync(dir, { withFileTypes: true }).filter((x) => x.isDirectory())) {
+      const hDir = path.join(dir, sess.name, "subagents");
+      if (!fs.existsSync(hDir)) continue;
+      for (const f of fs.readdirSync(hDir).filter((x) => x.endsWith(".jsonl"))) {
+        const file = path.join(hDir, f);
+        let meta = {};
+        try { meta = JSON.parse(fs.readFileSync(file.replace(/\.jsonl$/, ".meta.json"), "utf8")); } catch { /* older transcripts have no meta */ }
+        if (meta.agentType && !/builder/.test(meta.agentType)) continue;
+        // the first message only (the brief): a sibling slice named later in the transcript is not this helper's
+        const fd = fs.openSync(file, "r"), b = Buffer.alloc(8192), n = fs.readSync(fd, b, 0, b.length, 0);
+        fs.closeSync(fd);
+        if (branch.test(b.toString("utf8", 0, n).split("\n")[0])) files.push(file);
+      }
+    }
+  }
+  if (!files.length) return null;
+  const u = { helpers: files.length, models: {}, turns: 0, input: 0, output: 0, cache_read: 0, cache_create: 0, context: 0, minutes: 0 };
+  for (const file of files) {
+    const s = await summarise(file);
+    for (const [m, n] of Object.entries(s.models)) u.models[short(m)] = (u.models[short(m)] || 0) + n;
+    u.turns += s.assistant; u.input += s.usage.input; u.output += s.usage.output; u.cache_read += s.usage.cache_read; u.cache_create += s.usage.cache_create;
+    const last = s.events.filter((e) => e.a && e.usage).at(-1)?.usage || {};
+    u.context = Math.max(u.context, (last.input_tokens || 0) + (last.cache_read_input_tokens || 0) + (last.cache_creation_input_tokens || 0) + (last.output_tokens || 0));
+    u.minutes += Math.round(s.active / 60e3);
+  }
+  u.equiv = Math.round(equiv(u));
+  return u;
 }

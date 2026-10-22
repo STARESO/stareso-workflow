@@ -27,13 +27,13 @@ function docsRoot() {
 async function logMode(dryRun) {
   const root = docsRoot();
   const entries = await collect(root, { live: true });
-  if (!entries.some((e) => !e.gone)) { console.error("No transcripts found for this project."); process.exit(1); }
+  if (!entries.length) { console.error("No transcripts found for this project."); process.exit(1); }
   const m = model(root, entries);
   const block = renderBlock(m);
   if (dryRun) { console.log(block.join("\n")); return; }
   const keep = ({ id, s, steps, h, inWorktree, wf, seeded }) => ({ id, s, steps, h, inWorktree, wf, ...(seeded ? { seeded } : {}) });
   if (migrated(root)) {
-    const changed = saveSessions(root, entries.filter((e) => !e.gone).map(keep));
+    const changed = saveSessions(root, entries.filter((e) => !e.gone || e.rescued).map(keep));
     console.log(`${m.rows.length} sessions (${m.wfRows.length} workflow), ≈ ${fmt(Math.round(m.totals.equiv))} · ${changed} line${changed === 1 ? "" : "s"} added to ${path.relative(root, sessionsFile(root)).replace(/\\/g, "/")}`);
     return;
   }
@@ -42,7 +42,7 @@ async function logMode(dryRun) {
   let cache = { version: 1, note: "Written by session-stats --log: per-session aggregates, numbers only. A session whose transcript was deleted keeps its last entry here (shown as transcript gone). Delete an entry to drop that session.", sessions: {} };
   try { const c = JSON.parse(fs.readFileSync(cacheFile, "utf8")); if (c && c.sessions) cache = c; } catch { /* first run */ }
   const loggedOn = new Date().toISOString().slice(0, 10);
-  for (const e of entries.filter((x) => !x.gone)) { const { id, ...rest } = keep(e); cache.sessions[id] = { ...rest, loggedOn }; }
+  for (const e of entries.filter((x) => !x.gone || x.rescued)) { const { id, ...rest } = keep(e); cache.sessions[id] = { ...rest, loggedOn }; }
   fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1) + "\n");
   const file = path.join(root, "docs", "USAGE.md");
   const START = "<!-- usage:start -->", END = "<!-- usage:end -->";

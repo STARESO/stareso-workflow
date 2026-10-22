@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findRoot, findSlice, readText, writeText, writeOverview, stamp, args } from "./lib/roadmap.mjs";
 import { appendJsonl, buildsFile, migrated, parseLogLine } from "./lib/records.mjs";
+import { fmt, helperUsage } from "./lib/usage.mjs";
 
 const a = args(process.argv.slice(2));
 const id = a._[0];
@@ -97,14 +98,18 @@ if (!tier) {
   }
 }
 const logFile = path.join(root, "docs", "BUILD-LOG.md");
-const model = a.model || "?", tokens = a.tokens ? `${a.tokens} tokens` : "tokens not shown", result = a.result || "ok";
+// The helper that built the slice, measured from its own transcript: kept beside the figure the conductor passes, and
+// standing in for it when none was passed, so a helper-built slice never logs "tokens not shown".
+const usage = branch === "none" ? null : await helperUsage(root, id).catch(() => null);
+const model = a.model || (usage ? Object.keys(usage.models)[0] : "?"), result = a.result || "ok";
+const tokens = a.tokens ? `${a.tokens} tokens` : usage ? `${usage.context} tokens` : "tokens not shown";
 const parts = [stamp(), `${id} ${slice.title}`, model, result, tokens];
 if (a.profile) parts.push(a.profile);
 parts.push(harness, helper, tier || "tier ?");
 if (a.note) parts.push(a.note);
 const line = "- " + parts.join(" · ");
 // A migrated project keeps one event per line in docs/data/builds.jsonl (its BUILD-LOG.md is frozen in the archive).
-if (migrated(root)) appendJsonl(buildsFile(root), [{ ...parseLogLine(line), merge }]);
+if (migrated(root)) appendJsonl(buildsFile(root), [{ ...parseLogLine(line), merge, ...(usage ? { usage } : {}) }]);
 else {
   const { lines, eol } = readText(logFile);
   while (lines.length && lines[lines.length - 1] === "") lines.pop();
@@ -118,4 +123,4 @@ if (!a["no-commit"]) {
   git("add", "docs");
   git("commit", "-q", "-m", `${id} done: roadmap, log${ideasFlipped ? ", ideas" : ""}${debtPaid ? ", debt" : ""}`);
 }
-console.log(`✓ ${id} ${slice.title} · ${model} · ${tokens}${ideasFlipped ? ` · ${ideasFlipped} idea(s) ✅` : ""}${debtPaid ? ` · ${debtPaid} debt line(s) paid` : ""}${overview ? "" : " · (no overview markers in ROADMAP.md)"}`);
+console.log(`✓ ${id} ${slice.title} · ${model} · ${tokens}${usage ? ` (measured: ${usage.turns} turns, ≈ ${fmt(usage.equiv)} equiv)` : ""}${ideasFlipped ? ` · ${ideasFlipped} idea(s) ✅` : ""}${debtPaid ? ` · ${debtPaid} debt line(s) paid` : ""}${overview ? "" : " · (no overview markers in ROADMAP.md)"}`);
