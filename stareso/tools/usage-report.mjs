@@ -36,7 +36,7 @@ const root = findRoot(opt.root ? path.resolve(opt.root) : process.cwd());
 const read = (rel) => (fs.existsSync(path.join(root, rel)) ? fs.readFileSync(path.join(root, rel), "utf8") : "");
 const MIGRATED = migrated(root);
 const builds = readBuilds(root);
-const lastRetro = () => { const m = [...(read("docs/RETROS.md") + "\n" + read("docs/USAGE.md")).matchAll(/^### Retro (\d{4}-\d\d-\d\d)[^\n]*/gm)].at(-1); return m ? m[0].replace(/^### /, "") : null; };
+const lastRetro = () => { const m = [...(read("docs/RETROS.md") + "\n" + read("docs/USAGE.md")).matchAll(/^### Retro (\d{4}-\d\d-\d\d)[^\r\n]*/gm)].at(-1); return m ? m[0].replace(/^### /, "") : null; };
 
 // ---------- number helpers
 // "204.4M" / "907k" / "41k" → tokens; "" → null.

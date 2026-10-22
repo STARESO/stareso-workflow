@@ -106,7 +106,7 @@ if (exists(readmeFile)) {
     "| `reports/` | Dated usage reports kept on request (`dashboard.mjs --write`, standalone HTML) | usage | usage |",
     "| `archive/` | Finished material kept for reference (the frozen `BUILD-LOG.md`) | tools | — |",
   ].filter((r) => !text.includes(r.slice(0, r.indexOf("|", 2))));
-  let lines = text.split(/\r?\n/).filter((l) => !/^\| `(BUILD-LOG|USAGE)\.md` \|/.test(l));
+  let lines = text.split(/\r?\n/).filter((l) => !/^\| `(BUILD-LOG\.md|USAGE\.md|usage-sessions\.json)` \|/.test(l));
   const at = lines.findIndex((l) => /^\| `README\.md` \|/.test(l));
   const last = at >= 0 ? at : lines.map((l) => l.startsWith("|")).lastIndexOf(true) + 1;
   lines.splice(last, 0, ...rows);
