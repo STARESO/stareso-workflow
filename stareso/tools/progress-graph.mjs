@@ -175,7 +175,32 @@ const longest = Math.max(0, ...openNumbered.map((s) => chain(s.id)));
 // larger of the two. Without serial merges, the recent gap already holds the parallelism of that run, so it is not divided.
 const perSlice = serialGaps.length >= 3 ? median(serialGaps) : null;
 const helpers = Math.max(1, runningIds.size);
-const unit = perSlice ?? med;
+
+// ---------- ETA learning: what the predictions missed, and the factor that corrects the next ones ----------
+// When a helper is first seen running, its predicted merge time is kept (one line per slice run, in this machine's
+// stareso/data/eta/<project>.jsonl, never in the project). Once the slice merges, actual ÷ predicted duration is one
+// sample; the median of the last 20 (at least 4) scales the time of one slice, clamped to 0.5–3. Each prediction keeps
+// the factor it used, so the samples measure the raw estimate and the factor does not compound.
+const etaFile = path.join(path.dirname(planWindowsFile()), "eta", `${path.basename(root).replace(/[^\w.-]+/g, "_")}.jsonl`);
+const etaRecords = readJsonlTail(etaFile, 64e3).filter((x) => x && x.id && x.start && x.predEnd);
+const mergedAt = new Map();
+for (const e of builds) if (e.type === "slice") {
+  const at = Date.parse(e.merge?.at || (e.t ? e.t.replace(" ", "T") + ":00" : ""));
+  if (!isNaN(at)) (mergedAt.get(e.id) || mergedAt.set(e.id, []).get(e.id)).push(at);
+}
+const etaSamples = etaRecords.map((x) => {
+  const actual = (mergedAt.get(x.id) || []).find((at) => at >= x.start - 60e3);
+  const predMin = (x.predEnd - x.start) / 60000, actMin = actual ? (actual - x.start) / 60000 : null;
+  return actual && predMin >= 3 && actMin > 0 ? { id: x.id, at: actual, predicted: Math.round(predMin), actual: Math.round(actMin), raw: (actMin / predMin) * (x.factor || 1) } : null;
+}).filter(Boolean).sort((a, b) => a.at - b.at);
+const recentSamples = etaSamples.slice(-20);
+const etaFactor = recentSamples.length >= 4 ? Math.min(3, Math.max(0.5, median(recentSamples.map((x) => x.raw)))) : 1;
+const etaTrack = {
+  factor: +etaFactor.toFixed(2), samples: etaSamples.length,
+  medianMissPct: etaSamples.length ? Math.round(median(etaSamples.slice(-20).map((x) => ((x.actual - x.predicted) / x.predicted) * 100))) : null,
+  rows: etaSamples.slice(-12).map(({ id, predicted, actual, at }) => ({ id, predicted, actual, at: clock(at) })),
+};
+const unit = (perSlice ?? med) == null ? null : (perSlice ?? med) * etaFactor;
 let pace = null;
 if (unit != null) {
   const rowH = remaining * unit / 60, chainH = longest * unit / 60, shareH = perSlice != null ? remaining * unit / helpers / 60 : rowH;
@@ -235,6 +260,12 @@ if (unit != null) {
     active = active.filter((x) => x.end !== t);
   }
   for (const [id, m] of finish) eta.bySlice[id] = clock(now + m * 60000);
+  // a running slice seen for the first time: its prediction is kept, to be compared with its merge
+  const fresh = running.filter((r) => runningIds.has(r.id) && finish.has(r.id)).map((r) => {
+    const start = r.minutes != null && r.minutes < 12 * 60 ? now - r.minutes * 60000 : now;
+    return { t: stamp(), id: r.id, start, predEnd: now + finish.get(r.id) * 60000, unit: Math.round(unit), factor: +etaFactor.toFixed(2), helpers: simHelpers, profile: lastProfile };
+  }).filter((x) => !etaRecords.some((y) => y.id === x.id && Math.abs(y.start - x.start) < 30 * 60000));
+  try { if (fresh.length) appendJsonl(etaFile, fresh); } catch { /* the learning is a convenience */ }
   for (const l of shown.filter((x) => !x.block)) {
     const open = l.nodes.filter((n) => n.s !== "d").map((n) => n.id);
     const times = open.filter((id) => finish.has(id)).map((id) => finish.get(id));
@@ -440,7 +471,7 @@ const result = {
   mode, banner: bannerText, lanes: shown.map(({ id, title, kind, done, total, running: r, human, block, nodes }) => ({ id, title, kind, done, total, ...(r ? { running: r } : {}), ...(human ? { human } : {}), ...(block ? { block: true } : {}), ...(block ? {} : { nodes: nodes.map((n) => `${n.short}:${n.s}${n.h ? "h" : ""}${n.o ? "o" : ""}`).join(" ") }) })),
   hidden, edges: edges.map(([a, b]) => `${a}>${b}`).join(" "),
   running: runningNow.map((r) => ({ id: r.id, title: byId.get(r.id).title, branch: r.branch, minutes: r.minutes, ...(byId.get(r.id).opus ? { opus: true } : {}) })),
-  recentMerges: recent, ready, humanSlices, questions: { open: questions.length, blocking: blocking.map((q) => ({ text: q.text, blocks: q.blocks })) }, pace, eta, usage, lines, text,
+  recentMerges: recent, ready, humanSlices, questions: { open: questions.length, blocking: blocking.map((q) => ({ text: q.text, blocks: q.blocks })) }, pace, eta, etaTrack, usage, lines, text,
 };
 // the fast status, in sections that read at a glance: progress, helpers (one line each), usage, pace, what waits, what could start
 function brief() {
@@ -486,6 +517,7 @@ function brief() {
     if (eta.allDone) out.push(`  all done ≈ ${eta.allDone} (about ${hours(eta.allDoneHours)} with ${eta.helpers} helper${eta.helpers > 1 ? "s" : ""}, ${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
     else out.push(`  about ${hours(pace.etaHours)} (${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
     out.push(`  at most ${hours(pace.inARowHours)} if run one after the other`);
+    if (etaTrack.samples) out.push(`  learned from ${etaTrack.samples} merged slice${etaTrack.samples > 1 ? "s" : ""}: times ×${etaTrack.factor}${etaTrack.medianMissPct != null ? `, median miss ${etaTrack.medianMissPct > 0 ? "+" : ""}${etaTrack.medianMissPct} %` : ""}`);
   }
 
   if (humanSlices.length || questions.length) {
@@ -575,6 +607,16 @@ if (opt.status) { console.log(status()); process.exit(0); }
 // alerts compare between refreshes. A slice is done, running, ready (could start now), you (waits on the user: a [human]
 // slice, a blocking question, a lettered milestone) or waiting (on a chain or a helper).
 function panelGraph() {
+  // the brief of each slice, for its card: the Goal, Files and Done when lines under its slice line
+  const briefs = {};
+  for (const m of ms) for (const s of m.slices) {
+    const b = {};
+    for (let i = s.line + 1; i < m.lines.length && /^\s+(- |\S)/.test(m.lines[i]); i++) {
+      const f = /^\s+- (Goal|Files|Done when):\s*(.+)$/.exec(m.lines[i]);
+      if (f) b[{ Goal: "goal", Files: "files", "Done when": "done" }[f[1]]] = f[2].length > 240 ? `${f[2].slice(0, 239)}…` : f[2];
+    }
+    if (Object.keys(b).length) briefs[s.id] = b;
+  }
   const readySet = new Set(ready);
   const runOf = new Map(runningNow.map((r) => [r.id, r]));
   const slices = {};
@@ -585,14 +627,14 @@ function panelGraph() {
       : s.human || q || /waits on \/stareso/.test(s.rest) || lettered({ id: s.ms }) ? "you" : "waiting";
     slices[s.id] = { title: s.title, ms: s.ms, state, after: s.after, ...(s.model ? { model: s.model } : {}), ...(s.opus ? { opus: true } : {}),
       ...(r ? { minutes: r.minutes, started: r.minutes != null ? clock(now - r.minutes * 60000) : null, branch: r.branch } : {}),
-      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}), ...(q ? { question: q.text } : {}) };
+      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}), ...(q ? { question: q.text } : {}), ...(briefs[s.id] ? { brief: briefs[s.id] } : {}) };
   }
   const lane = (l) => ({ id: l.id, title: l.title, kind: l.kind, done: l.done, total: l.total, block: l.block, eta: etaLane(l.id), slices: l.nodes.map((n) => n.id) });
   return { mode: mode.label, allDone: eta.allDone ?? null, pace: pace?.line ?? null, lanes: shown.map(lane), finished: finished.map(lane), hidden, slices };
 }
 if (opt.panel) {
   console.log(JSON.stringify({ project: path.basename(root), root, brief: brief(), graph: panelGraph(), recentMerges: recent,
-    running: runningNow.map((r) => ({ id: r.id, minutes: r.minutes })), perSliceMinutes: pace?.perSliceMinutes ?? null, usage }));
+    running: runningNow.map((r) => ({ id: r.id, minutes: r.minutes })), perSliceMinutes: pace?.perSliceMinutes ?? null, usage, etaTrack }));
   process.exit(0);
 }
 if (opt.write) {

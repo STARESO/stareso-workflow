@@ -372,11 +372,11 @@ export function model(root, entries, { costPerSlice = true, planning = true } = 
 // The usage tables, as docs/USAGE.md held them before the datasets (`session-stats --print`).
 export function renderBlock(m) {
   const { rows, wfRows, base, totals, wfTotals, sliceList, unlogged, planList, byDay, conductorBuilt } = m;
-  const endOf = (first, last) => (last.slice(0, 10) === first.slice(0, 10) ? last.slice(11, 16) : last.slice(5, 16).replace("T", " "));
+  const endOf = (first, last) => (last.slice(0, 10) === first.slice(0, 10) ? last.slice(11, 16) : last.slice(0, 16).replace("T", " "));
   const kindOf = (r) => (r.wf && !/workflow-review|stareso-retro/.test(r.s.kind || "") ? "workflow review" : r.s.kind || "chat") + (r.inWorktree ? " (worktree)" : "") + (r.gone ? " (transcript gone)" : "");
   const session = (r) => `| ${r.n} | ${r.s.first.slice(0, 10)} ${r.s.first.slice(11, 16)}–${endOf(r.s.first, r.s.last)} | ${kindOf(r)}${r.by ? ` (launched by #${r.by})` : ""} | ${hours(r.steps.reduce((a, st) => a + st.active, 0))} | ${modelsText(r.s.models) || "—"} | ${r.s.assistant} | ${r.s.user} | ${r.h.n || ""} | ${fmt(Math.round(r.e))} |`;
   const details = (r) => `| ${r.n} | ${r.s.compactions || ""} | ${fmt(Math.round(r.s.usage.cache_read / Math.max(1, r.s.assistant)))} | ${fmt(r.s.usage.output)} | ${fmt(r.s.usage.cache_read)} | ${fmt(r.s.usage.cache_create)} | ${r.h.n ? `${modelsText(r.h.models)} · out ${fmt(r.h.out)} · cache ${fmt(r.h.cr)}` : ""} |`;
-  const stepLines = (r) => r.steps.map((st) => `| ${r.n} | ${st.first.slice(5, 10)} ${st.first.slice(11, 16)}–${endOf(st.first, st.last)} | ${st.label} | ${hours(st.active)} | ${st.turns} | ${st.user} | ${st.hN || ""} | ${fmt(Math.round(st.equiv))} | ${st.carriedPct != null ? `${st.carriedPct} % · ${fmt(st.extra)}` : ""} |`);
+  const stepLines = (r) => r.steps.map((st) => `| ${r.n} | ${st.first.slice(0, 10)} ${st.first.slice(11, 16)}–${endOf(st.first, st.last)} | ${st.label} | ${hours(st.active)} | ${st.turns} | ${st.user} | ${st.hN || ""} | ${fmt(Math.round(st.equiv))} | ${st.carriedPct != null ? `${st.carriedPct} % · ${fmt(st.extra)}` : ""} |`);
   const tables = (list) => [
     "| # | Date (start–end) | Steps | Active h | Models (turns) | Turns | You | Helpers | ≈ equiv |", "|---|---|---|---|---|---|---|---|---|",
     ...list.map(session), "",

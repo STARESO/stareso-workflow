@@ -240,7 +240,7 @@ function usageCharts(c) {
       return { label: k, data: pts, stepped: "after", borderColor: KIND[k] ?? GRAY, backgroundColor: KIND[k] ?? GRAY, borderWidth: 2, pointRadius: 0, pointHitRadius: 6 };
     }) },
     options: { interaction: { mode: "nearest", intersect: false }, scales: {
-        x: { type: "linear", min: 0, max: lastDay, ticks: { stepSize: 1, callback: (v) => cu.days[v]?.date.slice(5) ?? "" }, grid: { display: false } },
+        x: { type: "linear", min: 0, max: lastDay, ticks: { stepSize: 1, callback: (v) => cu.days[v]?.date ?? "" }, grid: { display: false } },
         y: { type: "logarithmic", ticks: { callback: (v) => logTick(v * 1e6) } } },
       plugins: { tooltip: tip((x) => `${x.dataset.label} ${x.raw.y.toFixed(1)}M`) } } });
   legend("l2", cu.kinds.map((k) => [KIND[k] ?? GRAY, k]));

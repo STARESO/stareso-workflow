@@ -14,7 +14,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, RenderElement } from 'claude-code'
 
-import type { PanelGraph, PanelLane, PanelSlice, PanelView, SliceState, UsageCharts, UsageWindow } from '../types'
+import type { EtaTrack, PanelGraph, PanelLane, PanelSlice, PanelView, SliceState, UsageCharts, UsageWindow } from '../types'
 
 const PANE = 'stareso-status'
 const TITLE = 'stareso status'
@@ -28,6 +28,7 @@ const MAX_CHATS = 8
 const EMPTY: PanelView = {
   project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'graph', selected: '',
   showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [], dashboard: '',
+  etaTrack: null, expanded: [],
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
 
@@ -40,6 +41,7 @@ type Snapshot = {
   running: { id: string; minutes: number | null }[]
   perSliceMinutes: number | null
   usage: { five: UsageWindow; week: UsageWindow }
+  etaTrack?: EtaTrack
 }
 type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Markdown' | 'Code'>
 type Act = (fn: (p: PanelView) => PanelView) => () => void
@@ -84,16 +86,29 @@ async function usageFlags($: EngineInterface): Promise<string[]> {
 
 // The app's chats in the project folder or below it (its worktrees), and the chats started from them wherever they run,
 // working or idle, those idle for over a day left out, from the app's own session list; none when the app does not
-// give it. The session the panel draws in is not listed: the app leaves it out of its own list.
-async function projectChats($: EngineInterface, root: string): Promise<PanelView['chats']> {
+// give it. The chat the panel draws in is added from `get_session self`, since the app leaves it out of its own list.
+// A chat is active when it works, when a step it launched works (a manager waiting on its build), or when it is the
+// build and helpers run (a conductor waiting on its helpers).
+type ChatRow = { sessionId?: string; startedBy?: string; parentSessionId?: string; name?: string; title?: string; cwd?: string; isRunning?: boolean; lastActivityAt?: string }
+async function projectChats($: EngineInterface, root: string, helpersRunning: boolean): Promise<PanelView['chats']> {
   const norm = (f: string) => f.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  const textOf = (res: { content: { type: string }[] }) => (res.content.find(c => c.type === 'text') as { text?: string } | undefined)?.text ?? ''
   try {
     const res = await $.mcp.call('ccd_session_mgmt', 'list_sessions', { limit: 40 })
-    const block = res.content.find(c => c.type === 'text') as { text?: string } | undefined
-    const rows = JSON.parse(block?.text ?? '[]') as { sessionId?: string; startedBy?: string; title?: string; cwd?: string; isRunning?: boolean; lastActivityAt?: string }[]
+    const rows = JSON.parse(textOf(res) || '[]') as ChatRow[]
     const r = norm(root)
     const since = Date.now() - CHATS_RECENT_MS
-    const list = Array.isArray(rows) ? rows : []
+    const list = Array.isArray(rows) ? [...rows] : []
+    let selfId = ''
+    try {
+      const self = JSON.parse(textOf(await $.mcp.call('ccd_session_mgmt', 'get_session', { session_id: 'self' })) || 'null') as ChatRow | null
+      if (self?.sessionId) {
+        selfId = self.sessionId
+        list.unshift({ ...self, startedBy: self.parentSessionId })
+      }
+    } catch {
+      // no self: the list alone
+    }
     // a chat in the project's folder, or one started from such a chat (a side chat often runs elsewhere, ~/.claude say)
     const inProject = (x: (typeof list)[number]) => !!x.cwd && (norm(x.cwd) === r || norm(x.cwd).startsWith(`${r}/`))
     const ids = new Set(list.filter(inProject).flatMap(x => (x.sessionId ? [x.sessionId] : [])))
@@ -116,11 +131,24 @@ async function projectChats($: EngineInterface, root: string): Promise<PanelView
         }
       }
     }
+    // a chat with a working descendant (a step it launched, or one launched from that) counts as active
+    const launchedWorking = (id: string, seen = new Set<string>()): boolean => list.some(x => {
+      if (x.startedBy !== id || !x.sessionId || seen.has(x.sessionId)) return false
+      seen.add(x.sessionId)
+      return !!x.isRunning || launchedWorking(x.sessionId, seen)
+    })
+    const why = (x: ChatRow): PanelView['chats'][number]['why'] => (x.isRunning ? 'working'
+      : x.sessionId && launchedWorking(x.sessionId) ? 'launched'
+      : helpersRunning && /build/i.test(`${x.name ?? ''} ${x.title ?? ''}`) ? 'helpers' : undefined)
     return list
       .filter(x => inProject(x) || (!!x.sessionId && ids.has(x.sessionId)))
-      .filter(x => x.isRunning || !x.lastActivityAt || Date.parse(x.lastActivityAt) >= since)
-      .map(x => ({ title: x.title || 'untitled chat', at: x.lastActivityAt ? clock(Date.parse(x.lastActivityAt)) : '', working: !!x.isRunning }))
-      // the working ones first; the list comes most recent first
+      .map(x => ({ x, why: why(x) }))
+      .filter(({ x, why: w }) => !!w || x.sessionId === selfId || !x.lastActivityAt || Date.parse(x.lastActivityAt) >= since)
+      .map(({ x, why: w }) => ({
+        title: x.title || 'untitled chat', at: x.lastActivityAt ? clock(Date.parse(x.lastActivityAt)) : '', working: !!w,
+        ...(w ? { why: w } : {}), ...(x.sessionId === selfId ? { here: true } : {}),
+      }))
+      // the active ones first; the list comes most recent first
       .sort((a, b) => Number(b.working) - Number(a.working))
   } catch {
     return []
@@ -217,9 +245,9 @@ async function readOnce($: EngineInterface) {
     await $.store.set('project', s.root)
     latestMerge = s.recentMerges[0]?.id ?? ''
     alerts($, s)
-    const chats = await projectChats($, s.root)
+    const chats = await projectChats($, s.root, s.running.length > 0)
     await update($, panel, p => ({
-      ...p, project: s.project, root: s.root, brief: s.brief, graph: s.graph, windows: s.usage, chats, updated: clock(), error: '',
+      ...p, project: s.project, root: s.root, brief: s.brief, graph: s.graph, windows: s.usage, etaTrack: s.etaTrack ?? null, chats, updated: clock(), error: '',
       usageNote: flags.length ? '' : 'usage windows not readable here',
     }))
   } catch (err) {
@@ -504,14 +532,16 @@ function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
   const { Box, Text } = ui
   if (!chats.length) return null
   const working = chats.filter(c => c.working).length
+  // working: it computes now · launched: a step it launched works (a manager) · helpers: the build, its helpers run
+  const label = (c: PanelView['chats'][number]) => (c.why === 'launched' ? 'managing' : c.why ?? 'idle')
   return (
     <Box flexDirection="column">
-      {heading(ui, 'Chats', `${working} working, ${chats.length - working} idle`)}
+      {heading(ui, 'Chats', `${working} active, ${chats.length - working} idle`)}
       {chats.slice(0, MAX_CHATS).map(c => (
         <Box flexDirection="row">
           <Box width={2} flexShrink={0}><Text {...(c.working ? { color: 'claude' } : { dimColor: true })}>{c.working ? '◐' : '○'}</Text></Box>
-          <Box width={w - 2} flexShrink={0}><Text dimColor={!c.working} {...(c.working ? { color: 'claude' } : {})}>{c.working ? 'working' : 'idle'}</Text></Box>
-          <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end" dimColor={!c.working}>{c.title}</Text></Box>
+          <Box width={Math.max(w, 10) - 2} flexShrink={0}><Text dimColor={!c.working} {...(c.working ? { color: 'claude' } : {})}>{label(c)}</Text></Box>
+          <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end" dimColor={!c.working}>{c.title}{c.here ? <Text dimColor>{' · this chat'}</Text> : ''}</Text></Box>
           {c.at !== '' && <Box flexShrink={0} marginLeft={1}><Text dimColor tabular>{c.at}</Text></Box>}
         </Box>
       ))}
@@ -550,14 +580,17 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const finished = progress.find(x => x.includes('every slice done'))?.replace(/\s*·\s*every slice done$/, '')
   const used = new Set(Object.values(g.slices).map(s => s.state))
 
+  // each number is a plain Button (press for the slice's card, as a helper's) holding a Text in the colour of its state
   const cell = (id: string) => {
     const s = g.slices[id]
     if (!s) return null
     const linked = !!selSlice && (selSlice.after.includes(id) || s.after.includes(sel))
-    const label = `${(id.split('.')[1] ?? id).replace(/^tidy(\d*)$/, 't$1').padStart(2)} `
+    const label = `${(id.split('.')[1] ?? id).replace(/^tidy(\d*)$/, 't$1').padStart(2)}`
     return (
-      <Text color={STATE[s.state].color} bold={s.state !== 'waiting'} hover={{ scope: `g:${id}`, inverse: true }}
-        {...(id === sel ? { inverse: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
+      <Button key={`c:${id}`} plain onPress={pick(id)} hover={{ scope: `g:${id}`, inverse: true }}>
+        <Text mono color={STATE[s.state].color} bold={s.state !== 'waiting'}
+          {...(id === sel ? { inverse: true } : {})} {...(linked ? { underline: true } : {})}>{label}</Text>
+      </Button>
     )
   }
   // the graph row holds the numbers alone, so it fits a narrow dock: the title and the ETA are in the list below it
@@ -567,7 +600,7 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
         <Button key={`l:${l.id}`} plain onPress={pick(l.id)}><Text bold {...(l.id === sel ? { inverse: true } : {})}>{l.id}</Text></Button>
       </Box>
       <Box width={cntW} flexShrink={0}><Text dimColor tabular>{`${l.done}/${l.total}`}</Text></Box>
-      <Box flexShrink={0}><Text mono>{l.slices.filter(id => g.slices[id]).map(cell)}</Text></Box>
+      <Box flexDirection="row" flexWrap="wrap" columnGap={1} flexShrink={1}>{l.slices.filter(id => g.slices[id]).map(cell)}</Box>
     </Box>
   )
   // a milestone in the list, as a helper is: name (press for its card), title wrapped on as many lines as it needs,
@@ -686,6 +719,9 @@ function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: s
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>{`${id} · ${s.title}`}</Text>
       <Text color={STATE[s.state].color}>{stateLine(g, id)}</Text>
+      {s.brief?.goal && <Box marginTop={1}><Text>{s.brief.goal}</Text></Box>}
+      {s.brief?.done && <Text dimColor>{`done when ${s.brief.done}`}</Text>}
+      {s.brief?.files && <Text dimColor size="footnote">{`files: ${s.brief.files}`}</Text>}
       {s.branch && <Text dimColor>{`on ${s.branch}`}</Text>}
       <Text dimColor>{[s.ms, s.model, s.opus ? 'an Opus slice, the costly ones' : ''].filter(Boolean).join(' · ')}</Text>
       {s.after.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>needs</Text>{chips('needs', s.after.filter(a => g.slices[a]))}</Box>}
@@ -753,7 +789,17 @@ function rest(used: number, cells: number, marks: number[] = []): string {
 function usageView(ui: UI, p: PanelView, room: number, act: Act) {
   const { Box, Text, Button, Markdown } = ui
   const c = p.usage
-  const L = 9
+  // labels: a full date (yyyy-mm-dd), a milestone, "#12 build"
+  const L = 11
+  const open = (id: string) => (p.expanded ?? []).includes(id)
+  // a chart folds to its latest rows; its button unfolds every row, with more in each, and folds it back
+  const more = (id: string, total: number, shown: number) => (total > shown || open(id) ? (
+    <Box flexDirection="row">
+      <Button key={`more:${id}`} dimColor onPress={act(q => ({ ...q, expanded: (q.expanded ?? []).includes(id) ? (q.expanded ?? []).filter(x => x !== id) : [...(q.expanded ?? []), id] }))}>
+        {open(id) ? 'Fold' : `Expand: all ${total}, with details`}
+      </Button>
+    </Box>
+  ) : null)
   return (
     <Box flexDirection="column" gap={1}>
       {windowsView(ui, p.windows, Math.max(12, room - L - 7), L)}
@@ -777,8 +823,10 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
               scope: `u1:${i}`, label: t.type, segs: [{ v: t.share, color: KIND[t.type] ?? 'inactive' }],
               value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns`,
             })), L, room, Math.max(...c.shareByType.map(x => x.share)))}
-          {cumulativeChart(ui, c, room, L)}
-          {milestoneChart(ui, c, room, L)}
+          {cumulativeChart(ui, c, room, L, open('u2'))}
+          {more('u2', c.cumulative.days.length, FOLDED.u2)}
+          {milestoneChart(ui, c, room, L, open('u3'))}
+          {more('u3', c.milestones.length, FOLDED.u3)}
           {sessionChart(ui, c, room, L, p.allSessions)}
           {c.sessions.filter(s => s.ctx != null).length > RECENT_SESSIONS && (
             <Box flexDirection="row">
@@ -789,18 +837,30 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
           )}
           {scatterChart(ui, c, room)}
           {(() => {
-            const steps = c.conductorVsHelpers.filter(b => b.conductor != null || b.helpers != null)
-            return chart(ui, '6. Conductor against helpers, per step that merged slices', 'A launched build should be mostly helpers; a bar all conductor is a chat or a test that built itself.',
-              steps.map((b, i) => {
-                const total = (b.conductor ?? 0) + (b.helpers ?? 0)
-                return {
-                  scope: `u6:${i}`, label: `#${b.session}`, segs: [{ v: b.conductor ?? 0, color: 'warning' }, { v: b.helpers ?? 0, color: 'suggestion' }],
-                  value: `${b.merged} slices · ${total ? Math.round((100 * (b.conductor ?? 0)) / total) : 0} %`,
-                  detail: `#${b.session} ${b.type} ${b.date}: conductor ${fmt(b.conductor)}, helpers ${fmt(b.helpers)} (${b.helperCount} helpers), ${b.merged} slices merged`,
-                }
-              }), L, room, Math.max(...steps.map(x => (x.conductor ?? 0) + (x.helpers ?? 0))),
-              [{ text: '█ conductor', color: 'warning' }, { text: '█ helpers', color: 'suggestion' }, { text: 'value: slices merged · conductor share (target under 50 %)' }])
+            const all = c.conductorVsHelpers.filter(b => b.conductor != null || b.helpers != null)
+            const wide = open('u6')
+            const steps = wide ? all : all.slice(-FOLDED.u6)
+            return (
+              <Box flexDirection="column" gap={1}>
+                {chart(ui, '6. Conductor against helpers, per step that merged slices', 'A launched build should be mostly helpers; a bar all conductor is a chat or a test that built itself.',
+                  steps.map((b, i) => {
+                    const total = (b.conductor ?? 0) + (b.helpers ?? 0)
+                    const share = total ? Math.round((100 * (b.conductor ?? 0)) / total) : 0
+                    return {
+                      scope: `u6:${i}`, label: wide ? `#${b.session} ${b.type}` : `#${b.session}`, segs: [{ v: b.conductor ?? 0, color: 'warning' }, { v: b.helpers ?? 0, color: 'suggestion' }],
+                      value: wide ? `${b.merged} sl · ${share} % · ${fmt(b.conductor)} + ${fmt(b.helpers)} · ${b.helperCount} h` : `${b.merged} slices · ${share} %`,
+                      valueColor: share > 50 ? 'warning' : undefined,
+                      detail: `#${b.session} ${b.type} ${b.date}: conductor ${fmt(b.conductor)}, helpers ${fmt(b.helpers)} (${b.helperCount} helpers), ${b.merged} slices merged, ${fmt(total ? total / Math.max(1, b.merged) : 0)} per slice`,
+                    }
+                  }), L, room, Math.max(...steps.map(x => (x.conductor ?? 0) + (x.helpers ?? 0))),
+                  [{ text: '█ conductor', color: 'warning' }, { text: '█ helpers', color: 'suggestion' },
+                    { text: wide ? 'value: slices · conductor share · conductor + helpers ≈ equiv · helpers started' : 'value: slices merged · conductor share (target under 50 %)' }])}
+                {more('u6', all.length, FOLDED.u6)}
+              </Box>
+            )
           })()}
+          {etaChart(ui, p.etaTrack, room, L, open('u7'))}
+          {p.etaTrack && more('u7', p.etaTrack.rows.length, FOLDED.u7)}
           <Box flexDirection="row">
             <Button key="tables" dimColor onPress={act(q => ({ ...q, showTables: !q.showTables }))}>{p.showTables ? 'Hide the tables' : 'Show the tables'}</Button>
           </Box>
@@ -908,7 +968,34 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
 }
 
 // 2. the running total of each step type at the end of each day, stacked (the stacked variant of the skill's chart 2)
-function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number) {
+// the rows a folded chart keeps (its latest); the Expand button shows them all
+const FOLDED = { u2: 14, u3: 12, u6: 8, u7: 6 }
+
+// 7. what each ETA predicted against what the slice took, and the factor learned from the misses
+function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: boolean) {
+  const { Box, Text } = ui
+  const title = '7. ETA against what happened, per merged slice'
+  if (!t || !t.rows.length) {
+    return (
+      <Box flexDirection="column">
+        <Text bold>{title}</Text>
+        <Text dimColor size="footnote">No measured slice yet: a prediction is kept when a helper is first seen running, then compared with its merge.</Text>
+      </Box>
+    )
+  }
+  const rows = all ? t.rows : t.rows.slice(-FOLDED.u7)
+  const miss = (r: EtaTrack['rows'][number]) => Math.round(((r.actual - r.predicted) / Math.max(1, r.predicted)) * 100)
+  return chart(ui, title,
+    `Times now ×${t.factor}, learned from ${t.samples} slice${t.samples > 1 ? 's' : ''}${t.medianMissPct != null ? `, median miss ${t.medianMissPct > 0 ? '+' : ''}${t.medianMissPct} %` : ''}. The bar is what it took, ┆ what was predicted.`,
+    rows.map((r, i) => ({
+      scope: `u7:${i}`, label: r.id, segs: [{ v: r.actual, color: Math.abs(miss(r)) > 25 ? 'warning' : 'suggestion' }], marks: [r.predicted],
+      value: all ? `${r.predicted} → ${r.actual} min · ${miss(r) > 0 ? '+' : ''}${miss(r)} % · ${r.at}` : `${r.predicted} → ${r.actual} min`,
+      detail: `${r.id} merged ${r.at}: predicted ${r.predicted} min, took ${r.actual} min (${miss(r) > 0 ? '+' : ''}${miss(r)} %)`,
+    })), L, room, Math.max(...rows.map(r => Math.max(r.actual, r.predicted))),
+    [{ text: '█ within 25 %', color: 'suggestion' }, { text: '█ missed by more', color: 'warning' }, { text: '┆ predicted' }])
+}
+
+function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
   const pts = [...c.cumulative.points].sort((a, b) => a.day - b.day)
   if (!pts.length) return null
   const total = (q: { [key: string]: number }) => c.cumulative.kinds.reduce((k, kind) => k + (q[kind] ?? 0), 0)
@@ -916,9 +1003,9 @@ function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number) {
   // the tool's days run to the day after the last step: stop at today
   const today = new Date()
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  const days = c.cumulative.days.filter(d => d.date <= iso).map(d => ({ d, q: [...pts].reverse().find(q => q.day < d.day + 1) })).filter(x => x.q).slice(-14)
+  const days = c.cumulative.days.filter(d => d.date <= iso).map(d => ({ d, q: [...pts].reverse().find(q => q.day < d.day + 1) })).filter(x => x.q).slice(all ? 0 : -FOLDED.u2)
   const rows: Row[] = days.map(({ d, q }, i) => ({
-    scope: `u2:${i}`, label: d.date.slice(5), segs: c.cumulative.kinds.map(kind => ({ v: q![kind] ?? 0, color: KIND[kind] ?? 'inactive' })),
+    scope: `u2:${i}`, label: d.date, segs: c.cumulative.kinds.map(kind => ({ v: q![kind] ?? 0, color: KIND[kind] ?? 'inactive' })),
     value: `${total(q!).toFixed(1)}M`,
     detail: `${d.date}, total so far: ${c.cumulative.kinds.map(k => `${k} ${(q![k] ?? 0).toFixed(1)}M`).join(' · ')}`,
   }))
@@ -927,7 +1014,7 @@ function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number) {
 }
 
 // 3. cost per slice by milestone, coloured by who built it, with the reference slice cost as a ┆ mark
-function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number) {
+function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
   const ref = c.referencePerSlice?.equiv ?? 0
   const max = Math.max(ref, ...c.milestones.map(m => m.equivPerSlice ?? 0))
   // the reference as a row of its own too: the ┆ mark hides under bars that pass it
@@ -935,9 +1022,9 @@ function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number) {
     scope: 'u3:ref', label: 'ref', segs: [{ v: ref, color: 'inactive' }], value: fmt(ref),
     detail: `reference: ${c.referencePerSlice!.label}, ${fmt(ref)} per slice`,
   }] : []
-  const rows: Row[] = c.milestones.map((m, i) => ({
+  const rows: Row[] = (all ? c.milestones : c.milestones.slice(-FOLDED.u3)).map((m, i) => ({
     scope: `u3:${i}`, label: m.id, segs: [{ v: m.equivPerSlice ?? 0, color: BUILT[m.built] ?? 'claude' }],
-    value: m.equivPerSlice == null ? 'n/a' : fmt(m.equivPerSlice), marks: ref ? [ref] : [],
+    value: (m.equivPerSlice == null ? 'n/a' : fmt(m.equivPerSlice)) + (all ? ` · ${m.slices} sl · ${m.built}` : ''), marks: ref ? [ref] : [],
     detail: m.equivPerSlice == null
       ? `${m.id}: no cost per slice yet (no slice merged with a transcript), ${m.slices} slices`
       : `${m.id}: ${fmt(m.equivPerSlice)} per slice, built by ${m.built}, measured ${m.measured}, ${m.slices} slices`,

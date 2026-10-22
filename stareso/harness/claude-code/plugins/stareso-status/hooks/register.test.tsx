@@ -156,10 +156,12 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean, se
   on('ui.close', () => ({ value: undefined }))
   on('ui.open', () => { seen.opened += 1; return { value: { isPlaced: true } } })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  // the app's session list when a test gives one, else no app tools here
-  // (the panel's own family, `linked`, is empty here)
-  on('mcp.call', (_, e) => (sessions && e.tool === 'list_sessions'
-    ? { value: { content: [{ type: 'text', text: JSON.stringify(e.args.linked ? [] : sessions) }], isError: false } }
+  // the app's session list when a test gives one, else no app tools here (the panel's own family, `linked`, is
+  // empty here); a row marked `self` is the panel's own chat: left out of the list, answered by get_session self
+  const rows = (sessions ?? []) as { self?: boolean }[]
+  const reply = (v: unknown) => ({ value: { content: [{ type: 'text', text: JSON.stringify(v) }], isError: false } })
+  on('mcp.call', (_, e) => (sessions && e.tool === 'list_sessions' ? reply(e.args.linked ? [] : rows.filter(x => !x.self))
+    : sessions && e.tool === 'get_session' ? reply(rows.find(x => x.self) ?? null)
     : { value: { content: [], isError: true } }))
   on('process.run', (_, e) => {
     const argv = (e as { argv: string[] }).argv
@@ -184,8 +186,11 @@ test('the progress view draws a row per milestone, a pressed milestone lists its
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /≈ 19:00/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^M1\.2 · Second step$/ })).toBeFalsy()
-    // each slice number in the colour of its state, outside any Button
-    expect((await ui.find({ type: 'Text', text: /^ 2 $/ }))?.props.color).toBe('warning')
+    // each slice number in the colour of its state, a Text inside a plain Button that opens the slice's card
+    expect((await ui.find({ type: 'Text', text: /^ 2$/ }))?.props.color).toBe('warning')
+    await ui.press({ key: 'c:M1.2' })
+    expect(await ui.find({ type: 'Text', text: /^M1.2 · Second step$/ })).toBeTruthy()
+    await ui.press({ key: 'close-card' })
     await ui.press({ key: 'l:M1' })
     expect(await ui.find({ type: 'Text', text: /^M1 · First steps$/ })).toBeTruthy()
     await ui.press({ key: 's:M1.2' })
@@ -208,7 +213,7 @@ test('the dashboard command starts the server and gives its address', async ($, 
   // the link in the header needs the server alive, which a stand-in stream that ends with the command is not
 })
 
-test('the usage view draws the plan windows, the tiles and the six charts', async ($, on) => {
+test('the usage view draws the plan windows, the tiles and the seven charts', async ($, on) => {
   engine(on, false)
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'stareso-panel', args: 'usage' })
@@ -216,7 +221,7 @@ test('the usage view draws the plan windows, the tiles and the six charts', asyn
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /Plan usage now/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^166\.6M$/ })).toBeTruthy()
-    for (const n of [1, 2, 3, 4, 5, 6]) expect(await ui.find({ type: 'Text', text: new RegExp(`^${n}\\. `) })).toBeTruthy()
+    for (const n of [1, 2, 3, 4, 5, 6, 7]) expect(await ui.find({ type: 'Text', text: new RegExp(`^${n}\\. `) })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /over 300 turns/ })).toBeTruthy()
     await ui.unmount()
   }
@@ -231,7 +236,10 @@ test('the progress view lists the chats of the project, working or idle', async 
     { sessionId: 'b', startedBy: 'a', title: 'Side chat in the home folder', cwd: '/home/me/.claude', isRunning: false, lastActivityAt: recent },
     { sessionId: 'c', title: 'Unrelated chat', cwd: '/home/me/.claude', isRunning: true },
     { title: 'Side question', cwd: '/work/demo/.claude/worktrees/x', isRunning: true },
-    { title: 'Idle manager', cwd: '/work/demo', isRunning: false, lastActivityAt: recent },
+    // a manager waiting on the step it launched counts as active
+    { sessionId: 'm', title: 'Waiting manager', cwd: '/work/demo', isRunning: false, lastActivityAt: recent },
+    { sessionId: 'k', startedBy: 'm', title: 'Launched test step', cwd: '/home/me/.claude', isRunning: true, lastActivityAt: recent },
+    { sessionId: 'me', self: true, title: 'This chat', cwd: '/work/demo', isRunning: true, lastActivityAt: recent },
     { title: 'Last week', cwd: '/work/demo', isRunning: false, lastActivityAt: old },
     { title: 'Other project', cwd: '/work/other', isRunning: true },
   ])
@@ -239,11 +247,14 @@ test('the progress view lists the chats of the project, working or idle', async 
   await $.command.run({ command: 'stareso-panel', args: 'brief' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /^Chats$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^2 working, 2 idle$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^5 active, 1 idle$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Side chat in the home folder$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Build all open milestones \(fast\)$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Side question$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^Idle manager$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^Waiting manager$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^managing$/ })).toBeTruthy()
+  // the chat the panel draws in, which the app leaves out of its own list
+  expect(await ui.find({ type: 'Text', text: /^This chat/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /Last week|Other project|Unrelated chat/ })).toBeFalsy()
   // the dashboard is the panel's last element, started only on request
   expect(await ui.find({ type: 'Button', key: 'dashboard-start' })).toBeTruthy()

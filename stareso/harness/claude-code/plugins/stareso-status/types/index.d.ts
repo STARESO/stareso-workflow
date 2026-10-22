@@ -14,6 +14,8 @@ export type PanelSlice = {
   branch?: string;
   eta?: string;
   question?: string;
+  // the slice's brief, for its card: the Goal, Files and Done when lines
+  brief?: { goal?: string; files?: string; done?: string };
 };
 
 export type PanelLane = {
@@ -61,6 +63,14 @@ export type UsageCharts = {
   tierMedians: { tier: string; model: string; tokens: number | null; lines: number | null; per100: number | null }[];
 };
 
+// progress-graph.mjs: what the ETAs missed, the factor learned from it, the latest measured slices (minutes)
+export type EtaTrack = {
+  factor: number;
+  samples: number;
+  medianMissPct: number | null;
+  rows: { id: string; predicted: number; actual: number; at: string }[];
+};
+
 export type PanelView = {
   project: string;
   root: string;
@@ -80,10 +90,15 @@ export type PanelView = {
   usageError: string;
   showTables: boolean;
   allSessions: boolean;
-  // the app's chats in the project (a manager, a build, a side chat), working or idle, shown for information
-  chats: { title: string; at: string; working: boolean }[];
+  // the app's chats in the project (a manager, a build, a side chat, this chat), working or idle, shown for information.
+  // `why` says what makes one active: it works, a step it launched works, or it is the build and helpers run
+  chats: { title: string; at: string; working: boolean; why?: 'working' | 'launched' | 'helpers'; here?: boolean }[];
   // the address of the project's dashboard server the mod started, linked in the header while it runs
   dashboard: string;
+  // the ETA learning, drawn as chart 7 of the usage view
+  etaTrack: EtaTrack | null;
+  // the usage charts the person expanded (all their rows, and more in each row)
+  expanded: string[];
 };
 
 declare module 'claude-code' {
