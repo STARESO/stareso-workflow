@@ -16,26 +16,61 @@ The workflow was built and measured on Claude Code, so every capability here is 
 - The paths stay `~/.claude/stareso/...`, as before the split.
 - The generated files keep their length within about 5 % (the 2026-10-20 split: nine files identical, four grew by the canary, the retro's harness line and the tier alias).
 
-## The live status panel (plugin `stareso-status`)
+## ↗ The live status panel (plugin `stareso-status`)
 
-`plugins/` is a local plugin marketplace (`plugins/.claude-plugin/marketplace.json`) holding one Claude Code plugin, `stareso-status`: a panel beside the chat that shows the status of a project and refreshes it every minute while it is open, with no model call. It runs `progress-graph.mjs --panel`, reads the app's 5-hour and weekly windows when the app allows it, and raises toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage cap comes within 15 minutes. Everything is drawn with Claude Code's own elements, so the terminal draws it as well as the desktop app.
+A panel beside the chat that shows a project's status and refreshes it every minute while it is open, **with no model call**.
+It runs `progress-graph.mjs --panel`, reads the app's 5-hour and weekly windows, and raises a toast when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage cap comes within 15 minutes.
+It is drawn with Claude Code's own elements, so the terminal draws it as well as the desktop app.
 
-- **Progress** (the Brief and Graph tabs made one) is laid out for a narrow dock. It opens with the all-done time as a heading and the build mode. Then come one row of slice numbers per milestone, each number in the colour of its state (done green, running amber, could start now teal, waits on you purple, waiting grey) and drawn as plain text because a desktop draws its buttons natively and drops the colours inside them. The rows hold the numbers alone, so they fit a narrow dock, and a Milestones list under them gives each milestone's ETA (the time alone) then its title, wrapped on as many lines as it needs, as a table; the helpers are listed the same way. Hovering a number gives the slice's line, pressing it opens the slice's card (its goal, when it is done, its files, state, branch, model, the slices it needs and the ones it unblocks), and a milestone's name opens its card, which lists its slices, each pressable for its own card (state, branch, model, the slices it needs and the ones it unblocks). The finished milestones fold into one line with a Show button. Under the graph, each running helper is folded to one line (slice, title, ETA) and opens its card when pressed. The app's chats of the project are listed for information, active or idle, those idle for over a day left out, from the app's own session list: the chats in its folder or a worktree, the chats started from them wherever they run (a side chat in `~/.claude`, say), the family of the chat the panel is open in when one of them works in the project, and that chat itself (marked "this chat"). A chat counts as active when it works, when a step it launched works ("managing", a manager waiting on its build), or when it is the build and its helpers run ("helpers"). The pace and what waits for you follow, each slice id in the colour of its state. Helper titles are cut at the panel's edge, and the plan windows are left to the Usage tab.
-- **Usage** gives the plan windows with the stop caps, then the four tiles and the six charts of the usage report (`metrics.md`, "The usage report"), from `usage-report.mjs --live --panel`: numbers read from the transcripts as they are now, with nothing written in the project. Each chart's bars take the width its labels and values leave, the values are right-aligned in columns, chart 4 shows the last 12 sessions with a button for all of them, charts 2, 3, 6 and 7 fold to their latest rows with an Expand button that shows every row with more in each (chart 6 adds each step's type, its conductor and helper cost and the helpers started), chart 7 compares each ETA with what the slice took, hovering a row gives its detail under its chart, and the tables are one button away. The report is read again while the view is open once it is five minutes old or a slice has merged, and the Refresh button reads it at once.
-- The panel opens with a title block, the project's name in a large size and the brief's head line under it (phase, pack, branch, ideas, debt). Its own Hide button sits beside Refresh.
-- **Dashboard** is the panel's last element. Its Start button (or `/stareso-panel dashboard`) starts `tools/dashboard.mjs` for the project and gives its address (`http://127.0.0.1:<port>`) to open by hand in a browser, with a Copy button, because a link to a local address does nothing on a click in the desktop app and a plugin cannot reach the side browser. The server is started only on request, listens on this machine alone, and its port is freed by the Stop button, when the plugin unloads (a reload, the end of the session, Claude closing), or after 20 minutes with no page asking. The page shows the progress graph (hovering a slice lights its whole chain, pressing it opens its card) and the six usage charts drawn with Chart.js (`metrics.md`, "The usage report", says how to read them). The page fetches its numbers every minute from the small local server, which reruns the tools, so it costs no tokens. Started by hand (`node ~/.claude/stareso/tools/dashboard.mjs --root <project>`, then open the address it prints), it stops after the same 20 idle minutes or on `/stop`. `dashboard.mjs --write [file.html]` writes the same page as one standalone file with the data inlined, which any browser opens without Claude or the server (in the temp folder by default, under `docs/reports/` when a dated usage report is kept).
-- **◧ stareso**, a button among the mode labels at the right of the prompt footer, opens the panel or hides it, so the command need not be typed. `/stareso-panel` does the same. `/stareso-panel <project folder>` opens it on a project, remembered across sessions, and a side session that starts outside the project reads the last project any session read. `/stareso-panel progress` or `usage` opens it on that view (`graph` and `brief` open Progress), and the buttons switch views.
-- Usage asks for a wide dock (110 columns), Progress is laid out for a narrow one, and a width the person dragged wins.
-- It exists only where Claude Code draws panels (desktop app, terminal, IDE extensions). Outside Claude Code, the same graph is `progress-graph.mjs --write` (an HTML page, or an Artifact).
+**Open it** with the `◧ stareso` button at the right of the prompt footer, or `/stareso-panel`.
+`/stareso-panel <folder>` opens it on a project (remembered across sessions), and `/stareso-panel progress` or `usage` opens that view.
 
-Install once per machine, from a terminal (the desktop app has no `/plugin` command), at the user scope so it loads in every session:
+### ▶ Progress (narrow dock)
 
-```
+- **Heading:** the all-done time and the build mode.
+- **Grid:** one row of slice numbers per milestone, each in the colour of its state (■ done green, ▶ running amber, could start teal, waits on you purple, □ waiting grey).
+  - Hover a number for its one-line state.
+  - **Press a number for the slice's card:** its goal, when it is done, its files, state, branch, model, what it needs and what it unblocks.
+  - Press a milestone's name for its card, which lists its slices.
+- **Milestones:** each milestone's ETA, then its title.
+- **Helpers:** one line each (slice, ETA, title), pressable for its card.
+- **Chats:** the project's chats, this chat included. A chat is **active** when it works, when a step it launched works (*managing*), or when it is the build and its helpers run (*helpers*). Chats idle for over a day are left out.
+- **Pace** and **what waits for you** close the view.
+
+### 📊 Usage (wide dock)
+
+- The plan windows with the stop caps, then four tiles and **seven charts** (how to read them: `metrics.md`, "The usage report").
+- Charts 2, 3, 6 and 7 fold to their latest rows. **Expand** shows every row with more in each, for example each step's type, conductor and helper cost on chart 6.
+- **Chart 7** compares each ETA with what the slice took, and gives the correction factor the ETAs learned.
+- Hovering a row gives its detail, dates are written yyyy-mm-dd, and the tables are one button away.
+- The report is read live from the transcripts, nothing is written in the project, and it refreshes after five minutes or a merge.
+
+### 🌐 Dashboard (on request)
+
+- The panel's last element. **Start** (or `/stareso-panel dashboard`) runs `tools/dashboard.mjs` and gives its local address with a **Copy** button.
+- The page shows the progress graph and the usage charts (Chart.js), refreshed every minute at no token cost.
+- The server listens on this machine alone and stops with **Stop**, when the plugin unloads, or after 20 idle minutes.
+- `dashboard.mjs --write [file.html]` writes the same page as one standalone file.
+
+Outside Claude Code, `progress-graph.mjs --write` gives the same graph as an HTML page.
+
+### 🔧 Install and update
+
+Once per machine, from a terminal, at the user scope:
+
+```bash
 claude plugin marketplace add ~/.claude/stareso/harness/claude-code/plugins
 claude plugin install stareso-status@stareso
 ```
 
-Sessions load the installed copy in `~/.claude/plugins/cache/stareso/stareso-status/<version>/`, not this folder: after an edit (or a `git pull`), raise `version` in `stareso-status/.claude-plugin/plugin.json`, then run `claude plugin marketplace update stareso` and `claude plugin update stareso-status@stareso`. Every session, side sessions and subchats included, loads the new copy at its next start or `/reload-plugins`. Without the version step, they keep the old copy. `claude plugin validate` and `claude plugin test` in `plugins/` check it (nine tests in `hooks/register.test.tsx`).
+Sessions load the installed copy, not this folder. After an edit:
+
+1. Raise `version` in `stareso-status/.claude-plugin/plugin.json`.
+2. `claude plugin marketplace update stareso`, then `claude plugin update stareso-status@stareso`.
+3. Sessions load it at their next start or `/reload-plugins`.
+
+`claude plugin validate` and `claude plugin test` in `plugins/` check it (nine tests in `hooks/register.test.tsx`).
+When `claude` is not on the PATH, the desktop app's own copy works the same: `%LOCALAPPDATA%\Claude-Data\<…>\claude-code\<version>\<…>\claude.exe`.
 
 ## Install on a new machine
 1. Clone the `stareso-workflow` repository as `~/.claude` (or copy `skills/stareso-*`, `agents/stareso-*` and `stareso/` into it).

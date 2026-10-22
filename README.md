@@ -1,57 +1,67 @@
 # stareso workflow
 
-Steps, helper roles and shared material used at STARESO to take a piece of work (a small web app, a data analysis) from the first discussion to the delivered result, in small checked slices: a strong model decides, cheap fresh helpers execute, records are generated and kept short. The steps are harness-neutral Agent Skills, and the Claude Code skills and agents are generated from them.
+> Steps, helper roles and shared material to take a piece of work (a small web app, a data analysis, a game) from the first discussion to the delivered result, in small checked slices.
+> A strong model decides, cheap fresh helpers build, records are generated and kept short.
 
-This repository is rooted at `~/.claude`. Its `.gitignore` is a whitelist: only the workflow below is tracked, and credentials, settings, sessions, projects and memory never are.
+📘 [`stareso/START-HERE.md`](stareso/START-HERE.md) for newcomers  ·  📖 [`stareso/README.md`](stareso/README.md) the manual  ·  📝 [`stareso/CHANGELOG.md`](stareso/CHANGELOG.md)
 
-| Path | What |
-|---|---|
-| `stareso/START-HERE.md` | One page for someone new to AI assistants |
-| `stareso/README.md` | Manual: phases, which step when, which tier and session, profiles, files, tools |
-| `stareso/skills/stareso-*/SKILL.md` | The steps, harness-neutral: init, discuss, grill, setup, build, test, improve, status, deploy, retrofit, retro |
-| `stareso/roles/` | Helper roles: `slice-builder` builds one slice, `slice-checker` checks one milestone's outputs |
-| `stareso/capabilities/` | What a harness must provide (helpers, read guard, automation, model tiers, browser, questions, invocation, usage), each with its manual fallback |
-| `stareso/harness/<harness>/` | How each harness provides them, at what level and with what evidence: `claude-code` (adopted), `codex`, `cursor`, `gemini`, `chat-only` (proposed) |
-| `skills/stareso-*/`, `agents/stareso-slice-*.md` | Claude Code's generated copies (`stareso/tools/harness-build.mjs`); edit the core, not these |
-| `stareso/grilling.md` | How decisions are asked and recorded |
-| `stareso/metrics.md` | The retro metrics, how a capability is evaluated on a platform, the no-regression check |
-| `stareso/templates/` | Starting docs for a new project (pack-independent) |
-| `stareso/packs/<pack>/` | Stack and conventions: `app-next` (Next.js · Supabase · Vercel), `analysis-r` (R · figures · Quarto report) |
-| `stareso/tools/` | Node scripts: `slice-done`, `docs-check`, `roadmap-overview`, `roadmap-split`, `session-stats`, `harness-build`, `workflow-changed` |
-| `stareso/DESIGN-NOTES.md`, `stareso/CHANGELOG.md` | Why, and what changed |
+The steps are harness-neutral Agent Skills, and the Claude Code skills and agents are generated from them.
+This repository is rooted at `~/.claude`, and its `.gitignore` is a whitelist: only the workflow is tracked, never credentials, settings, sessions, projects or memory.
 
-## Workflow
+---
+
+## 🗺 The workflow
 
 ```mermaid
 flowchart LR
-    init[init] --> discuss[discuss] --> grill[grill] --> setup[setup] --> build[build]
-    retrofit[retrofit: existing project] --> build
-    build --> test[test]
-    test -- "bugs and changes: fix slices" --> build
-    test -- "ideas and rule changes" --> improve[improve]
+    init([init]) --> discuss([discuss]) --> grill([grill]) --> setup([setup]) --> build([build])
+    retrofit([retrofit<br/>existing project]) --> build
+    build --> test([test])
+    test -- "fix slices" --> build
+    test -- "ideas, rule changes" --> improve([improve])
     improve -- "new slices" --> build
-    test -- "all milestones done" --> deploy[deploy / deliver]
-    status([status: any time]) -.-> build
+    test -- "all done" --> deploy([deploy / deliver])
+    status{{status<br/>any time}} -.-> build
 ```
 
-Docs flow the same way: `IDEAS.md` (inbox) → `PLAN.md` (decided) → `ROADMAP.md` + `roadmap/<ID>.md` (slices) → code; test feedback goes to `FEEDBACK.md`; the build log and the overview are generated.
-
-## Steps, in the order of a project
-
-| Step | Tier (Claude Code) · session · mode | What it does |
+| Step | Model · session · mode | What it does |
 |---|---|---|
-| `stareso-init` | strong (Opus) · new · normal | Creates the project from a pack: folders, private guard, git, first docs, the workflow chart |
-| `stareso-discuss` | strong (Opus) · same · normal | Free talk; keeps `docs/IDEAS.md` |
-| `stareso-grill` | strong (Opus) · same · normal | Decision rounds with recommended answers, access table, modes, walkthrough; writes `PLAN.md`, `GLOSSARY.md`, decisions |
-| `stareso-setup` | strong (Opus) · same · normal | Project instructions with the Commands table and the roadmap (overview + one file per milestone) |
-| `stareso-build` | standard (Sonnet) · new, no worktree · auto | Conductor: one helper per slice, `check`, `slice-done`; checker helper and tidy slice per milestone; eco or fast profile |
-| `stareso-test` | standard (Sonnet) · new · normal | Test in the browser pane or on the rendered report; feedback becomes fix slices or ideas |
-| `stareso-improve` | strong (Opus) · new · normal | New ideas or decisions → PLAN updates and new slices; coherence check |
-| `stareso-status` | any | Where the project stands, debt, and the next step with its tier and session |
-| `stareso-deploy` | strong (Opus) · new · normal | Pre-flight and the pack's steps for going online or delivering |
-| `stareso-retrofit` | strong (Opus) · new · normal | Brings an existing project into the workflow without rewriting it |
-| `stareso-retro` | standard (quick) · strong (deep) | Measured review of the workflow on this project from the records; at most three changes per retro |
+| `stareso-init` ⌨ | strong · new · normal | A project from a pack: folders, private guard, git, first docs |
+| `stareso-discuss` | strong · same · normal | Free talk, keeps `docs/IDEAS.md` |
+| `stareso-grill` | strong · same · normal | Decision rounds with recommended answers, then `PLAN.md`, glossary and decisions |
+| `stareso-setup` | strong · same · normal | Project instructions and the roadmap of small slices |
+| `stareso-build` ⌨ | standard · new, no worktree · auto | One fresh helper per slice, checked and merged, profiles eco, fast, night, day |
+| `stareso-test` | standard · new · normal | You test, feedback becomes fix slices or ideas |
+| `stareso-improve` | strong · new · normal | New ideas into PLAN and new slices |
+| `stareso-status` | any | 3 to 6 short lines: where it stands and the exact next step |
+| `stareso-deploy` ⌨ | strong · new · normal | Pre-flight and the pack's steps to go online or deliver |
+| `stareso-retrofit` ⌨ | strong · new · normal | An existing project into the workflow, behaviour kept |
+| `stareso-retro` | quick: standard · deep: strong | Measured review of the workflow on a project |
 
-`init`, `build`, `deploy` and `retrofit` are started only by typing them, and the others also by asking.
+⌨ = started only by typing it.
+In Claude Code, the **stareso panel** (plugin `stareso-status`) shows the progress, the helpers, the chats and the usage beside the chat, with no model call.
 
-Start with `stareso/START-HERE.md` or `stareso/README.md`. To save a change: edit the core in `stareso/`, run `node ~/.claude/stareso/tools/harness-build.mjs`, then `git -C ~/.claude add -A`, commit, push.
+---
+
+## 📂 What is where
+
+| Path | What |
+|---|---|
+| `stareso/skills/stareso-*/SKILL.md` | the steps, harness-neutral |
+| `stareso/roles/` | helper roles: `slice-builder`, `slice-checker` |
+| `stareso/capabilities/` | what a harness must provide, each with its manual fallback |
+| `stareso/harness/<harness>/` | how each harness provides it: `claude-code` (adopted, with the panel plugin), `codex`, `cursor`, `gemini`, `chat-only` |
+| `stareso/packs/<pack>/` | stack and conventions: `app-next`, `analysis-r`, `godot-game` |
+| `stareso/tools/` | plain Node scripts: `slice-done`, `progress-graph`, `docs-check`, `usage-report`, `dashboard`, `session-stats`, `harness-build`, … |
+| `stareso/templates/` | starting docs for a new project |
+| `stareso/grilling.md`, `stareso/metrics.md` | how decisions are asked, how the workflow is measured |
+| `stareso/DESIGN-NOTES.md`, `stareso/CHANGELOG.md` | why, and what changed |
+| `skills/stareso-*/`, `agents/stareso-slice-*.md` | Claude Code's generated copies: edit the core, not these |
+
+---
+
+## 🛠 Saving a change
+
+1. Edit the core in `stareso/`.
+2. `node ~/.claude/stareso/tools/harness-build.mjs`
+3. A dated line in `stareso/CHANGELOG.md`, then commit and push.

@@ -553,10 +553,10 @@ function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
 // ---------- progress: the brief's context and sections around the graph, laid out for a narrow dock ----------
 //
 // One row of slice numbers per milestone, each number in the colour of its state, its title on a dim line under it;
-// hover a number for the slice's line, press a milestone for its card (its slices, each pressable). Then the running
-// helpers folded to one line each (press one for its card), the chats computing outside the roadmap, the pace and
-// what waits for the person. Numbers sit in one monospaced Text per lane: plain Text, not a Button (a desktop draws a
-// Button natively and drops the colour inside it), and not a Box per number (a desktop spaces and wraps the boxes).
+// hover a number for the slice's line, press it for the slice's card, press a milestone for its card (its slices, each
+// pressable). Then the running helpers folded to one line each (press one for its card), the chats of the project, the
+// pace and what waits for the person. Each number is a plain Button holding a monospaced Text in its state's colour,
+// in a wrapping row, so a press opens its card as a helper's does.
 
 function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   const { Box, Text, Button } = ui

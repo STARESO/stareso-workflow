@@ -1,159 +1,270 @@
-# stareso workflow: user manual
+# stareso workflow
 
-A repeatable way to take a piece of work from first idea to delivered result, in small checked slices, with a strong model deciding and cheap fresh helpers executing. Born with three of STARESO's small web apps (projects A, B and C), the process is independent of the kind of work and of the assistant. A **pack** carries what is specific to the work (stack, conventions, verification, delivery steps), and a **harness** folder carries what is specific to the assistant (helpers, read guard, hooks, models).
+> From first idea to delivered result, in small checked slices.
+> A strong model decides, cheap fresh helpers build, and every decision is written down.
 
-New to AI assistants: `START-HERE.md`. Why it is built this way: `DESIGN-NOTES.md`. Changes to the workflow: `CHANGELOG.md`. Using it with another assistant: `harness/README.md`.
+📘 New to AI assistants? → [`START-HERE.md`](START-HERE.md)  ·  🧭 Why it works this way → [`DESIGN-NOTES.md`](DESIGN-NOTES.md)  ·  📝 What changed → [`CHANGELOG.md`](CHANGELOG.md)  ·  🔌 Another assistant → [`harness/README.md`](harness/README.md)
 
-**Words.** A **step** is one phase of the process (init, grill, build…), written as one `SKILL.md` (Claude Code calls it a skill). A **tier** is the class of model a step or slice needs: **strong**, **standard** or **light**; each harness maps them in `harness/<harness>/models.md` (Claude Code: Opus, Sonnet, Haiku). The **project instructions** file is `AGENTS.md`, which Claude Code names `CLAUDE.md`.
+The method was born with three small web apps and does not depend on the kind of work or on the assistant.
+A **pack** carries what is specific to the work (stack, conventions, checks, delivery).
+A **harness** carries what is specific to the assistant (helpers, read guard, hooks, models).
 
+---
+
+## 🗺 At a glance
+
+```mermaid
+flowchart LR
+    init([init]) --> discuss([discuss]) --> grill([grill]) --> setup([setup]) --> build([build])
+    retrofit([retrofit<br/>existing project]) --> build
+    build --> test([test])
+    test -- "fix slices" --> build
+    test -- "ideas, rule changes" --> improve([improve])
+    improve -- "new slices" --> build
+    test -- "all done" --> deploy([deploy / deliver])
+    status{{status<br/>any time}} -.-> build
 ```
-init ──▶ discuss ──▶ grill ──▶ setup ──▶ build ◀──▶ test ──▶ deploy / deliver
-                                           ▲          │
-retrofit (existing project) ──▶ build      └ improve ◀┘         status: any time
-```
 
-## Where everything lives
+| Symbol | Means |
+|:---:|---|
+| ▶ | the next step, or a helper at work |
+| ■ | done |
+| □ | waiting |
+| ⚠ | a blocker or a usage cap in sight |
+| ↗ | the stareso panel |
+| 💭 | an idea not yet planned |
 
-| What | Where |
-|---|---|
-| The steps, harness-neutral (one folder each) | `stareso/skills/stareso-*/SKILL.md` |
-| The helper roles used by the build | `stareso/roles/slice-builder.md`, `slice-checker.md` |
-| The capabilities a harness provides (helpers, read guard, automation, tiers, browser, questions, invocation, usage) | `stareso/capabilities/` |
-| One folder per harness: how it provides each capability, its models, its setup | `stareso/harness/<harness>/` |
-| Shared material: this manual, grilling rules, metrics, templates, tools | `stareso/` |
-| Packs (stack and conventions) | `stareso/packs/<pack>/` |
-| Claude Code's generated copies, read at run time | `~/.claude/skills/stareso-*/SKILL.md`, `~/.claude/agents/stareso-slice-*.md` |
+**Three words.**
+A **step** is one phase (init, grill, build…), written as one `SKILL.md`.
+A **tier** is the class of model a step or slice needs: **strong**, **standard** or **light** (Claude Code: Opus, Sonnet, Haiku).
+The **project instructions** file is `AGENTS.md`, which Claude Code calls `CLAUDE.md`.
 
-The steps write `<stareso>` for the `stareso/` folder and `<stareso-repo>` for the repository. In Claude Code both are inside `~/.claude` (on Windows `C:\Users\<you>\.claude`), which is the git repository: its whitelist `.gitignore` tracks only the workflow. After changing the workflow, regenerate the Claude Code files (`node ~/.claude/stareso/tools/harness-build.mjs`), then `git -C ~/.claude add -A && git -C ~/.claude commit -m "…"`, then push to the `stareso-workflow` remote.
+---
 
-**This repository must stay free of personal and project-private information** (it may be shared or made public): no user names or home paths (write `<you>`), no e-mail addresses, no domain names, keys, codes or account ids, no real people, no data. Project-specific facts live in each project's own repository and `private/` folder. The workflow holds only the method, the packs and the harness notes. Git commit metadata carries the author name and e-mail of whoever commits: use a work identity if the repository is ever made public.
+## 🪜 The steps
 
-## The steps
-
-| Step | Start it with | Tier · session · mode | What it does |
+| Step | Start it with | Model · session · mode | What it does |
 |---|---|---|---|
-| `stareso-init` | `/stareso-init <name> [pack]` (typed) | strong · new · normal | Folder structure from the pack, private guard and its canary, existing files moved unread, git, next-steps chart |
-| `stareso-discuss` | `/stareso-discuss` or "let's discuss" | strong · same or new · normal | Free talk (keyboard or voice), reads approved sources, plays back, keeps `IDEAS.md` |
-| `stareso-grill` | "let's grill" / `/stareso-grill` | strong · same · normal | Numbered rounds with recommended answers, access table, modes; writes `PLAN.md`, `GLOSSARY.md`, decisions; ends with a walkthrough |
-| `stareso-setup` | `/stareso-setup` | strong · same · normal | Short project instructions with the Commands table, roadmap: overview + one file per milestone of small slices |
-| `stareso-build` | `/stareso-build M1 [eco\|fast]` (typed) | **standard · new, no worktree · auto** | Conductor: one fresh helper per slice, `check`, `slice-done`; checker helper and tidy slice per milestone |
-| `stareso-test` | `/stareso-test` / "test time" | standard · new · normal | Checklist of what is new, feedback logged, segmented into fix slices at "end test" |
-| `stareso-improve` | `/stareso-improve` / "I have a new idea" | strong · new · normal | One idea: discussion + grilling → PLAN → new milestone file, coherence check |
-| `stareso-status` | "where are we?" / `/stareso-status` | any | A few short lines, panel first: Phase and progress in one line, what blocks or waits for you, the one next step with its skill, model, session, permission mode and exact command (or the launch question when it can launch it), and the pointer to the stareso panel. It no longer prints the brief: the panel and the dashboard show it |
-| `stareso-deploy` | `/stareso-deploy` (typed) | strong · new · normal | Pre-flight, prepared files, `DEPLOY.md`, the pack's provider or delivery steps one at a time |
-| `stareso-retrofit` | `/stareso-retrofit [pack]` (typed) | strong · new · normal | Existing project → standard docs, Commands, PLAN from the code, the guard canary, a retrofit milestone of behaviour-preserving slices |
-| `stareso-retro` | `/stareso-retro [quick|deep]` | quick: standard · test session · normal; deep: strong · new | Measured review from the generated records: fixed metrics, comparison with the previous retro, the harness's proposed capabilities, at most three workflow changes, entry in `docs/RETROS.md` |
+| `init` | `/stareso-init <name> [pack]` ⌨ | strong · new · normal | Folders from the pack, private guard and its canary, git, next-steps chart |
+| `discuss` | "let's discuss" | strong · same or new · normal | Free talk (keyboard or voice), approved sources, keeps `IDEAS.md` |
+| `grill` | "let's grill" | strong · same · normal | Numbered rounds with recommended answers, writes `PLAN.md`, `GLOSSARY.md` and decisions, ends with a walkthrough |
+| `setup` | `/stareso-setup` | strong · same · normal | Short project instructions with the Commands table, roadmap of small slices |
+| `build` | `/stareso-build M1 [eco\|fast]` ⌨ | **standard · new, no worktree · auto** | Conductor: one fresh helper per slice, `check`, `slice-done`, a checker and a tidy slice per milestone |
+| `test` | "test time" | standard · new · normal | What is new, your feedback logged, turned into fix slices at "end test" |
+| `improve` | "I have a new idea" | strong · new · normal | One idea, discussed and grilled, into PLAN and a new milestone |
+| `status` | "where are we?" | any | 3 to 6 short lines and the exact next step (below) |
+| `deploy` | `/stareso-deploy` ⌨ | strong · new · normal | Pre-flight, `DEPLOY.md`, the pack's steps one at a time |
+| `retrofit` | `/stareso-retrofit [pack]` ⌨ | strong · new · normal | An existing project into the workflow, behaviour kept |
+| `retro` | `/stareso-retro [quick\|deep]` | quick: standard · deep: strong | Measured review from the records, at most three workflow changes |
 
-Usage has no step of its own: the panel's Usage tab and the dashboard show the numbers live, the retro reads them, and any session answers a usage question with `usage-report.mjs` and the reading guide of `metrics.md` ("The usage report").
+⌨ = typed only. The assistant never starts these on its own, because they create things, spend tokens or go online.
+Every step opens with its **Session** line and closes with the next step's.
 
-`/stareso-<step>` means "start the step named stareso-<step>", and each harness has its own way (`capabilities/invocation.md`). Typed-only steps (`init`, `build`, `deploy`, `retrofit`) are never started by the assistant on its own, because they create things, spend tokens or go online. Every step opens with its **Session** line (tier, new or same session, mode) and closes with the next step's. `/stareso-status` repeats it any time.
+### ▶ Status, in one look
 
-## Build profiles
+`/stareso-status` answers in one model turn. The tool `progress-graph.mjs --status` reads the records and git in half a second, applies the rule table and prints the answer:
+
+```text
+proj · build M11 7/13 · fast · ends ≈ 21:18
+⚠ 5-hour 53 %: helper-start cap 85 % ≈ 23:18
+⚠ weekly 82 %: cap 95 % ≈ 03:57 tomorrow
+□ 9 human slices, 12 questions wait on you
+▶ after M11: /stareso-test (sonnet, new session)
+↗ panel: ◧ stareso or /stareso-panel
+```
+
+Everything else lives in the **stareso panel** beside the chat (Claude Code): milestones and their times, the slice grid with a card per slice, helpers, chats, pace, plan windows and seven usage charts. Details: [`harness/claude-code/README.md`](harness/claude-code/README.md).
+
+Usage has no step of its own. The panel and the dashboard show it live, the retro reads it, and [`metrics.md`](metrics.md) ("The usage report") explains every number.
+
+---
+
+## ⚙ Build profiles
 
 | Profile | Helpers | When |
 |---|---|---|
-| **eco** (default) | one fresh helper at a time, in the project checkout; no browser per slice; one checker helper per milestone | you are away, no hurry: cheapest, and it never drains the usage window at once |
-| **fast** | up to 3 helpers in parallel on independent slices (no `after:`, no shared file), each in its own worktree | you need it this afternoon; costs more (worktree setup, conflicts resolved by the conductor, duplicated code, faster limit) |
-| **night** `<limit>` | fast's helpers for a long unattended run: deadline and wrap-up time, paced on the usage window, never stops early, takes slices from milestone `Q` (Kind: queue) when its range is done | you sleep and want the whole usage window used; born with project E's overnight runs |
+| **eco** (default) | one at a time, in the project folder, one checker per milestone | you are away and not in a hurry: the cheapest |
+| **fast** | up to 3 in parallel on independent slices, each in its own worktree | you need it soon, and accept a higher cost |
+| **night** `<limit>` | fast's helpers for a long unattended run, paced on the usage window, then the queue milestone `Q` | you sleep and want the window used (packs that allow it) |
+| **day** `<limit>` | eco's loop with full autonomy, windows only when you are away | you work on the same computer (packs that allow it) |
 
-The tier is chosen **per slice in the brief** (`tier: light | standard | strong`, which Claude Code briefs write as `model: haiku | sonnet | opus`), not by the profile: eco still uses the strong tier on a slice the brief marks as risky. A harness without helpers runs each slice in a fresh session instead (`capabilities/helpers.md`, mode session).
+The tier is chosen **per slice in its brief**, not by the profile.
+A merged helper's worktree is removed by `slice-done`, so caches (a Godot import is about 800 MB) never pile up.
 
-## Your routine
+---
 
-1. Empty folder, strong-tier session: `/stareso-init <name> app-next` (or `analysis-r`). Existing project instead: `/stareso-retrofit`.
-2. Reference files into `private/sources/locked/` (data into `data/raw/` for an analysis). The assistant asks before reading any of them, and datasets are seen as structure only.
-3. Talk (`discuss`), as long as you want. Say **"let's grill"**, answer the rounds ("1 yes, 2 yes, 3 no, rather…") and correct the walkthrough.
-4. `/stareso-setup`, review the overview and the slice titles, accept.
-5. **New session**, standard tier, auto mode, in the project folder (no worktree): `/stareso-build M1`. Leave it working. Anything you notice goes to FEEDBACK, not to the conductor.
-6. When it reports: clear, **new session**, `/stareso-test`, test, "end test".
-7. Fixes: `/stareso-build M<n>` in a new session. New ideas or decisions to confirm: `/stareso-improve` (strong tier, new session).
-8. Repeat 5–7 per milestone. `/stareso-retro` when asked (10 turns, measured, never part of the test). Back after a break: `/stareso-status`.
-9. Ready: `/stareso-deploy`. Feedback from phones or readers afterwards: `/stareso-test`.
+## 🔁 Your routine
 
-## Files in each project, and when they enter the workflow
+1. **Start.** Empty folder, strong model: `/stareso-init <name> app-next`. An existing project: `/stareso-retrofit`.
+2. **Sources.** Reference files go to `private/sources/locked/`. The assistant asks before reading any of them.
+3. **Decide.** Talk, then say **"let's grill"** and answer the rounds ("1 yes, 2 no, rather…").
+4. **Plan.** `/stareso-setup`, then review the milestones and slice titles.
+5. **Build.** New session, standard model, auto mode, project folder: `/stareso-build M1`. Leave it. What you notice goes to FEEDBACK.
+6. **Test.** New session, "test time", click around, "end test".
+7. **Loop.** Fixes: `/stareso-build M<n>`. New ideas: `/stareso-improve`. Back after a break: `/stareso-status`.
+8. **Ship.** `/stareso-deploy`. Later feedback from phones or readers: `/stareso-test`.
 
-The flow: `IDEAS.md` (inbox) → `PLAN.md` (decided) → `ROADMAP.md` + `roadmap/<ID>.md` (slices) → code. `FEEDBACK.md` feeds the next milestone, `QUESTIONS.md` holds what nobody could decide yet, and the datasets in `docs/data/` record what was done and what it cost (one event per line, read by the tools and the dashboard, never by hand). Nothing lives only in the chat.
+---
 
-| File | Enters at | Written by | Read by | Kept coherent by | Leaves / archives |
+## 📂 Files in each project
+
+```mermaid
+flowchart LR
+    ideas[IDEAS.md<br/>inbox] --> plan[PLAN.md<br/>decided] --> roadmap[ROADMAP.md<br/>+ roadmap/ID.md] --> code[code]
+    feedback[FEEDBACK.md] --> roadmap
+    questions[QUESTIONS.md<br/>undecided] -.-> plan
+    code -.-> data[(docs/data/<br/>records)]
+```
+
+Nothing lives only in the chat.
+`FEEDBACK.md` feeds the next milestone, `QUESTIONS.md` holds what nobody could decide yet, and `docs/data/` records what was done and what it cost (one event per line, read by the tools, never by hand).
+A step that touches a decision runs `roadmap-overview` and `docs-check` before committing, because tools check structure, not meaning.
+
+<details>
+<summary><b>Every file: when it enters, who writes and reads it</b></summary>
+
+| File | Enters at | Written by | Read by | Kept coherent by | Leaves |
 |---|---|---|---|---|---|
-| the harness's guard file (Claude Code: `.claude/settings.json`), `.gitattributes`, `.editorconfig` | init / retrofit | init, retrofit | the harness, git | the canary (`Guard:` line in PLAN) | never |
-| `AGENTS.md` (Claude Code: `CLAUDE.md`) | init (name), **setup** (rules, Commands, dependencies) | setup, improve, retrofit, deploy (status line) | every session and helper, on every turn | improve's old-wording search; `docs-check` (Pack line in PLAN) | never; stays short |
-| `private/sources/INDEX.md` | init | init, discuss (classification) | discuss, grill | — | never |
-| `docs/PLAN.md` | init (`Phase`, `Pack`, `Guard`) | grill (each round), improve, retrofit, deploy (`Phase`) | setup, build (conductor), improve, status, checker (access table) | improve's coherence step; the walkthrough; `docs-check` (header lines) | never: single source of truth |
-| `docs/IDEAS.md` | init | discuss, test (💭), improve (💭 → 🛠 / ✖), retrofit | discuss, grill, improve, status | `slice-done` (🛠 → ✅), `docs-check` (stale 🛠) | lines change status, never deleted |
-| `docs/GLOSSARY.md` | init | grill, improve, retrofit | discuss (voice), setup, helpers through the briefs | improve's old-wording search | never |
-| `docs/decisions/` | grill (first hard choice) | grill, improve, retrofit | improve, anyone asking "why" | a replaced record says so in its status line | never |
-| `docs/ROADMAP.md` | **setup** | tools only (`roadmap-overview`, `slice-done`) | status, build start, improve, test, the user | generated | never |
-| `docs/roadmap/<ID>.md` | setup; test and improve add milestones | setup, test, improve, retrofit; `slice-done` ticks | build (one file per run), helpers (their brief), checker (done-when lines) | `docs-check` (`after:` targets, log lines) | stays; done milestones show as done in the overview |
-| `docs/QUESTIONS.md` | **setup** (grilling leftovers) | build (blocked decisions), test (undecidable points), retrofit (`[debt]`), tidy slices (`[debt]`); answered by improve, build, any session | **improve (first thing)**, build (skips what a question blocks), status | `docs-check` (open but unblocked, ticked without answer) | lines are ticked with their answer, never deleted |
-| `docs/FEEDBACK.md` | setup | test (points), build (requests during a run) | test's "end test" segmentation, improve (decisions to confirm) | `docs-check` (more than two blocks) | older blocks → `FEEDBACK-DONE.md` at the end of a test |
-| `docs/data/builds.jsonl` | setup (`migrate-records`) | `slice-done` (one event per slice, with harness, helper mode, tier and the merge's lines), `record.mjs` (caps, notes) | status (pace, caps), usage, retros, through `usage-report` and `progress-graph` | `docs-check` (ticked slice without a record) | never: append only, union merge |
-| `docs/data/sessions.jsonl` | setup (`migrate-records`) | `session-stats --log` at the end of build and test (harnesses with a usage reader): one line per session that changed, the last one wins | status (summary), usage, retros, through `usage-report` | — | never: append only, union merge |
-| `docs/RETROS.md` | setup | retro | retro (baseline), status (last retro) | — | never |
-| `docs/reports/` | usage, on request | `dashboard.mjs --write` (dated standalone page) | the user, in any browser | — | never |
-| `docs/LOGBOOK.md` (analysis) | init | slices (one line), the user | report writing, improve | — | never |
-| `docs/DEPLOY.md` (app) | **deploy** | deploy | deploy, the user when publishing | lessons copied to the pack's `deploy.md` | never |
-| `docs/README.md` | init | any step that adds a doc | newcomers | `docs-check` (unlisted file) | never |
-| `private/`, `data/raw`, `data/processed`, `outputs/` | init | the user, import scripts | nobody reads rows | read guard | never committed |
+| guard file (Claude Code: `.claude/settings.json`), `.gitattributes`, `.editorconfig` | init, retrofit | init, retrofit | the harness, git | the canary (`Guard:` line in PLAN) | never |
+| `AGENTS.md` (Claude Code: `CLAUDE.md`) | init, **setup** | setup, improve, retrofit, deploy | every session and helper | improve's old-wording search, `docs-check` | never, stays short |
+| `private/sources/INDEX.md` | init | init, discuss | discuss, grill | — | never |
+| `docs/PLAN.md` | init | grill, improve, retrofit, deploy | setup, build, improve, status, checker | improve's coherence step, the walkthrough, `docs-check` | never: single source of truth |
+| `docs/IDEAS.md` | init | discuss, test (💭), improve (💭 → 🛠 / ✖), retrofit | discuss, grill, improve, status | `slice-done` (🛠 → ✅), `docs-check` | lines change status, never deleted |
+| `docs/GLOSSARY.md` | init | grill, improve, retrofit | discuss, setup, helpers | improve's old-wording search | never |
+| `docs/decisions/` | grill | grill, improve, retrofit | improve, anyone asking "why" | a replaced record says so | never |
+| `docs/ROADMAP.md` | **setup** | tools only | status, build, improve, test, you | generated | never |
+| `docs/roadmap/<ID>.md` | setup, test, improve | setup, test, improve, retrofit, `slice-done` | build, helpers, checker | `docs-check` | stays |
+| `docs/QUESTIONS.md` | **setup** | build, test, retrofit, tidy slices, answered by improve | **improve first**, build, status | `docs-check` | ticked with their answer |
+| `docs/FEEDBACK.md` | setup | test, build (requests during a run) | test's "end test", improve | `docs-check` | older blocks → `FEEDBACK-DONE.md` |
+| `docs/data/builds.jsonl` | setup | `slice-done`, `record.mjs` | status, panel, retro | `docs-check` | never: append only |
+| `docs/data/sessions.jsonl` | setup | `session-stats --log` | panel, retro | — | never: append only |
+| `docs/RETROS.md` | setup | retro | retro, status | — | never |
+| `docs/reports/` | on request | `dashboard.mjs --write` | you, in any browser | — | never |
+| `docs/LOGBOOK.md` (analysis) | init | slices, you | report writing, improve | — | never |
+| `docs/DEPLOY.md` (app) | **deploy** | deploy | deploy, you | lessons copied to the pack | never |
+| `docs/README.md` | init | any step that adds a doc | newcomers | `docs-check` | never |
+| `private/`, `data/raw`, `data/processed`, `outputs/` | init | you, import scripts | nobody reads rows | read guard | never committed |
 
-Rule of thumb: a step that touches a decision runs the coherence pair (`roadmap-overview`, `docs-check`) before committing, and `improve` also searches the old wording across `docs/` and the project instructions, because tools check structure, not meaning.
+</details>
 
-## Tools (`<stareso>/tools/`, plain Node, no install)
+---
+
+## 🧰 Tools
+
+Plain Node in `stareso/tools/`, no install. The everyday ones:
+
+- `slice-done.mjs <id>` merges a slice, ticks it, logs it, removes its helper's worktree and commits.
+- `progress-graph.mjs --status | --panel | --brief | --write` gives the build's state from the records and git.
+- `docs-check.mjs` checks that the records agree with each other.
+- `usage-report.mjs` gives the usage report (tables, `--json`, `--charts`, `--live`).
+- `dashboard.mjs` serves the progress graph and usage charts to a browser, or writes them as one page.
+
+<details>
+<summary><b>Every tool and its options</b></summary>
 
 | Tool | Use |
 |---|---|
-| `slice-done.mjs <id> --model m --tokens n --note "…"` | merges the slice branch `--no-ff`, ticks the box, flips 🛠 → ✅ in IDEAS, appends the build event to `docs/data/builds.jsonl` with the merge's time and lines and the helper's usage measured from its own transcript (turns, tokens by kind, ≈ equiv, standing in for `--tokens` when it is not given) (with `--harness`, `--helper` and `--tier`, which default to the `Harness:` and `Helpers:` lines of the project instructions, else claude-code and subagent, and to the brief's tier), regenerates the overview, commits |
-| `docs-check.mjs` | coherence of the records (ticked slice without log line, stale 🛠, broken `after:`, missing `Pack:`, docs not listed, version mismatch, old files) |
-| `roadmap-overview.mjs` | regenerates the overview (milestones with their Kind, then the open slices) of `ROADMAP.md` |
+| `slice-done.mjs <id> --model m --tokens n --note "…"` | merges the slice branch `--no-ff`, ticks the box, flips 🛠 → ✅ in IDEAS, appends the build event (merge time and lines, the helper's measured usage), removes the helper's worktree when it holds no uncommitted work, regenerates the overview and commits. `--keep-worktree` keeps it |
+| `docs-check.mjs` | coherence of the records: ticked slice without a record, stale 🛠, broken `after:`, missing `Pack:`, docs not listed, old files, no `docs/data/` yet |
+| `roadmap-overview.mjs` | regenerates the overview of `ROADMAP.md` |
 | `roadmap-split.mjs` | one-off: splits an old single-file roadmap into the folder layout |
-| `progress-graph.mjs [--status] [--panel] [--brief] [--write]` | the build advancement and its data, from the records and `git worktree list` only (see "The progress graph" below): `--status` the answer of status, `--panel` the panel data, `--brief` the sections, `--write` a page for a harness with no panel; writes only outside the project |
-| `session-stats.mjs --log` | the usage reader (Claude Code transcripts): from inside a project, appends to `docs/data/sessions.jsonl` every session that changed (tokens by kind and by model, never as money; every session of the project and its worktrees, its steps, active hours, models, turns, user messages, compactions, helpers). Build and test run it at the end. `--print` shows the old usage tables (sessions, steps, totals, cost per slice, planning cost, details, glossary) from the records |
-| `usage-report.mjs` | the usage report from the records: six tables, `--json` (one compact line for the skills), `--summary` (one line), `--builds [--since d]` (the build records as log lines), `--projects` (the cross-project index), `--charts` and `--panel` (series for the charts), `--live` (sessions read from the transcripts as they are now) |
-| `dashboard.mjs [--write [file]]` | the live dashboard (progress graph, usage charts, tables, recent builds) as a small local server for the side browser, or with `--write` one standalone page with the data inlined that opens in any browser (temp folder by default, `docs/reports/` when a report is kept) |
-| `record.mjs caps … \| note "…"` | appends a caps or note event to the build records (run caps, a retrofit baseline, a tune pass) |
-| `migrate-records.mjs` | one shot per project: `usage-sessions.json` and the transcripts to `sessions.jsonl`, `BUILD-LOG.md` to `builds.jsonl` (the log is frozen in `docs/archive/`), the retros of `USAGE.md` to `RETROS.md`, union merge in `.gitattributes`. Setup runs it in a new project. With `STARESO_DATA=<dir>` it writes the datasets there only and leaves the project untouched (a read-only check) |
-| `workflow-usage.mjs` | what the workflow itself costs to keep up: the chats run in `~/.claude` (retro chats that change the workflow, the panel, the tools), which no project counts, one line each with their helpers and the total, numbers only. `--log` keeps them in `data/workflow-sessions.jsonl` (this machine only, git-ignored), so a chat whose transcript is deleted still counts |
-| (cache) | live reads keep each session's summary in `~/.claude/stareso/data/cache/sessions.json`, keyed by the transcript files' sizes and times, so only the transcripts that grew are parsed again (about 10 ms instead of 1.2 s on project E), and a session whose transcript is deleted stays there until `--log` saves it |
-| `session-stats.mjs --prune [--days 7] [--yes]` | saves every session as `--log` does, then lists the conversation logs of this project (and their helpers' logs) older than `--days`; `--yes` deletes them. Their usage stays in `docs/data/sessions.jsonl`, but those chats can no longer be reopened nor read by a deep retro |
-| `session-stats.mjs <out> <transcripts…>` | deep retro: per-transcript header and the user-message timeline |
-| `harness-build.mjs [--check]` | generates the Claude Code skills and agents from `skills/`, `roles/` and `harness/claude-code/`, printing each file's length before and after; `--check` exits 1 on drift |
-| `workflow-changed.mjs` | Claude Code hook, not run by hand: tells a running session that the workflow repository changed (commits, changed steps, packs, helper definitions, stale generated files) so it re-reads the step it is running. Install once per machine from `harness/claude-code/extras/settings.hooks.json`. Silent while nothing changed. |
+| `progress-graph.mjs` | `--status` the answer of status, `--panel` the panel's data, `--brief` the sections, `--write` an SVG and a page for a harness with no panel. Never writes in the project |
+| `session-stats.mjs --log` | reads the Claude Code transcripts and appends every session that changed to `docs/data/sessions.jsonl`. `--print` shows the usage tables, `--prune` lists old conversation logs (`--yes` deletes them) |
+| `usage-report.mjs` | the usage report from the records: six tables, `--json`, `--summary`, `--builds`, `--projects`, `--charts`, `--panel`, `--live` |
+| `dashboard.mjs [--write [file]]` | the live dashboard as a small local server, or one standalone page with the data inlined |
+| `record.mjs caps … \| note "…"` | appends a caps or note event to the build records |
+| `migrate-records.mjs` | one shot per project: older record files into `docs/data/`. Setup runs it in a new project, and the other tools ask for it when `docs/data/` is missing |
+| `usage-seed.mjs <rev> <n>` | brings an archived session back from an older usage table kept in git |
+| `workflow-usage.mjs` | what keeping the workflow itself costs (chats run in `~/.claude`) |
+| `harness-build.mjs [--check]` | generates the Claude Code skills and agents from the core, `--check` exits 1 on drift |
+| `session-stats.mjs <out> <transcripts…>` | deep retro: each transcript's header and its user-message timeline |
+| `workflow-changed.mjs` | Claude Code hook: tells a running session that the workflow changed, so it re-reads its step. Install once per machine from `harness/claude-code/extras/settings.hooks.json` |
 
-## The progress graph
+</details>
 
-`/stareso-status` runs `progress-graph.mjs --status`, which applies the status rule table and prints the whole answer in 3 to 6 lines (head with the build mode, ⚠ a blocking question and one line per usage window, □ what waits on you, ▶ the next step with model, session and mode). In Claude Code the skill runs it while it loads, so status costs one model turn and no tool call. The tool reads `docs/roadmap/*.md`, `docs/ROADMAP.md`, `docs/QUESTIONS.md`, the build records, `docs/PLAN.md`, `docs/IDEAS.md` and `git worktree list`, and never the code. It works for every pack and runs in well under a second. `--brief` is the fast status, which the panel and the dashboard show as it is: a head line, then short sections that read at a glance, Progress (the text graph, one line per milestone with open slices, ■ done, ▶ running, □ waiting), Helpers (one line per running helper with its slice, model, minutes and title), Usage, Pace, Waits for you and Could start now. The same items exist as single lines in the JSON (`lines`). Without a flag it prints the same data as one compact JSON, `--text` prints the text graph alone, and `--write [dir]` writes `progress.svg` (standalone, light and dark, a tooltip on every node), `progress-widget.svg` and `progress.html`, in the system temp folder by default and never inside the project. Status draws the SVG only when asked (`/stareso-status graph`), because the drawn graph costs a few thousand tokens and status runs often.
+---
 
-- **Lanes.** One lane per milestone with open slices, each slice a small node labelled with its short id (`11.2`, `tidy`) and colored teal (done), amber (a helper is running on it) or gray (waiting), with a dashed outline when the slice is for the user and a small dot when it runs on the strong tier (Opus, the costly slices). A thin line joins a slice to the next one when that one's `after:` names it. Lettered milestones (`H`, `P`, `Q`) are one block each, never slice by slice, and the first one that waits on the user also counts the open questions and those that block a slice. Finished milestones collapse into one banner (`M1 to M5, M8, M9, M10 · every slice done`), and `--max-lanes` (default 8) caps the lanes, the rest being named in a line.
-- **Running.** A helper is a worktree (or the project folder) on a branch `slice/<id>-…` whose slice is still open, with the minutes since its folder was made. The newest `Merge slice` commits come back as `recentMerges`.
-- **Mode.** The indicator beside the banner shows the profile of the newest logged merge (`eco`, `fast`, `night` or `day`) and the number of helpers running now. `mode.available` lists the profiles the project's pack allows, because they vary by pack (`night` and `day` come with `godot-game`).
-- **Ready, human, questions.** `ready` holds the open slices of numbered milestones whose `after:` slices are done, that no helper runs and no open question blocks (a tidy slice waits for the rest of its milestone). `humanSlices` are the open `[human]` slices, and `questions` counts the open ones and lists those that block a slice.
-- **Pace.** The time one slice takes is the median gap between two consecutive merges of serial runs (`eco`, `day`) in the build records, gaps over 90 minutes being left out. The helpers running now share the open slices of numbered milestones, but the longest chain of open slices stays serial, so the ETA is the larger of the two figures, and the line says which one binds. Run one after the other, the same slices give the upper bound. Without serial merges in the log, the recent gap between merges stands in, undivided, since it already holds the parallelism of that run.
-- **ETA learning.** Each running helper's predicted merge time is kept once (per machine, `stareso/data/eta/`), compared with its merge, and the median miss of the last 20 slices becomes a factor on the time of one slice, so the ETAs correct themselves over a project (the brief's Pace says "learned from n merged slices: times ×f", and the panel's chart 7 draws it). It costs one small file read per run and no model call.
-- **ETA per slice and per milestone.** A small simulation plays the rest of the build: every open slice of a numbered milestone takes the time of one slice, a running one what is left of it, and the helpers running now (or the profile's usual count when idle: one for eco and day, three for fast and night) take the slices in roadmap order as soon as their `after:` slices are merged, a tidy slice waiting for the rest of its milestone. The brief gives the time each milestone should end on its Progress line and the time each running helper should merge, the drawn graph puts the milestone's time under its label and the slice's in its tooltip, and the JSON has every slice (`eta.bySlice`). A slice that waits on the user, and what waits on it, gets no time. Shared files in fast, pauses at the usage caps and the checker at the end of a milestone are not modelled, so the times are a floor more than a promise.
-- **Usage and caps.** Status passes the usage windows the host shows (`--five <pct>@<reset>`, `--week <pct>@<reset>`). The tool keeps the readings in `~/.claude/stareso/data/plan-windows.jsonl` (one file per machine, since the plan is the account's: a line when the percent or the window changes, or ten minutes after the last one), works out the burn rate from the oldest reading of the same window in the last three hours (or from the average since the window opened when there is one reading), and says when each stop cap will be reached at that rate, or that the window resets first. The caps come from the newest caps event of the build records, which a build writes when it starts with caps (`record.mjs caps --start 85 --pause 90 --weekly 95 --deadline 18:30`), or from `--caps 85/90/95` when the user gave them in the conversation.
-- **Live panel (Claude Code).** The plugin `stareso-status` (`harness/claude-code/README.md`, "The live status panel") shows the same brief, graph and usage beside the chat and refreshes them every minute without a model call.
+## 📈 The progress graph and the ETAs
 
-## Packs
+`progress-graph.mjs` reads the roadmap, QUESTIONS, PLAN, IDEAS, the build records and `git worktree list`, never the code, in well under a second.
 
-A pack = a folder `packs/<name>/` with `README.md`, `guide.md` (conventions by numbered section, commands, verification, default roadmap), `templates/` (the project instructions with the Commands table, gitignore, starting files) and, for things that go online or get delivered, `deploy.md`. `PLAN.md` names the pack, and steps, helpers and briefs read only the sections they need.
+- ■ **Lanes.** One row per milestone with open slices, each slice coloured by state: done, running, could start, waits on you, waiting.
+- ▶ **Running.** A helper is a branch `slice/<id>-…` whose slice is still open.
+- ⏱ **Pace.** The time of one slice is the median gap between serial merges. The ETA is the larger of "slices shared among the helpers" and "the longest chain".
+- 🎯 **ETA learning.** Each running helper's prediction is kept once, compared with its merge, and the median miss of the last 20 slices corrects the next ETAs. The panel's chart 7 draws it.
+- ⚠ **Usage and caps.** The tool keeps the plan's readings per machine, works out the burn rate, and says when each stop cap is reached, one line per window.
+
+<details>
+<summary><b>How each part is computed</b></summary>
+
+- **Lanes.** Lettered milestones (`H`, `P`, `Q`) are one block each. Finished milestones fold into one line. `--max-lanes` (default 8) caps the lanes.
+- **Ready, human, questions.** `ready` holds the open slices whose `after:` slices are done, that no helper runs and no question blocks. A tidy slice waits for the rest of its milestone.
+- **Pace.** Gaps over 90 minutes are left out. Without serial merges, the recent gap between merges stands in, undivided, since it already holds that run's parallelism.
+- **ETA per slice and per milestone.** A small simulation plays the rest of the build with the helpers running now (or the profile's usual count when idle). A slice that waits on you, and what waits on it, gets no time. Shared files, pauses at the caps and the checker are not modelled, so the times are a floor more than a promise, which the learned factor then corrects.
+- **ETA learning.** Predictions live in `stareso/data/eta/<project>.jsonl` on this machine, never in the project. The factor is the median of actual ÷ predicted over the last 20 merged slices (at least 4), clamped to 0.5–3 and measured against the raw estimate, so it never compounds.
+- **Usage and caps.** Readings live in `stareso/data/plan-windows.jsonl`. The burn rate comes from the oldest reading of the same window in the last three hours. Caps come from the newest caps event of the build records (`record.mjs caps --start 85 --pause 90 --weekly 95`) or from `--caps`.
+- **Live panel.** The `stareso-status` plugin shows all of this beside the chat and refreshes it every minute without a model call.
+
+</details>
+
+---
+
+## 📦 Packs
+
+A pack is a folder `packs/<name>/` with `README.md`, `guide.md` (numbered sections), `templates/` and, for things that go online or get delivered, `deploy.md`. `PLAN.md` names the pack, and each step reads only the sections it needs.
 
 | Pack | For |
 |---|---|
-| `app-next` | small team web app: Next.js, Postgres (Supabase), Vercel, PWA, browser-pane verification |
-| `analysis-r` | data analysis in R: `config/paths.yml`, `R/` modules, `main/` steps, tests + regression snapshot, figures, Quarto HTML report |
-| `godot-game` | 2D game in Godot 4 for PC and tablets: data-driven entities, the gate (`check.sh`), off-screen and silent windowed runs, content recipes, tunables and the playtest checklist, slice kinds (spike, tune, content, art), release steps |
+| `app-next` | small team web app: Next.js, Postgres (Supabase), Vercel, PWA, browser-pane checks |
+| `analysis-r` | data analysis in R: modules, steps, tests and regression snapshot, figures, Quarto report |
+| `godot-game` | 2D game in Godot 4 for PC and tablets: data-driven entities, off-screen runs, playtests, release steps |
 
-A new kind of work (a model, a document review, another stack) gets its pack written from its first real project, as these two were: copy the closest pack, keep the section layout, change the content. The steps do not change.
+A new kind of work gets its pack from its first real project: copy the closest pack, keep the section layout, change the content. The steps do not change.
 
-## Privacy, in short
-- Everything in `private/` and the data folders stays private. Reading a file sends it to the model, so the assistant reads only files you moved to (or approved for) `readable/`. Datasets are seen as structure only, through a script you agree to run. Development uses toy samples, and you run real imports.
-- The rule is in the project instructions and in every helper role. Where the harness can enforce it (Claude Code: deny rules in `.claude/settings.json`; other harnesses: `harness/<harness>/capabilities.md`), init and retrofit install the guard and check it with a canary file, and the result is the `Guard:` line of `docs/PLAN.md`. In a chat window, never upload a private file.
+---
 
-## Keeping the context small
-- Each phase in its own session, one build session per milestone: the files are the memory, not the chat. `/clear` + `/stareso-status` beats a compaction.
-- The conductor sees reports and failures, never full tool output. Helpers are fresh and read only their brief and the named guide sections.
-- Human input is batched (test rounds), never streamed into a running build.
-- Records are generated by the tools, in one format. Finished material moves to `-DONE` files, and a tidy slice closes every milestone.
+## 🔒 Privacy
 
-## Changing the workflow
-Edit the step in `skills/`, the role in `roles/`, the pack or the template, in harness-neutral wording (`harness/README.md`, "Keeping the core harness-neutral"). Run `tools/harness-build.mjs` and check that `--check` passes, then add a line to `CHANGELOG.md`. The retro proposes such changes, and you accept them one by one. Measure before and after with `session-stats.mjs`, and evaluate a capability on a new harness as `metrics.md` says.
+- Everything in `private/` and the data folders stays private. Reading a file sends it to the model, so the assistant reads only what you approved.
+- Datasets are seen as structure only, through a script you agree to run. Development uses toy samples.
+- Where the harness can enforce it (Claude Code: deny rules), init installs the guard and checks it with a canary file. In a chat window, never upload a private file.
+
+**This repository stays free of private information**, since it may be shared: no user names or home paths (write `<you>`), no e-mail addresses, domains, keys, account ids, real people or data. Project facts live in each project's own repository.
+
+---
+
+## 🪶 Keeping it light
+
+- **One step per session.** The files are the memory, not the chat. `/clear` and `/stareso-status` beat a compaction.
+- **The conductor sees reports and failures only.** Helpers are fresh and read only their brief.
+- **Human input is batched** in test rounds, never streamed into a running build.
+- **Records are generated** by the tools, in one format. A tidy slice closes every milestone.
+
+---
+
+## 🛠 Changing the workflow
+
+1. Edit the core: the step in `skills/`, the role in `roles/`, a pack or a template, in harness-neutral wording.
+2. Run `node ~/.claude/stareso/tools/harness-build.mjs` and check that `--check` passes.
+3. Add a dated line to `CHANGELOG.md`: what changed, and why.
+4. Commit in `~/.claude` and push to the `stareso-workflow` remote.
+
+The retro proposes changes and you accept them one by one. Measure before and after, as [`metrics.md`](metrics.md) says.
+
+<details>
+<summary><b>Where everything lives</b></summary>
+
+| What | Where |
+|---|---|
+| The steps, harness-neutral | `stareso/skills/stareso-*/SKILL.md` |
+| The helper roles | `stareso/roles/slice-builder.md`, `slice-checker.md` |
+| What a harness must provide | `stareso/capabilities/` |
+| How each harness provides it | `stareso/harness/<harness>/` |
+| Shared material: this manual, grilling, metrics, templates, tools | `stareso/` |
+| Packs | `stareso/packs/<pack>/` |
+| Claude Code's generated copies | `~/.claude/skills/stareso-*/`, `~/.claude/agents/stareso-slice-*.md` |
+| Per-machine data (plan readings, ETA learning, caches), never committed | `stareso/data/` |
+
+The steps write `<stareso>` for the `stareso/` folder. In Claude Code it sits in `~/.claude`, which is the git repository, and its whitelist `.gitignore` tracks only the workflow.
+
+</details>
