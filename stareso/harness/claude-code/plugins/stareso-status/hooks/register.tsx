@@ -663,8 +663,8 @@ function progressTiles(g: PanelGraph) {
   const next = g.lanes.filter(l => !l.block && l.done < l.total).map(l => ({ l, w: when(l.eta) }))
     .filter((x): x is { l: PanelLane; w: { value: string; order: number } } => x.w != null).sort((a, b) => a.w.order - b.w.order)[0]
   return [
-    ...(allDone ? [{ label: 'All done', value: allDone.value }] : []),
-    ...(next ? [{ label: `Next milestone: ${next.l.id}`, value: next.w.value }] : []),
+    ...(allDone ? [{ label: 'ETA all', value: allDone.value }] : []),
+    ...(next ? [{ label: `ETA milestone ${next.l.id}`, value: next.w.value }] : []),
     // "fast · 1 helper": the profile alone, the helpers have their tile
     ...(g.mode ? [{ label: 'Mode', value: g.mode.split(' · ')[0] ?? g.mode }] : []),
     { label: 'Slices done', value: `${count('done')}/${all.length}`, color: STATE.done.color },

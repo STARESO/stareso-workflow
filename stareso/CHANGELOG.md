@@ -98,3 +98,4 @@ One line per change to the skills, the guide or the templates: date, what change
 - 2026-10-22: panel 0.6.12. In chart 7 an early slice is blue instead of teal. Why: teal and the on-time green looked alike on the desktop.
 - 2026-10-22: panel 0.6.13. The Progress tab opens on one row of tiles: all done (the day in the label, a date as yyyy-mm-dd), mode, slices done, slices running, per slice, waits on you, in place of the heading and the mode line. Why: the main numbers read better side by side as cards.
 - 2026-10-22: panel 0.6.14. A Progress tile gives the next milestone done (the open milestone with the earliest ETA), and the tiles show a time alone, with no "tomorrow" in their label (a date as yyyy-mm-dd past tomorrow). Why: the next milestone is the nearest thing to wait for, and the day in the label read badly.
+- 2026-10-22: panel 0.6.15. The two time tiles read "ETA all" and "ETA milestone <id>". Why: shorter, and both say they are estimates.
