@@ -572,14 +572,18 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   )
   // a milestone in the list, as a helper is: name (press for its card), title wrapped on as many lines as it needs,
   // ETA; a human or queue lane's own words ("9 for you · 12 questions") follow its title
+  // the ETA in its own column before the title, so the title keeps the room to wrap; the time alone ("≈ 03:49", not
+  // "≈ 03:49 tomorrow"), and "you" for a milestone that waits on the person
+  const etaOf = (t: string) => (t === 'waits on you' ? 'you' : t.startsWith('≈') ? t.replace(/\s+tomorrow$/, '') : '')
+  const etaW = Math.max(2, ...lanes.map(l => etaOf(tail(l)).length), ...running.map(([, s]) => (s.eta ? `≈ ${s.eta}`.length : 0))) + 2
   const milestone = (l: PanelLane) => {
     const t = tail(l)
-    const eta = t.startsWith('≈') || t === 'waits on you'
+    const eta = etaOf(t)
     return (
-      <Box flexDirection="row">
+      <Box flexDirection="row" alignItems="flex-start">
         <Box width={indent} flexShrink={0}><Button key={`m:${l.id}`} plain onPress={pick(l.id)}>{l.id}</Button></Box>
+        <Box width={etaW} flexShrink={0}><Text tabular {...tailStyle(t)}>{eta}</Text></Box>
         <Box flexGrow={1} flexShrink={1}><Text>{eta || !t ? l.title : `${l.title} · ${t}`}</Text></Box>
-        {eta && <Box flexShrink={0} marginLeft={1}><Text tabular {...tailStyle(t)}>{t}</Text></Box>}
       </Box>
     )
   }
@@ -595,8 +599,8 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
     <Box flexDirection="row">
       <Box width={2} flexShrink={0}><Text color={STATE.running.color}>{STATE.running.mark}</Text></Box>
       <Box width={indent - 2} flexShrink={0}><Button key={`h:${id}`} plain onPress={pick(id)}>{id}</Button></Box>
+      <Box width={etaW} flexShrink={0}><Text dimColor tabular>{s.eta ? `≈ ${s.eta}` : ''}</Text></Box>
       <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end">{s.title}</Text></Box>
-      {s.eta && <Box flexShrink={0} marginLeft={1}><Text dimColor tabular>{`≈ ${s.eta}`}</Text></Box>}
     </Box>
   )
   const card = selSlice ? sliceCard(ui, g, sel, act, chips) : selLane ? laneCard(ui, g, selLane, act, pick) : null
