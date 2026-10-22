@@ -82,7 +82,7 @@ for (let i = 0; i < args.length; i += 2) {
   });
   const ownTotal = stepsRaw.reduce((a, st) => a + st.own, 0) || 1;
   const steps = stepsRaw.map(({ own, ...st }) => ({ ...st, carried: null, usage: { cache_read: Math.round((usage.cache_read * own) / ownTotal), cache_create: Math.round((usage.cache_create * own) / ownTotal), output: Math.round((usage.output * own) / ownTotal) }, models: Object.fromEntries(Object.entries(models).map(([m, c]) => [m, Math.round((c * st.turns) / (assistant || 1))])) }));
-  const id = `seed-${first.slice(0, 10)}-${kind.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+  const id = `seed-${first.slice(0, 16).replace(/[^0-9]/g, "")}-${kind.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
   cache.sessions[id] = {
     seeded: `From docs/USAGE.md at ${rev} (session ${n} there), after the transcript was archived: numbers as printed (rounded), helper tokens split by model in proportion to their turns.`,
     s: { id, first, last, kind, kinds: kind.split(" → "), user, assistant, active: Math.round(Number(session[3]) * 3.6e6), compactions: Number(details?.[1]) || 0, usage, models, byModel: splitByModel(usage, models), launchTs: launched ? first : null, launches: [] },
