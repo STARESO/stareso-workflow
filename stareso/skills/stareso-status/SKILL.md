@@ -34,15 +34,15 @@ A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: n
 
 ## 4. Answer: 3 to 5 short lines, nothing more
 Plain lines, each under about 60 characters so none wraps, a symbol first: ▶ next, ⚠ blocker, □ waits on you, ↗ panel. No code block, table, heading, bold, `·` chains of facts (the head line excepted), ids lists or counts the panel already shows (ideas, debt, done milestones, helpers, pace, rates). Everything else is in the panel, so leave it out.
-1. **Head**: project, the step, the one number that matters (for a build: milestone done/total and its end time).
+1. **Head**: project, the step, the current mode, the one number that matters. For a build: milestone done/total, the profile in use (`eco`, `fast`, `night` or `day`, from the brief's Helpers line or the newest merge) and the end time.
 2. **`⚠`**, only when it changes what to do now: a blocker, or the usage cap the run reaches first (window, percent, time). One line at most.
 3. **`□`**, only when something waits on the user: the counts alone.
-4. **`▶`**: the command to type, then in brackets the model and new or same session, plus the permission mode only when it is not the default (auto for a build) and the profile only when it is not eco. The only code span of the answer. When this session can launch it, the launch question of §5 instead.
+4. **`▶`**: the command to type, then in brackets the model and new or same session, plus the permission mode only when it is not the default (auto for a build) and, for a build, the profile chosen (eco unless speed matters). The only code span of the answer. When this session can launch it, the launch question of §5 instead.
 5. **`↗`**: <!-- harness:status-panel -->this harness has no panel: `node <stareso>/tools/progress-graph.mjs --write` writes the progress page.<!-- /harness -->
 
 Example (a build is running):
 ```
-proj · build M11 7/13 · ends ≈ 21:18
+proj · build M11 7/13 · fast · ends ≈ 21:18
 ⚠ weekly cap 95 % ≈ 03:13
 □ 9 human slices, 12 questions wait on you
 ▶ after M11: `/stareso-test` (Sonnet, new session)
