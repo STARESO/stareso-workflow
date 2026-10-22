@@ -1,5 +1,5 @@
 // Live stareso dashboard: a small local server for the side browser of the Claude desktop app (or any browser). It serves
-// dashboard.html, which draws the progress graph and the six usage charts of /stareso-usage with Chart.js, and /data,
+// dashboard.html, which draws the progress graph and the six usage charts of the usage report (metrics.md) with Chart.js, and /data,
 // which the page fetches every minute. No model call: /data is progress-graph.mjs --panel (read again after 50 s at
 // most) and usage-report.mjs --live --panel (read in the background once five minutes old or after a merge).
 //

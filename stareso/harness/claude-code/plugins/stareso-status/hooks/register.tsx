@@ -1,7 +1,7 @@
 // Live stareso status: a pane beside the chat that runs ~/.claude/stareso/tools/progress-graph.mjs every minute while
 // it is open and draws its progress (the brief's context, one row of slices per milestone in the colour of their
 // state to hover and press, the running helpers, the chats computing in the project, the pace, what waits) or the
-// project's usage (the plan windows, then the tiles and six charts of the stareso-usage skill from usage-report.mjs
+// project's usage (the plan windows, then the tiles and six charts of the usage report (metrics.md) from usage-report.mjs
 // --live), with toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage
 // cap comes within 15 minutes. Everything is drawn with the surface's own elements, so the terminal draws it too.
 // No model call: only the tools, git and the app's own usage reading.
@@ -10,7 +10,7 @@
 //   /stareso-panel <folder>        opens it on that project (remembered across sessions)
 //   /stareso-panel progress | usage   opens it on that view (graph and brief open Progress)
 //   /stareso-panel dashboard       starts ~/.claude/stareso/tools/dashboard.mjs for the project (the Chart.js charts of
-//                                  /stareso-usage and the progress graph, refreshing itself) and opens it in the side browser
+//                                  the usage report and the progress graph, refreshing itself) and opens it in the side browser
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, RenderElement } from 'claude-code'
 
@@ -723,7 +723,7 @@ function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act, pick: (id: stri
   )
 }
 
-// ---------- usage: the plan windows, then the tiles and the six charts of the stareso-usage skill ----------
+// ---------- usage: the plan windows, then the tiles and the six charts of the usage report (metrics.md) ----------
 
 const KIND: Record<string, string> = {
   build: 'suggestion', test: 'success', improve: 'claude', chat: 'warning', 'status & retro': 'inactive', status: 'inactive', retro: 'inactive', usage: 'inactive',

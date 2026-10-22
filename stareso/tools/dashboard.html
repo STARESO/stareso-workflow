@@ -213,7 +213,7 @@ function windows(u) {
     `<span>${w.pct} %${w.ratePerHour != null ? ` · +${w.ratePerHour} %/h` : ""}</span></div><div class="muted" style="margin-left:80px">${w.reach.map((r) => `${esc(r.name)} cap ${r.cap} % ${r.at === "reached" ? "reached" : r.at ? "at about " + esc(r.at) : "not before the reset"}`).concat(`resets ${esc(w.resets)}`).join(" · ")}</div>`).join("");
 }
 
-// ---------- usage: the six charts of /stareso-usage ----------
+// ---------- usage: the six charts of the usage report (metrics.md) ----------
 function usageCharts(c) {
   $("tiles").innerHTML = c.tiles.map((t) => `<div class="tile"><span class="muted">${esc(t.label)}</span><b>${esc(t.value)}</b></div>`).join("");
   const tip = (f) => ({ callbacks: { label: f } });

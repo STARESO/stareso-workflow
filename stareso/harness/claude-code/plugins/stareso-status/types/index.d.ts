@@ -47,7 +47,7 @@ export type UsageWindow = {
   reach: { name: string; cap: number; at: string | null }[];
 } | null;
 
-// usage-report.mjs --panel: `charts`, the series of the six charts of the stareso-usage skill
+// usage-report.mjs --panel: `charts`, the series of the six charts of the usage report (metrics.md)
 export type UsageCharts = {
   unit: string;
   tiles: { label: string; value: string }[];
