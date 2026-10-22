@@ -643,7 +643,7 @@ function statTiles(ui: UI, tiles: { label: string; value: string; color?: string
   )
 }
 
-// the Progress tab's tiles, from the graph alone: slices done, helpers running, the time of one slice, what waits on
+// the Progress tab's tiles, from the graph alone: slices done, slices running, the time of one slice, what waits on
 // the person
 function progressTiles(g: PanelGraph) {
   const all = Object.values(g.slices)
@@ -651,7 +651,7 @@ function progressTiles(g: PanelGraph) {
   const perSlice = /^(\d+) min per slice/.exec(g.pace ?? '')?.[1]
   return [
     { label: 'Slices done', value: `${count('done')}/${all.length}`, color: STATE.done.color },
-    { label: 'Helpers running', value: String(count('running')), color: STATE.running.color },
+    { label: 'Slices running', value: String(count('running')), color: STATE.running.color },
     { label: 'Per slice', value: perSlice ? `${perSlice} min` : 'n/a' },
     { label: 'Waits on you', value: String(count('you')), color: STATE.you.color },
   ]
