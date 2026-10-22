@@ -16,9 +16,27 @@ The workflow was built and measured on Claude Code, so every capability here is 
 - The paths stay `~/.claude/stareso/...`, as before the split.
 - The generated files keep their length within about 5 % (the 2026-10-20 split: nine files identical, four grew by the canary, the retro's harness line and the tier alias).
 
+## The live status panel (plugin `stareso-status`)
+
+`plugins/` is a local plugin marketplace (`plugins/.claude-plugin/marketplace.json`) holding one Claude Code plugin, `stareso-status`: a panel beside the chat that shows the status brief of a project and refreshes it every minute while it is open, with no model call. It runs `progress-graph.mjs --panel` (and `usage-report.mjs` for the Usage view), reads the app's 5-hour and weekly windows when the app allows it, and raises toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage cap comes within 15 minutes.
+
+- `/stareso-panel` opens the panel, or hides it when it is open. `/stareso-panel <project folder>` opens it on a project, remembered across sessions. `/stareso-panel graph`, `usage` or `brief` opens it on that view, and the buttons switch views.
+- Graph and Usage ask for a wide dock (110 columns); a width the person dragged wins.
+- It exists only where Claude Code draws panels (desktop app, terminal, IDE extensions). Outside Claude Code, the same graph is `progress-graph.mjs --write` (an HTML page, or an Artifact).
+
+Install once per machine, from a terminal (the desktop app has no `/plugin` command), at the user scope so it loads in every session:
+
+```
+claude plugin marketplace add ~/.claude/stareso/harness/claude-code/plugins
+claude plugin install stareso-status@stareso
+```
+
+The plugin is read from this folder itself: after an edit (or a `git pull`), `/reload-plugins` in a session picks it up, with no reinstall. `claude plugin validate` and `claude plugin test` in `plugins/` check it (four tests in `hooks/register.test.tsx`).
+
 ## Install on a new machine
 1. Clone the `stareso-workflow` repository as `~/.claude` (or copy `skills/stareso-*`, `agents/stareso-*` and `stareso/` into it).
 2. Merge the `hooks` block of `extras/settings.hooks.json` into `~/.claude/settings.json` (user settings). Its `permissions.deny` block is the project guard that `stareso-init` copies from `stareso/templates/settings.json`, shown here for reference.
-3. Open a project and type `/stareso-status`.
+3. Install the status panel plugin (above), if wanted.
+4. Open a project and type `/stareso-status`.
 
 Capabilities, their levels and their evidence: `capabilities.md`. Models: `models.md`.

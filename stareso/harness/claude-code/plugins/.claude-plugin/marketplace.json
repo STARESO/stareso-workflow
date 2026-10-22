@@ -1,0 +1,7 @@
+{
+  "name": "stareso",
+  "owner": { "name": "stareso workflow" },
+  "plugins": [
+    { "name": "stareso-status", "source": "./stareso-status", "description": "Live stareso status beside the chat, refreshed every minute without model tokens" }
+  ]
+}

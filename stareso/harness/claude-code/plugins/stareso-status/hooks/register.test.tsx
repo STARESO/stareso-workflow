@@ -1,0 +1,112 @@
+import { expect, test } from 'claude-code/testing'
+
+const PANE = {
+  plugin: 'stareso-status',
+  component: 'Pane',
+  requestId: 'stareso-status',
+  props: {
+    title: 'stareso status',
+    isFocused: false,
+    bodyColumns: 80,
+    placement: 'dock',
+    scroll: { offset: 0, bodyRows: 40 },
+    view: {},
+  },
+} as const
+
+const SNAPSHOT = {
+  project: 'demo',
+  root: '/work/demo',
+  brief: 'demo · Phase: build\n\nProgress   ■ done  ▶ running  □ waiting\n  M1    1/3    ■▶□  ≈ 17:00',
+  svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>',
+  recentMerges: [{ id: 'M1.1', at: '2026-10-22 16:00' }],
+  running: [{ id: 'M1.2', minutes: 5 }],
+  perSliceMinutes: 30,
+  usage: { five: null, week: null },
+}
+
+test('the panel draws the brief from the tool, on every surface', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'stareso-panel' } }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.cwd', () => ({ value: '/work/demo' }))
+  on('clock.every', () => ({ value: {} }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(SNAPSHOT), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('mcp.call', () => ({ value: { content: [{ type: 'text', text: '{}' }], isError: false } }))
+
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  const ran = await $.command.run({ command: 'stareso-panel', args: '/work/demo' })
+  expect(ran.text).toContain('demo')
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /demo/ })).toBeTruthy()
+    await ui.unmount()
+  }
+})
+
+test('a folder that is not a stareso project says so', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'stareso-panel' } }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.cwd', () => ({ value: '/work/demo' }))
+  on('clock.every', () => ({ value: {} }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: 'Error: No docs/ROADMAP.md found', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('mcp.call', () => ({ value: { content: [], isError: true } }))
+
+  await $.session.start({ cwd: '/tmp', surface: 'desktop', isInteractive: true })
+  const ran = await $.command.run({ command: 'stareso-panel', args: '/tmp' })
+  expect(ran.text).toContain('No docs/ROADMAP.md')
+})
+
+const CHARTS = {
+  tiles: [{ label: 'Workflow cost', value: '166.6M' }],
+  shareByType: [{ type: 'build', share: 60, equiv: 1e8 }, { type: 'chat', share: 40, equiv: 6e7 }],
+  milestones: [{ id: 'M1', equivPerSlice: 4.8e6, slices: 3 }],
+  referencePerSlice: { label: 'project A M5', equiv: 335000 },
+}
+
+function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean) {
+  on('command.register', () => ({ value: { command: 'stareso-panel' } }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.cwd', () => ({ value: '/work/demo' }))
+  on('clock.every', () => ({ value: {} }))
+  on('ui.panes', () => ({ value: open ? [{ id: 'stareso-status', title: 'stareso status' }] : [] }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('mcp.call', () => ({ value: { content: [], isError: true } }))
+  on('process.run', (_, e) => {
+    const argv = (e as { argv: string[] }).argv
+    const stdout = argv.includes('--charts') ? JSON.stringify(CHARTS) : argv.some(a => a.endsWith('usage-report.mjs')) ? '**1. By type of step**' : JSON.stringify(SNAPSHOT)
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+}
+
+test('the same command hides an open panel', async ($, on) => {
+  engine(on, true)
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  const ran = await $.command.run({ command: 'stareso-panel', args: '' })
+  expect(ran.text).toContain('hidden')
+})
+
+test('the usage view draws the tiles from usage-report', async ($, on) => {
+  engine(on, false)
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'usage' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /Workflow cost/ }))?.text).toContain('166.6M')
+  await ui.unmount()
+})
