@@ -24,6 +24,7 @@ The workflow was built and measured on Claude Code, so every capability here is 
 - **Graph** gives one row of slices per milestone, coloured by state (done, running, could start now, waits on you, waiting). Hovering a slice gives its line, and pressing it opens its card with its state, branch, model, the slices it needs and the ones it unblocks, each pressable in turn. A milestone's name opens its own card. Under the rows, the running slices, the ones that could start now and the ones that wait on you are listed as chips, and the finished milestones can be shown again.
 - **Usage** gives the plan windows with the stop caps, then the four tiles and the six charts of `/stareso-usage`, from `usage-report.mjs --live --panel`: numbers read from the transcripts as they are now, with nothing written in the project. Hovering a row gives its detail under its chart, and the tables are one button away. The report is read again while the view is open once it is five minutes old or a slice has merged, and the Refresh button reads it at once.
 - The panel has its own Hide button, beside Refresh.
+- **Dashboard** (a button, or `/stareso-panel dashboard`) starts `tools/dashboard.mjs` for the project and opens it in the side browser of the desktop app: the progress graph (hovering a slice lights its whole chain, pressing it opens its card) and the six usage charts drawn with Chart.js as `/stareso-usage` draws them in chat. The page fetches its numbers every minute from the small local server, which reruns the tools, so it costs no tokens. The server lives while the plugin is loaded, or stops after two idle hours when started by hand (`node ~/.claude/stareso/tools/dashboard.mjs --root <project>`, then open the address it prints).
 - `/stareso-panel` opens the panel, or hides it when it is open. `/stareso-panel <project folder>` opens it on a project, remembered across sessions, and a side session that starts outside the project reads the last project any session read. `/stareso-panel graph`, `usage` or `brief` opens it on that view, and the buttons switch views.
 - Graph and Usage ask for a wide dock (110 columns), and a width the person dragged wins.
 - It exists only where Claude Code draws panels (desktop app, terminal, IDE extensions). Outside Claude Code, the same graph is `progress-graph.mjs --write` (an HTML page, or an Artifact).
@@ -35,7 +36,7 @@ claude plugin marketplace add ~/.claude/stareso/harness/claude-code/plugins
 claude plugin install stareso-status@stareso
 ```
 
-The plugin is read from this folder itself: after an edit (or a `git pull`), `/reload-plugins` in a session picks it up, with no reinstall. `claude plugin validate` and `claude plugin test` in `plugins/` check it (six tests in `hooks/register.test.tsx`).
+The plugin is read from this folder itself: after an edit (or a `git pull`), `/reload-plugins` in a session picks it up, with no reinstall. `claude plugin validate` and `claude plugin test` in `plugins/` check it (seven tests in `hooks/register.test.tsx`).
 
 ## Install on a new machine
 1. Clone the `stareso-workflow` repository as `~/.claude` (or copy `skills/stareso-*`, `agents/stareso-*` and `stareso/` into it).

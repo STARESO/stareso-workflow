@@ -8,6 +8,8 @@
 //   /stareso-panel                 opens the panel, or hides it when it is open
 //   /stareso-panel <folder>        opens it on that project (remembered across sessions)
 //   /stareso-panel graph | usage | brief   opens it on that view
+//   /stareso-panel dashboard       starts ~/.claude/stareso/tools/dashboard.mjs for the project (the Chart.js charts of
+//                                  /stareso-usage and the progress graph, refreshing itself) and opens it in the side browser
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, RenderElement } from 'claude-code'
 
@@ -214,6 +216,46 @@ function startTicking($: EngineInterface) {
   })
 }
 
+// The dashboard server, one per project folder: started by the mod, it lives as long as the mod is loaded (or until its
+// idle limit), and a second start on the same project only prints the address of the running one.
+const dashboards = new Map<string, string>()
+
+async function openDashboard($: EngineInterface): Promise<string> {
+  const root = await projectRoot($)
+  let url = dashboards.get(root) ?? ''
+  if (!url) {
+    const tool = await toolPath($, 'dashboard.mjs')
+    url = await new Promise<string>(resolve => {
+      void (async () => {
+        let found = false
+        try {
+          for await (const piece of $.process.spawn({ argv: ['node', tool, '--root', root] })) {
+            const m = /http:\/\/127\.0\.0\.1:\d+/.exec(piece.text)
+            if (m && !found) {
+              found = true
+              dashboards.set(root, m[0])
+              resolve(m[0])
+            }
+          }
+        } catch {
+          // it could not start: said below
+        }
+        if (!found) resolve('')
+        // the child ended (or only pointed at a running one): the next opening asks again
+        dashboards.delete(root)
+      })()
+    })
+  }
+  if (!url) return 'the dashboard did not start (node ~/.claude/stareso/tools/dashboard.mjs --root <project> says why)'
+  try {
+    const res = await $.mcp.call('Claude_Browser', 'preview_start', { url })
+    if (res.isError) throw new Error('not opened')
+    return `dashboard open in the side browser: ${url}`
+  } catch {
+    return `dashboard running: open ${url} in the side browser`
+  }
+}
+
 async function show($: EngineInterface, view: PanelView['view']) {
   await update($, panel, p => ({ ...p, view }))
   // the graph and the usage charts want a wide dock; a width the person dragged wins
@@ -225,8 +267,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'stareso-panel',
-      description: 'Live stareso status beside the chat: opens or hides it (optional: a project folder, or graph, usage, brief)',
-      argumentHint: '[project folder | graph | usage | brief]',
+      description: 'Live stareso status beside the chat: opens or hides it (optional: a project folder, graph, usage, brief, or dashboard)',
+      argumentHint: '[project folder | graph | usage | brief | dashboard]',
     })
 
     return next(e)
@@ -235,6 +277,7 @@ export const register: Register = on => {
   on('command.run', { command: 'stareso-panel' }, async ($, e) => {
     const arg = (e.args ?? '').trim().replace(/^"|"$/g, '')
     const views: Record<string, PanelView['view']> = { graph: 'graph', usage: 'usage', brief: 'text', text: 'text' }
+    if (arg === 'dashboard') return { text: `stareso ${await openDashboard($)}` }
     if (!arg && (await isOpen($))) {
       await $.ui.close({ id: PANE })
       return { text: 'stareso panel hidden: /stareso-panel shows it again.' }
@@ -268,6 +311,7 @@ export const register: Register = on => {
           <Text bold>{p.project || 'stareso'}</Text>
           <Text dimColor>{p.updated ? `updated ${p.updated}` : 'reading…'}</Text>
           <Button key="refresh" onPress={() => void refresh($, true).catch(() => undefined)}>Refresh</Button>
+          <Button key="dashboard" onPress={() => void openDashboard($).then(t => $.ui.toast(t)).catch(() => undefined)}>Dashboard</Button>
           <Button key="hide" role="dismiss" dimColor onPress={() => void $.ui.close({ id: PANE }).catch(() => undefined)}>Hide</Button>
         </Box>
         <Box flexDirection="row" gap={1}>

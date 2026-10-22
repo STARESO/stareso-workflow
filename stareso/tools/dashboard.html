@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stareso dashboard</title>
+<style>
+:root{--bg:#fcfcfb;--card:#f5f4f0;--ink:#0b0b0b;--ink2:#52514e;--mute:#898781;--line:rgba(11,11,11,.10);--grid:#e1e0d9;
+--done:#1baf7a;--run:#eda100;--ready:#2a78d6;--you:#e87ba4;--wait:#898781;--err:#d03b3b}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1a19;--card:#232321;--ink:#f0efec;--ink2:#c3c2b7;--mute:#898781;--line:rgba(255,255,255,.10);--grid:#2c2c2a;
+--done:#199e70;--run:#c98500;--ready:#3987e5;--you:#d55181;--err:#e66767}}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1100px;margin:0 auto}
+h1{font-size:18px;font-weight:500;margin:0}h2{font-size:15px;font-weight:500;margin:24px 0 4px}h3{font-size:14px;font-weight:500;margin:0}
+.muted{color:var(--mute);font-size:12px}.sub{color:var(--ink2)}
+.head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
+button{font:inherit;font-size:12px;color:var(--ink);background:transparent;border:.5px solid var(--mute);border-radius:8px;padding:2px 10px;cursor:pointer}
+button:hover{background:var(--card)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:12px}
+.tile{background:var(--card);border-radius:8px;padding:10px 14px}.tile b{display:block;font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+.meter{display:grid;grid-template-columns:70px 1fr 150px;gap:10px;align-items:center;margin:4px 0}
+.track{position:relative;height:10px;background:var(--grid);border-radius:5px}.fill{height:100%;border-radius:5px;background:var(--ready)}
+.tick{position:absolute;top:-3px;width:2px;height:16px;background:var(--ink2)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px}.full{grid-column:1/-1}
+@media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+.chart{min-width:0}.box{position:relative;height:240px;margin-top:6px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink2);margin-top:4px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+#graph svg{width:100%;height:auto;display:block}
+#graph .n{cursor:pointer}#graph .n rect{stroke:var(--bg);stroke-width:2}#graph .n.w rect{fill:transparent;stroke:var(--wait);stroke-width:1}
+#graph .n text{font-size:11px;fill:#fff;text-anchor:middle;pointer-events:none}#graph .n.w text{fill:var(--ink2)}
+#graph .lane{font-size:12px;fill:var(--ink)}#graph .eta{font-size:11px;fill:var(--mute)}
+#graph .e{stroke:var(--mute);stroke-width:1.5;fill:none}
+#graph.hl .n:not(.on){opacity:.18}#graph.hl .e:not(.on){opacity:.1}#graph .e.on{stroke:var(--ink)}#graph .n.sel rect{stroke:var(--ink);stroke-width:2}
+.card{border:.5px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:var(--card)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}
+.chip{border-radius:8px;padding:1px 8px;font-size:12px;border:.5px solid var(--line);cursor:pointer;background:var(--bg)}
+.chip i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+table{border-collapse:collapse;font-size:12px;margin:6px 0 14px}td,th{border-bottom:.5px solid var(--line);padding:3px 8px;text-align:left}th{font-weight:500;color:var(--ink2)}
+.err{color:var(--err)}
+</style>
+</head>
+<body>
+<main>
+<div class="head"><h1 id="title">stareso</h1><span class="sub" id="mode"></span><b id="alldone" style="font-weight:500"></b>
+<span class="muted" id="updated">reading…</span><button id="refresh">Refresh</button></div>
+<div id="error" class="err"></div>
+
+<h2>Progress</h2>
+<div class="legend" id="glegend"></div>
+<div id="graph"></div>
+<div class="muted" id="hoverline">&nbsp;</div>
+<div id="cardslot"></div>
+<div id="lists"></div>
+<div id="helpers"></div>
+<div class="muted" id="pace"></div>
+
+<h2>Usage</h2>
+<div id="windows"></div>
+<div class="muted" id="uinfo"></div>
+<div class="tiles" id="tiles"></div>
+<div class="grid" style="margin-top:16px">
+  <div class="chart"><h3>Share of the workflow cost by step type</h3><div class="muted">Build should lead; a large chat bar is work done outside the steps.</div><div class="box" id="b1"><canvas id="c1" role="img" aria-label="Share of the workflow cost by step type"></canvas></div></div>
+  <div class="chart"><h3>Conductor against helpers, per step that merged slices</h3><div class="muted">A launched build should be mostly helpers (conductor under 50 %).</div><div class="box" id="b6"><canvas id="c6" role="img" aria-label="Conductor against helpers per step"></canvas></div><div class="legend" id="l6"></div></div>
+  <div class="chart full"><h3>Cumulative cost by step type over time</h3><div class="muted">Log scale: a jump is one step's whole cost, placed at its start.</div><div class="box"><canvas id="c2" role="img" aria-label="Cumulative cost by step type over time"></canvas></div><div class="legend" id="l2"></div></div>
+  <div class="chart full"><h3>Cost per slice by milestone</h3><div class="muted">Launched builds should sit near the reference; chat-built milestones sit far above it.</div><div class="box"><canvas id="c3" role="img" aria-label="Cost per slice by milestone"></canvas></div><div class="legend" id="l3"></div></div>
+  <div class="chart"><h3>Context per turn by session</h3><div class="muted">Point size is turns; red is over 300 turns, a session that should have been split.</div><div class="box"><canvas id="c4" role="img" aria-label="Context per turn by session"></canvas></div><div class="legend" id="l4"></div></div>
+  <div class="chart"><h3>Helper tokens against lines changed</h3><div class="muted">Log scales; compare a point with its own tier. Crosses are tier medians, rings outliers.</div><div class="box"><canvas id="c5" role="img" aria-label="Helper tokens against lines changed by tier"></canvas></div><div class="legend" id="l5"></div></div>
+</div>
+<details style="margin-top:16px"><summary class="sub">Tables</summary><div id="tables"></div></details>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const COVE = dark ? ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"] : ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
+const GRAY = "#898781", RED = COVE[7];
+const KIND = { build: COVE[0], chat: COVE[1], test: COVE[2], improve: COVE[6], "status & retro": GRAY, status: GRAY, retro: GRAY, usage: GRAY };
+const TIER = { light: COVE[2], standard: COVE[0], strong: COVE[6] };
+const SHAPE = { light: "circle", standard: "rect", strong: "triangle" };
+const BUILT = { helpers: COVE[0], chat: COVE[1] };
+const STATE = { done: ["--done", "done"], running: ["--run", "running"], ready: ["--ready", "could start now"], you: ["--you", "waits on you"], waiting: ["--wait", "waiting"] };
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const fmt = (n) => (n == null || isNaN(n) ? "n/a" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(Math.round(n)));
+const logTick = (v) => (/^[125]0*$/.test(String(Math.round(v))) ? fmt(v) : "");
+const legend = (el, items) => { $(el).innerHTML = items.map(([c, t, dash]) => `<span><i style="background:${dash ? "transparent;border-top:2px dashed " + c + ";height:0;border-radius:0" : c}"></i>${esc(t)}</span>`).join(""); };
+
+Chart.defaults.color = css("--mute");
+Chart.defaults.borderColor = css("--grid");
+Chart.defaults.font.family = 'system-ui,-apple-system,"Segoe UI",sans-serif';
+Chart.defaults.font.size = 11;
+Chart.defaults.plugins.legend.display = false;
+Chart.defaults.animation = false;
+Chart.defaults.maintainAspectRatio = false;
+
+let data = null, selected = "", showFinished = false;
+const charts = {}, drawn = {};
+// a chart is drawn again only when its data changed, so a minute's poll keeps hover and tooltips still
+function chart(id, key, config) {
+  const sig = JSON.stringify(key);
+  if (drawn[id] === sig) return;
+  drawn[id] = sig;
+  charts[id]?.destroy();
+  charts[id] = new Chart($(id), config);
+}
+
+// ---------- progress ----------
+function graph(g) {
+  const lanes = [...(showFinished ? g.finished : []), ...g.lanes];
+  const S = g.slices, W = 36, H = 22, GAP = 8, X0 = 92, ROW = 34;
+  const pos = {};
+  let maxX = 0;
+  lanes.forEach((l, r) => l.slices.forEach((id, i) => { pos[id] = { x: X0 + i * (W + GAP), y: 10 + r * ROW }; maxX = Math.max(maxX, pos[id].x + W); }));
+  const etaX = maxX + 12;
+  const out = [];
+  lanes.forEach((l, r) => {
+    const y = 10 + r * ROW;
+    out.push(`<text class="lane" x="4" y="${y + 15}">${esc(l.id)} <tspan class="eta">${l.done}/${l.total}</tspan></text>`);
+    if (l.eta) out.push(`<text class="eta" x="${etaX}" y="${y + 15}">${esc(l.eta)}</text>`);
+  });
+  // edges: a slice waits on another one of the same lane
+  for (const l of lanes) for (const id of l.slices) for (const a of S[id]?.after ?? []) {
+    if (!pos[a] || pos[a].y !== pos[id].y) continue;
+    const p = pos[a], q = pos[id], y = p.y + H / 2;
+    const d = q.x - p.x === W + GAP ? `M${p.x + W} ${y}H${q.x}` : `M${p.x + W / 2} ${p.y}C${p.x + W / 2} ${p.y - 9} ${q.x + W / 2} ${q.y - 9} ${q.x + W / 2} ${q.y}`;
+    out.push(`<path class="e" data-a="${esc(a)}" data-b="${esc(id)}" d="${d}"/>`);
+  }
+  for (const [id, p] of Object.entries(pos)) {
+    const s = S[id];
+    if (!s) continue;
+    const st = STATE[s.state] ?? STATE.waiting;
+    const label = (id.split(".")[1] ?? id).replace(/^tidy$/, "t");
+    out.push(`<g class="n ${s.state === "waiting" ? "w" : ""} ${id === selected ? "sel" : ""}" data-id="${esc(id)}"><rect x="${p.x}" y="${p.y}" width="${W}" height="${H}" rx="4" fill="var(${st[0]})"/><text x="${p.x + W / 2}" y="${p.y + 15}">${esc(label)}${s.opus ? "•" : ""}</text><title>${esc(id)} · ${esc(s.title)}\n${esc(line(g, id))}</title></g>`);
+  }
+  const h = 14 + lanes.length * ROW;
+  const w = Math.max(etaX + 120, 400);
+  $("graph").innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Build progress by milestone">${out.join("")}</svg>` +
+    (g.finished.length ? `<button id="fin" style="margin-top:4px">${showFinished ? "Hide the finished milestones" : `Show the ${g.finished.length} finished milestones`}</button>` : "");
+  $("fin")?.addEventListener("click", () => { showFinished = !showFinished; graph(g); });
+  const root = $("graph");
+  root.querySelectorAll(".n").forEach((n) => {
+    n.addEventListener("mouseenter", () => chain(g, n.dataset.id));
+    n.addEventListener("mouseleave", () => { root.classList.remove("hl"); $("hoverline").innerHTML = "&nbsp;"; });
+    n.addEventListener("click", () => pick(n.dataset.id));
+  });
+}
+
+// hovering a slice lights what it waits on and what waits on it, across milestones
+function chain(g, id) {
+  const S = g.slices, on = new Set([id]);
+  const up = (x) => { for (const a of S[x]?.after ?? []) if (!on.has(a)) { on.add(a); up(a); } };
+  const down = (x) => { for (const [k, s] of Object.entries(S)) if (s.after.includes(x) && !on.has(k)) { on.add(k); down(k); } };
+  up(id); down(id);
+  const root = $("graph");
+  root.classList.add("hl");
+  root.querySelectorAll(".n").forEach((n) => n.classList.toggle("on", on.has(n.dataset.id)));
+  root.querySelectorAll(".e").forEach((e) => e.classList.toggle("on", on.has(e.dataset.a) && on.has(e.dataset.b)));
+  $("hoverline").textContent = `${id} · ${S[id]?.title ?? ""} · ${line(g, id)}`;
+}
+
+function line(g, id) {
+  const s = g.slices[id];
+  if (!s) return "";
+  const eta = s.eta ? ` · ETA ≈ ${s.eta}` : "";
+  if (s.state === "done") return "done";
+  if (s.state === "running") return `running since ${s.started ?? "?"} (${s.minutes ?? "?"} min)${eta}`;
+  if (s.state === "ready") return `could start now${eta}`;
+  if (s.state === "you") return s.question ? `waits on your answer: ${s.question}` : "waits on you";
+  const open = s.after.filter((a) => g.slices[a] && g.slices[a].state !== "done");
+  return `${open.length ? `waits on ${open.join(", ")}` : "waits for a helper"}${eta}`;
+}
+
+const chip = (g, id) => { const s = g.slices[id]; return `<span class="chip" data-pick="${esc(id)}"><i style="background:var(${(STATE[s?.state] ?? STATE.waiting)[0]})"></i>${esc(id)}</span>`; };
+function pick(id) { selected = selected === id ? "" : id; render(); }
+
+function card(g) {
+  const s = g.slices[selected];
+  if (!s) return "";
+  const unblocks = Object.entries(g.slices).filter(([, x]) => x.after.includes(selected)).map(([k]) => k);
+  return `<div class="card"><h3>${esc(selected)} · ${esc(s.title)}</h3><div style="color:var(${STATE[s.state][0]})">${esc(line(g, selected))}</div>` +
+    (s.branch ? `<div class="muted">on ${esc(s.branch)}</div>` : "") +
+    `<div class="muted">${[s.ms, s.model, s.opus ? "an Opus slice, the costly ones" : ""].filter(Boolean).map(esc).join(" · ")}</div>` +
+    (s.after.length ? `<div class="chips"><span class="muted">needs</span>${s.after.filter((a) => g.slices[a]).map((a) => chip(g, a)).join("")}</div>` : "") +
+    (unblocks.length ? `<div class="chips"><span class="muted">unblocks</span>${unblocks.map((a) => chip(g, a)).join("")}</div>` : "") +
+    `<div style="margin-top:6px"><button data-pick="${esc(selected)}">Close</button></div></div>`;
+}
+
+function progress(snap) {
+  const g = snap.graph;
+  $("title").textContent = snap.project;
+  $("mode").textContent = g.mode;
+  $("alldone").textContent = g.allDone ? `all done ≈ ${g.allDone}` : "";
+  legend("glegend", Object.values(STATE).map(([v, t]) => [css(v), t]));
+  graph(g);
+  $("cardslot").innerHTML = card(g);
+  const of = (st) => Object.keys(g.slices).filter((id) => g.slices[id].state === st);
+  const finished = new Set(g.finished.flatMap((l) => l.slices));
+  $("lists").innerHTML = [["Running", of("running")], ["Could start now", of("ready")], ["For you", of("you").filter((id) => !finished.has(id))]]
+    .filter(([, l]) => l.length).map(([t, l]) => `<div class="chips"><span class="muted">${t}</span>${l.map((id) => chip(g, id)).join("")}</div>`).join("");
+  const run = of("running").map((id) => [id, g.slices[id]]);
+  $("helpers").innerHTML = run.length ? `<table><tr><th>Slice</th><th>Model</th><th>Started</th><th>Running</th><th>ETA</th><th>Title</th></tr>${run.map(([id, s]) =>
+    `<tr><td>${esc(id)}</td><td>${esc(s.model ?? "")}</td><td>${esc(s.started ?? "")}</td><td>${s.minutes ?? ""} min</td><td>${s.eta ? "≈ " + esc(s.eta) : ""}</td><td>${esc(s.title)}</td></tr>`).join("")}</table>` : "";
+  $("pace").textContent = g.pace ?? "";
+  windows(snap.usage);
+}
+
+function windows(u) {
+  const rows = [["5-hour", u?.five], ["weekly", u?.week]].filter(([, w]) => w);
+  $("windows").innerHTML = rows.map(([name, w]) => `<div class="meter"><span>${name}</span><div class="track"><div class="fill" style="width:${Math.min(100, w.pct)}%;${w.reach.some((r) => r.at === "reached") ? "background:var(--err)" : ""}"></div>${w.reach.map((r) => `<span class="tick" style="left:${r.cap}%" title="${esc(r.name)} cap ${r.cap} %"></span>`).join("")}</div>` +
+    `<span>${w.pct} %${w.ratePerHour != null ? ` · +${w.ratePerHour} %/h` : ""}</span></div><div class="muted" style="margin-left:80px">${w.reach.map((r) => `${esc(r.name)} cap ${r.cap} % ${r.at === "reached" ? "reached" : r.at ? "at about " + esc(r.at) : "not before the reset"}`).concat(`resets ${esc(w.resets)}`).join(" · ")}</div>`).join("");
+}
+
+// ---------- usage: the six charts of /stareso-usage ----------
+function usageCharts(c) {
+  $("tiles").innerHTML = c.tiles.map((t) => `<div class="tile"><span class="muted">${esc(t.label)}</span><b>${esc(t.value)}</b></div>`).join("");
+  const tip = (f) => ({ callbacks: { label: f } });
+
+  const share = c.shareByType;
+  $("b1").style.height = `${share.length * 34 + 40}px`;
+  chart("c1", share, { type: "bar", data: { labels: share.map((t) => t.type), datasets: [{ data: share.map((t) => t.share), backgroundColor: share.map((t) => KIND[t.type] ?? GRAY), borderRadius: 4, maxBarThickness: 24 }] },
+    options: { indexAxis: "y", scales: { x: { ticks: { callback: (v) => v + " %" } }, y: { grid: { display: false } } },
+      plugins: { tooltip: tip((x) => { const t = share[x.dataIndex]; return `${t.share} % · ${fmt(t.equiv)} · ${t.hours.toFixed(1)} h · ${t.turns} turns`; }) } } });
+
+  const cv = c.conductorVsHelpers.filter((b) => b.conductor != null || b.helpers != null);
+  $("b6").style.height = `${Math.max(cv.length * 30 + 40, 160)}px`;
+  chart("c6", cv, { type: "bar", data: { labels: cv.map((b) => `#${b.session} ${b.type}`), datasets: [
+      { label: "conductor", data: cv.map((b) => (b.conductor ?? 0) / 1e6), backgroundColor: COVE[1], maxBarThickness: 22 },
+      { label: "helpers", data: cv.map((b) => (b.helpers ?? 0) / 1e6), backgroundColor: COVE[0], maxBarThickness: 22, borderRadius: 4 }] },
+    options: { indexAxis: "y", scales: { x: { stacked: true, ticks: { callback: (v) => v + "M" } }, y: { stacked: true, grid: { display: false } } },
+      plugins: { tooltip: tip((x) => { const b = cv[x.dataIndex], t = (b.conductor ?? 0) + (b.helpers ?? 0); return `${x.dataset.label} ${fmt(x.raw * 1e6)} · ${b.merged} slices · conductor ${t ? Math.round((100 * (b.conductor ?? 0)) / t) : 0} %`; }) } } });
+  legend("l6", [[COVE[1], "conductor"], [COVE[0], "helpers"]]);
+
+  const cu = c.cumulative, lastDay = Math.max(0, ...cu.points.map((p) => p.day));
+  chart("c2", cu, { type: "line", data: { datasets: cu.kinds.map((k) => {
+      const pts = cu.points.filter((p) => p[k] > 0).map((p) => ({ x: p.day, y: p[k] }));
+      if (pts.length) pts.push({ x: lastDay, y: pts.at(-1).y });
+      return { label: k, data: pts, stepped: "after", borderColor: KIND[k] ?? GRAY, backgroundColor: KIND[k] ?? GRAY, borderWidth: 2, pointRadius: 0, pointHitRadius: 6 };
+    }) },
+    options: { interaction: { mode: "nearest", intersect: false }, scales: {
+        x: { type: "linear", min: 0, max: lastDay, ticks: { stepSize: 1, callback: (v) => cu.days[v]?.date.slice(5) ?? "" }, grid: { display: false } },
+        y: { type: "logarithmic", ticks: { callback: (v) => logTick(v * 1e6) } } },
+      plugins: { tooltip: tip((x) => `${x.dataset.label} ${x.raw.y.toFixed(1)}M`) } } });
+  legend("l2", cu.kinds.map((k) => [KIND[k] ?? GRAY, k]));
+
+  const ms = c.milestones, ref = c.referencePerSlice;
+  chart("c3", { ms, ref }, { type: "bar", data: { labels: ms.map((m) => m.id), datasets: [
+      { type: "line", label: "reference", data: ms.map(() => (ref?.equiv ?? 0) / 1e6), borderColor: GRAY, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
+      { label: "per slice", data: ms.map((m) => (m.equivPerSlice ?? 0) / 1e6), backgroundColor: ms.map((m) => BUILT[m.built] ?? COVE[6]), borderRadius: 4, maxBarThickness: 24 }] },
+    options: { scales: { y: { ticks: { callback: (v) => v + "M" } }, x: { grid: { display: false } } },
+      plugins: { tooltip: tip((x) => { if (x.datasetIndex === 0) return `reference ${ref?.label} ${fmt(ref?.equiv)}`; const m = ms[x.dataIndex];
+        return m.equivPerSlice == null ? "no transcript" : `${fmt(m.equivPerSlice)} per slice · built by ${m.built} · measured ${m.measured} · ${m.slices} slices`; }) } } });
+  legend("l3", [[COVE[0], "helpers"], [COVE[1], "chat"], [COVE[6], "mixed"], [GRAY, `reference: ${ref?.label ?? ""} ${fmt(ref?.equiv)}`, true]]);
+
+  const ss = c.sessions.filter((s) => s.ctx != null);
+  chart("c4", ss, { type: "line", data: { labels: ss.map((s) => "#" + s.n), datasets: [
+      { label: "base", data: ss.map(() => 100), borderColor: GRAY, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
+      { label: "context per turn", data: ss.map((s) => s.ctx / 1e3), borderColor: COVE[0], borderWidth: 2,
+        pointRadius: ss.map((s) => Math.min(12, 3 + Math.sqrt(s.turns) / 3)), pointBackgroundColor: ss.map((s) => (s.over300 ? RED : COVE[0])), pointBorderColor: css("--bg"), pointBorderWidth: 2 }] },
+    options: { scales: { y: { ticks: { callback: (v) => v + "k" } }, x: { grid: { display: false } } },
+      plugins: { tooltip: tip((x) => { if (x.datasetIndex === 0) return "base of a launched session, 100k"; const s = ss[x.dataIndex];
+        return `#${s.n} ${s.date}: ${fmt(s.ctx)} per turn · ${s.turns} turns · ${fmt(s.equiv)} · ${s.helpers} helpers`; }) } } });
+  legend("l4", [[COVE[0], "context per turn"], [RED, "over 300 turns"], [GRAY, "base, 100k", true]]);
+
+  const sl = c.slices.filter((s) => s.tokens > 0 && s.lines > 0);
+  const xs = sl.map((s) => s.lines), lo = Math.min(...xs), hi = Math.max(...xs);
+  const ys = sl.map((s) => s.tokens), ylo = Math.min(...ys), yhi = Math.max(...ys);
+  const diag = [1e4, 1e5, 1e6].map((k) => ({ type: "line", label: `${fmt(k)} per 100 lines`, data: [{ x: lo, y: (k * lo) / 100 }, { x: hi, y: (k * hi) / 100 }], borderColor: css("--grid"), borderDash: [3, 3], borderWidth: 1, pointRadius: 0 }));
+  const tiers = [...new Set(sl.map((s) => s.tier))];
+  chart("c5", c.slices, { type: "scatter", data: { datasets: [
+      ...diag,
+      ...tiers.map((t) => ({ label: t, data: sl.filter((s) => s.tier === t).map((s) => ({ x: s.lines, y: s.tokens, s })), backgroundColor: TIER[t] ?? GRAY, pointStyle: SHAPE[t] ?? "circle", pointRadius: 4.5 })),
+      { label: "outliers", data: sl.filter((s) => s.outlier).map((s) => ({ x: s.lines, y: s.tokens, s })), pointStyle: "circle", pointRadius: 9, backgroundColor: "transparent", borderColor: RED, borderWidth: 1.5 },
+      { label: "medians", data: c.tierMedians.filter((m) => m.tokens && m.lines).map((m) => ({ x: m.lines, y: m.tokens, m })), pointStyle: "crossRot", pointRadius: 9, borderWidth: 2.5,
+        borderColor: c.tierMedians.filter((m) => m.tokens && m.lines).map((m) => TIER[m.tier] ?? GRAY) }] },
+    options: { scales: {
+        x: { type: "logarithmic", min: lo / 1.5, max: hi * 1.5, title: { display: true, text: "lines changed" }, ticks: { callback: logTick } },
+        y: { type: "logarithmic", min: ylo / 1.5, max: yhi * 1.5, title: { display: true, text: "helper tokens" }, ticks: { callback: logTick } } },
+      plugins: { tooltip: { filter: (x) => x.datasetIndex >= diag.length, callbacks: { label: (x) => x.raw.s ? `${x.raw.s.id} ${x.raw.s.tier}: ${fmt(x.raw.s.tokens)} tokens, ${x.raw.s.lines} lines${x.raw.s.outlier ? " (outlier)" : ""}`
+        : `${x.raw.m.tier} median: ${fmt(x.raw.m.tokens)} tokens, ${x.raw.m.lines} lines, ${fmt(x.raw.m.per100)} per 100 lines` } } } } });
+  legend("l5", [...tiers.map((t) => [TIER[t] ?? GRAY, `${t} (${c.tierMedians.find((m) => m.tier === t)?.model ?? ""})`]), [RED, "over twice its tier median"], [css("--grid"), "10k, 100k, 1M per 100 lines", true]]);
+}
+
+// markdown tables of usage-report, as HTML tables
+function tablesHtml(md) {
+  const out = [];
+  let rows = [];
+  const flush = () => { if (rows.length) out.push(`<table>${rows.map((r, i) => `<tr>${r.map((c) => (i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`)).join("")}</tr>`).join("")}</table>`); rows = []; };
+  for (const l of md.split("\n")) {
+    if (/^\|/.test(l)) { if (!/^\|[-| ]+\|$/.test(l)) rows.push(l.slice(1, -1).split("|").map((c) => c.trim())); }
+    else { flush(); if (l.trim()) out.push(`<p class="sub">${esc(l.replace(/\*\*/g, ""))}</p>`); }
+  }
+  flush();
+  return out.join("");
+}
+
+function render() {
+  if (!data) return;
+  $("error").textContent = data.snapError || "";
+  if (data.snap) progress(data.snap);
+  $("updated").textContent = `updated ${new Date(data.at).toTimeString().slice(0, 5)}`;
+  $("uinfo").textContent = data.usageError ? "" : data.usage ? `usage read ${new Date(data.usageAt).toTimeString().slice(0, 5)}, from the transcripts as they are now${data.usageReading ? " (reading again…)" : ""} · ${data.usage.unit}` : "reading the usage report… (a few seconds)";
+  if (data.usageError) $("uinfo").innerHTML = `<span class="err">${esc(data.usageError)}</span>`;
+  if (data.usage) usageCharts(data.usage);
+  if (data.tables) $("tables").innerHTML = tablesHtml(data.tables);
+}
+
+async function poll(force) {
+  try {
+    data = await (await fetch(`/data${force ? "?force" : ""}`, { cache: "no-store" })).json();
+    render();
+  } catch (err) {
+    $("error").textContent = `no answer from the dashboard server (${err.message})`;
+  }
+  // sooner while the usage report is being read
+  clearTimeout(poll.t);
+  poll.t = setTimeout(poll, data && (data.usageReading || !data.usage) ? 8000 : 60000);
+}
+document.addEventListener("click", (e) => { const id = e.target.closest("[data-pick]")?.dataset.pick; if (id) pick(id); });
+$("refresh").addEventListener("click", () => poll(true));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => location.reload());
+poll();
+</script>
+</body>
+</html>

@@ -169,6 +169,17 @@ test('the graph view draws a row per milestone, and a pressed slice opens its ca
   }
 })
 
+test('the dashboard command starts the server and gives its address', async ($, on) => {
+  engine(on, false)
+  on('process.spawn', async function* () {
+    yield { stream: 'stdout', text: 'stareso dashboard on http://127.0.0.1:4636 for /work/demo\n' }
+    return { value: { code: 0, signal: null } }
+  })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  const ran = await $.command.run({ command: 'stareso-panel', args: 'dashboard' })
+  expect(ran.text).toContain('http://127.0.0.1:4636')
+})
+
 test('the usage view draws the plan windows, the tiles and the six charts', async ($, on) => {
   engine(on, false)
   await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
