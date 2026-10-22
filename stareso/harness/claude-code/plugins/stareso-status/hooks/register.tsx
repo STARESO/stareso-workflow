@@ -402,8 +402,8 @@ function body(ui: UI, p: PanelView, cols: number, act: Act) {
 const STATE: Record<SliceState, { color: string; label: string; mark: string }> = {
   done: { color: 'success', label: 'done', mark: '■' },
   running: { color: 'warning', label: 'running', mark: '▶' },
-  // teal and purple: the theme's two blues for these looked alike on the desktop
-  ready: { color: 'planMode', label: 'could start now', mark: '■' },
+  // blue and purple: the theme's two blues looked alike on the desktop, and its teal drew green there, as done
+  ready: { color: 'suggestion', label: 'could start now', mark: '■' },
   you: { color: 'merged', label: 'waits on you', mark: '■' },
   // the same full square as the others, in the theme's middle grey: □ drew smaller than ■
   waiting: { color: 'inactive', label: 'waiting', mark: '■' },
@@ -542,17 +542,20 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
   // ETA; a human or queue lane's own words ("9 for you · 12 questions") follow its title
   // the ETA in its own column before the title, so the title keeps the room to wrap; the time alone ("≈ 03:49", not
   // "≈ 03:49 tomorrow, 3 wait on you": the milestone's card has the rest), and "you" for a milestone that waits on the
-  // person. The name and ETA columns are as narrow as their longest entry, one space apart, shared by helpers and
-  // milestones so the times line up
+  // person. Before it, the planned build time left ("2h10"), the main figure for planning. The columns are as narrow
+  // as their longest entry, one space apart, shared by helpers and milestones so the times line up
   const etaOf = (t: string) => (t === 'waits on you' ? 'you' : t.match(/^≈ \d{1,2}:\d{2}/)?.[0] ?? '')
   const etaW = Math.max(2, ...lanes.map(l => etaOf(tail(l)).length), ...running.map(([, s]) => (s.eta ? `≈ ${s.eta}`.length : 0))) + 1
   const nameW = Math.max(3, ...lanes.map(l => l.id.length), ...running.map(([id]) => id.length + 2)) + 1
+  const planW = Math.max(0, ...lanes.map(l => (l.planned ?? '').length))
+  const planCol = (text: string) => (planW ? <Box width={planW + 1} flexShrink={0}><Text bold tabular>{text}</Text></Box> : null)
   const milestone = (l: PanelLane) => {
     const t = tail(l)
     const eta = etaOf(t)
     return (
       <Box flexDirection="row" alignItems="flex-start">
         <Box width={nameW} flexShrink={0}><Button key={`m:${l.id}`} plain onPress={pick(l.id)}>{l.id}</Button></Box>
+        {planCol(l.planned ?? '')}
         <Box width={etaW} flexShrink={0}><Text tabular {...tailStyle(t)}>{eta}</Text></Box>
         <Box flexGrow={1} flexShrink={1}><Text>{eta || !t ? l.title : `${l.title} · ${t}`}</Text></Box>
       </Box>
@@ -570,6 +573,7 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
     <Box flexDirection="row">
       <Box width={2} flexShrink={0}><Text color={STATE.running.color}>{STATE.running.mark}</Text></Box>
       <Box width={nameW - 2} flexShrink={0}><Button key={`h:${id}`} plain onPress={pick(id)}>{id}</Button></Box>
+      {planCol('')}
       <Box width={etaW} flexShrink={0}><Text dimColor tabular>{s.eta ? `≈ ${s.eta}` : ''}</Text></Box>
       <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end">{s.title}</Text></Box>
     </Box>
@@ -705,6 +709,13 @@ function stateLine(g: PanelGraph, id: string): string {
   return `${open.length ? `waits on ${open.join(', ')}` : 'waits for a helper'}${eta}`
 }
 
+// a slice's plan in one line: "planned 36m of build, 07:30 → 08:06", or "planned 20m left, until 08:06" when running
+function planLine(s: PanelSlice): string {
+  const end = s.eta ? `≈ ${s.eta}` : ''
+  if (s.state === 'running') return `planned ${s.planned} left${end ? `, until ${end}` : ''}`
+  return `planned ${s.planned} of build${s.planStart ? `, ${s.planStart} → ${end || '?'}` : end ? `, until ${end}` : ''}`
+}
+
 // a slice's card; a preview (the card of a hovered number) has nothing to press
 function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: string, list: string[]) => RenderElement[], preview = false) {
   const { Box, Text, Button } = ui
@@ -715,6 +726,7 @@ function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: s
     <Box flexDirection="column" borderStyle="round" paddingX={1} {...(preview ? { backgroundColor: 'inverseText', flexShrink: 1 } : {})}>
       <Text bold color={STATE[s.state].color}>{`${id} · ${s.title}`}</Text>
       <Text color={STATE[s.state].color}>{stateLine(g, id)}</Text>
+      {s.planned && <Text bold>{planLine(s)}</Text>}
       {s.branch && <Text dimColor>{`on ${s.branch}`}</Text>}
       <Text dimColor>{[s.ms, s.model, s.opus ? 'an Opus slice, the costly ones' : ''].filter(Boolean).join(' · ')}</Text>
       {s.after.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>needs</Text>{chips('needs', s.after.filter(a => g.slices[a]))}</Box>}
@@ -732,7 +744,7 @@ function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act, pick: (id: stri
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>{`${l.id} · ${l.title}`}</Text>
-      <Text>{`${l.done} of ${l.total} done${l.eta ? ` · ${l.eta}` : ''}`}</Text>
+      <Text>{`${l.done} of ${l.total} done${l.planned ? ` · ${l.planned} of build left` : ''}${l.eta ? ` · ${l.eta}` : ''}`}</Text>
       <Text dimColor>{(['running', 'ready', 'you', 'waiting'] as const).filter(k => count(k)).map(k => `${count(k)} ${STATE[k].label}`).join(' · ') || 'every slice done'}</Text>
       <Box flexDirection="column" marginTop={1}>
         {l.slices.filter(id => g.slices[id]).map(id => {

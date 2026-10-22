@@ -20,11 +20,11 @@ const SNAPSHOT = {
   brief: 'demo · Phase: build\n\nProgress   ■ done  ▶ running  □ waiting\n  M1    1/3    ■▶□  ≈ 17:00',
   graph: {
     mode: 'eco · 1 helper', allDone: '19:00', pace: '30 min per slice', hidden: [], finished: [],
-    lanes: [{ id: 'M1', title: 'First steps', kind: 'app', done: 1, total: 3, block: false, eta: '≈ 19:00', slices: ['M1.1', 'M1.2', 'M1.3'] }],
+    lanes: [{ id: 'M1', title: 'First steps', kind: 'app', done: 1, total: 3, block: false, eta: '≈ 19:00', planned: '1h20', slices: ['M1.1', 'M1.2', 'M1.3'] }],
     slices: {
       'M1.1': { title: 'Start', ms: 'M1', state: 'done', after: [] },
       'M1.2': { title: 'Second step', ms: 'M1', state: 'running', after: ['M1.1'], model: 'sonnet', minutes: 5, started: '16:55', branch: 'slice/M1.2-second', eta: '17:30' },
-      'M1.3': { title: 'Third step', ms: 'M1', state: 'waiting', after: ['M1.2'], eta: '18:00' },
+      'M1.3': { title: 'Third step', ms: 'M1', state: 'waiting', after: ['M1.2'], eta: '18:00', planned: '30m', planStart: '17:30' },
     },
   },
   recentMerges: [{ id: 'M1.1', at: '2026-10-22 16:00' }],
@@ -72,6 +72,7 @@ test('the panel draws the progress view from the tool, on every surface', async 
     expect(await ui.find({ type: 'Text', text: /^Slices running$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^30 min$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^≈ 19:00$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^1h20$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^First steps$/ })).toBeTruthy()
     expect((await ui.find({ type: 'Text', text: /^▶$/ }))?.props.color).toBe('warning')
     expect(await ui.find({ type: 'Text', text: /^Second step$/ })).toBeTruthy()
@@ -221,6 +222,8 @@ test('the progress view draws a row per milestone, a pressed milestone lists its
     const previews = (await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute' && b.props.display === 'none')
     expect(previews).toHaveLength(2)
     expect(await ui.find({ type: 'Text', text: /^M1\.3 · / })).toBeTruthy()
+    // its preview gives the planned build time and start
+    expect(await ui.find({ type: 'Text', text: /^planned 30m of build, 17:30 → ≈ 18:00$/ })).toBeTruthy()
     await ui.press({ key: 'close-card' })
     await ui.press({ key: 'l:M1' })
     expect(await ui.find({ type: 'Text', text: /^M1 · First steps$/ })).toBeTruthy()

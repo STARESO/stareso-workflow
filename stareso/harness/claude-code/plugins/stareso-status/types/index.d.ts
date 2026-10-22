@@ -13,6 +13,10 @@ export type PanelSlice = {
   started?: string | null;
   branch?: string;
   eta?: string;
+  /** the planned build time ("36m"), what is left of it for a running slice */
+  planned?: string;
+  /** the planned start ("07:30"), for a slice not running yet */
+  planStart?: string;
   question?: string;
 };
 
@@ -24,6 +28,8 @@ export type PanelLane = {
   total: number;
   block: boolean;
   eta: string;
+  /** the planned build time left, "2h10" (optional: older tools leave it out) */
+  planned?: string;
   slices: string[];
 };
 

@@ -244,14 +244,16 @@ if (unit != null) {
   };
   const order = shown.filter((l) => !l.block).flatMap((l) => l.nodes.map((n) => n.id)).concat(openNumbered.map((s) => s.id));
   const pending = [...new Set(order)].filter((id) => !byId.get(id).done && !runningIds.has(id) && !waitsOnUser(id));
-  const finish = new Map();
+  // finish and start of each simulated slice, in minutes from now (a running slice starts now, with its time left)
+  const finish = new Map(), begin = new Map();
   let active = running.filter((r) => runningIds.has(r.id) && !waitsOnUser(r.id)).map((r) => ({ id: r.id, end: Math.max(5, unit - (r.minutes ?? 0)) }));
+  for (const a of active) begin.set(a.id, 0);
   let t = 0;
   const merged = (d, at) => byId.get(d).done || (finish.has(d) && finish.get(d) <= at);
   for (let guard = 0; guard < 2000 && (pending.length || active.length); guard++) {
     for (let i = 0; i < pending.length && active.length < simHelpers;) {
       const s = byId.get(pending[i]);
-      if (depsOf(s).every((d) => merged(d, t))) { active.push({ id: s.id, end: t + unit }); pending.splice(i, 1); } else i++;
+      if (depsOf(s).every((d) => merged(d, t))) { active.push({ id: s.id, end: t + unit }); begin.set(s.id, t); pending.splice(i, 1); } else i++;
     }
     if (!active.length) break;
     active.sort((a, b) => a.end - b.end);
@@ -260,6 +262,9 @@ if (unit != null) {
     active = active.filter((x) => x.end !== t);
   }
   for (const [id, m] of finish) eta.bySlice[id] = clock(now + m * 60000);
+  // each slice's planned build time (left, for a running one) and its planned start when it is not running yet
+  eta.planBySlice = {};
+  for (const [id, m] of finish) eta.planBySlice[id] = { minutes: Math.round(m - begin.get(id)), start: begin.get(id) > 0 ? clock(now + begin.get(id) * 60000) : null };
   // a running slice seen for the first time: its prediction is kept, to be compared with its merge
   const fresh = running.filter((r) => runningIds.has(r.id) && finish.has(r.id)).map((r) => {
     const start = r.minutes != null && r.minutes < 12 * 60 ? now - r.minutes * 60000 : now;
@@ -270,10 +275,15 @@ if (unit != null) {
     const open = l.nodes.filter((n) => n.s !== "d").map((n) => n.id);
     const times = open.filter((id) => finish.has(id)).map((id) => finish.get(id));
     const waiting = open.filter((id) => !finish.has(id)).length;
-    eta.byMilestone[l.id] = { at: times.length ? clock(now + Math.max(...times) * 60000) : null, waiting };
+    // the planned work left: the build minutes of its simulated slices, whatever the number of helpers
+    const work = open.filter((id) => finish.has(id)).reduce((sum, id) => sum + finish.get(id) - begin.get(id), 0);
+    eta.byMilestone[l.id] = { at: times.length ? clock(now + Math.max(...times) * 60000) : null, waiting, minutes: Math.round(work) };
   }
   if (finish.size) { const end = Math.max(...finish.values()); eta.allDone = clock(now + end * 60000); eta.allDoneHours = +(end / 60).toFixed(1); }
 }
+// "40m", "2h", "2h10"
+const span = (m) => m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? p2(m % 60) : ""}`;
+const plannedLane = (id) => { const m = eta.byMilestone[id]?.minutes; return m ? span(m) : ""; };
 const etaLane = (id) => { const e = eta.byMilestone[id]; return !e ? "" : e.at ? `≈ ${e.at}${e.waiting ? `, ${e.waiting} wait on you` : ""}` : e.waiting ? "waits on you" : ""; };
 
 // ---------- usage windows: readings of the plan's windows, burn rate, stop caps ----------
@@ -617,9 +627,10 @@ function panelGraph() {
       : s.human || q || /waits on \/stareso/.test(s.rest) || lettered({ id: s.ms }) ? "you" : "waiting";
     slices[s.id] = { title: s.title, ms: s.ms, state, after: s.after, ...(s.model ? { model: s.model } : {}), ...(s.opus ? { opus: true } : {}),
       ...(r ? { minutes: r.minutes, started: r.minutes != null ? clock(now - r.minutes * 60000) : null, branch: r.branch } : {}),
-      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}), ...(q ? { question: q.text } : {}) };
+      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}),
+      ...(eta.planBySlice?.[s.id] ? { planned: span(eta.planBySlice[s.id].minutes), ...(eta.planBySlice[s.id].start ? { planStart: eta.planBySlice[s.id].start } : {}) } : {}), ...(q ? { question: q.text } : {}) };
   }
-  const lane = (l) => ({ id: l.id, title: l.title, kind: l.kind, done: l.done, total: l.total, block: l.block, eta: etaLane(l.id), slices: l.nodes.map((n) => n.id) });
+  const lane = (l) => ({ id: l.id, title: l.title, kind: l.kind, done: l.done, total: l.total, block: l.block, eta: etaLane(l.id), planned: plannedLane(l.id), slices: l.nodes.map((n) => n.id) });
   return { mode: mode.label, allDone: eta.allDone ?? null, pace: pace?.line ?? null, lanes: shown.map(lane), finished: finished.map(lane), hidden, slices };
 }
 if (opt.panel) {
