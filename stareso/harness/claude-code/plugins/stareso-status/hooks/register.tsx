@@ -568,6 +568,7 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
         <Text size="heading" weight="semibold">{g.allDone ? `All done ≈ ${g.allDone}` : 'Progress'}</Text>
         <Text dimColor>{g.mode}</Text>
       </Box>
+      {statTiles(ui, progressTiles(g))}
 
       <Box flexDirection="column">
         <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
@@ -624,6 +625,36 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
       })}
     </Box>
   )
+}
+
+// a row of stat tiles, the Usage tab's and the Progress tab's: a dim label over a big value, coloured when it names a
+// state
+function statTiles(ui: UI, tiles: { label: string; value: string; color?: string }[]) {
+  const { Box, Text } = ui
+  return (
+    <Box flexDirection="row" flexWrap="wrap" gap={1}>
+      {tiles.map(t => (
+        <Box flexDirection="column" borderStyle="round" paddingX={1}>
+          <Text dimColor size="footnote">{t.label}</Text>
+          <Text bold size="heading" tabular {...(t.color ? { color: t.color } : {})}>{t.value}</Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+// the Progress tab's tiles, from the graph alone: slices done, helpers running, the time of one slice, what waits on
+// the person
+function progressTiles(g: PanelGraph) {
+  const all = Object.values(g.slices)
+  const count = (state: SliceState) => all.filter(s => s.state === state).length
+  const perSlice = /^(\d+) min per slice/.exec(g.pace ?? '')?.[1]
+  return [
+    { label: 'Slices done', value: `${count('done')}/${all.length}`, color: STATE.done.color },
+    { label: 'Helpers running', value: String(count('running')), color: STATE.running.color },
+    { label: 'Per slice', value: perSlice ? `${perSlice} min` : 'n/a' },
+    { label: 'Waits on you', value: String(count('you')), color: STATE.you.color },
+  ]
 }
 
 // what a slice is doing, in one line
@@ -735,18 +766,11 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
       {!c && p.usageError === '' && <Text dimColor>reading the usage report… (a few seconds)</Text>}
       {c && (
         <Box flexDirection="column" gap={1}>
-          <Box flexDirection="row" flexWrap="wrap" gap={1}>
-            {c.tiles.map(t => (
-              <Box flexDirection="column" borderStyle="round" paddingX={1}>
-                <Text dimColor size="footnote">{t.label}</Text>
-                <Text bold size="heading" tabular>{t.value}</Text>
-              </Box>
-            ))}
-          </Box>
+          {statTiles(ui, c.tiles)}
           <Text dimColor size="footnote">{`read ${clock(p.usageAt)}, live from the transcripts · ${c.unit}`}</Text>
         </Box>
       )}
-      {windowsView(ui, p.windows, Math.max(12, room - L - 7), L)}
+      {windowsView(ui, p.windows, Math.max(12, room - L - 8), L)}
       {c && (
         <Box flexDirection="column" gap={2}>
           {chart(ui, '1. Share of the workflow cost by step type', 'Where the tokens go: build should lead; a large chat bar is work done outside the steps.',
@@ -878,6 +902,8 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
               <Text mono>{name.padEnd(L)}</Text>
               <Text mono color={level || 'suggestion'}>{used}</Text>
               <Text mono dimColor>{rest(used.length, n, marks)}</Text>
+              {/* the track's end, 100 % */}
+              <Text mono dimColor>│</Text>
               <Text mono bold {...(level ? { color: level } : {})}>{`${String(win.pct).padStart(4)} %`}</Text>
             </Box>
             <Box marginLeft={L}>

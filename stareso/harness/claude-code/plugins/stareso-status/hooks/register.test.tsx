@@ -64,6 +64,10 @@ test('the panel draws the progress view from the tool, on every surface', async 
     expect(await ui.find({ type: 'Text', text: /^Build phase$/ })).toBeTruthy()
     expect((await ui.find({ type: 'Text', text: /^demo$/ }))?.props.size).toBe('title')
     expect(await ui.find({ type: 'Text', text: /^All done ≈ 19:00$/ })).toBeTruthy()
+    // the stat tiles under it, as the Usage tab's, the counts in the colour of their state
+    expect((await ui.find({ type: 'Text', text: /^1\/3$/ }))?.props.color).toBe('success')
+    expect(await ui.find({ type: 'Text', text: /^Helpers running$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^30 min$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^≈ 19:00$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^First steps$/ })).toBeTruthy()
     expect((await ui.find({ type: 'Text', text: /^▶$/ }))?.props.color).toBe('warning')
