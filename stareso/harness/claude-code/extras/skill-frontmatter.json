@@ -21,5 +21,8 @@
   ],
   "stareso-setup": [],
   "stareso-status": [],
-  "stareso-test": []
+  "stareso-test": [],
+  "stareso-usage": [
+    "argument-hint: \"[--all]\""
+  ]
 }

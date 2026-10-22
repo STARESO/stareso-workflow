@@ -179,6 +179,32 @@ async function logMode(dryRun) {
   const newTotals = () => ({ sessions: 0, turns: 0, user: 0, active: 0, compactions: 0, out: 0, cr: 0, cw: 0, helpers: 0, hOut: 0, hCr: 0, hCw: 0, equiv: 0, models: {}, byModel: {} });
   const rows = [], wfRows = [];
   const totals = newTotals(), wfTotals = newTotals();
+  // Every session's aggregates (numbers and step labels only) are kept in docs/usage-sessions.json at each run, so a
+  // session whose transcript is deleted later (the app's clean-up) stays in the log, marked "(transcript gone)".
+  const cacheFile = path.join(root, "docs", "usage-sessions.json");
+  let cache = { version: 1, note: "Written by session-stats --log: per-session aggregates, numbers only. A session whose transcript was deleted keeps its last entry here (shown as transcript gone). Delete an entry to drop that session.", sessions: {} };
+  try { const c = JSON.parse(fs.readFileSync(cacheFile, "utf8")); if (c && c.sessions) cache = c; } catch { /* first run */ }
+  const strip = (s) => ({ id: s.id, first: s.first, last: s.last, kind: s.kind, kinds: s.kinds, user: s.user, assistant: s.assistant, active: s.active, compactions: s.compactions, usage: s.usage, models: s.models, byModel: s.byModel, launchTs: s.launchTs, launches: s.launches });
+  const seenIds = new Set();
+  const addSession = ({ s, steps, h, inWorktree, wf, gone }) => {
+    const e = equiv(s.usage) + (h.equiv || 0);
+    const end = s.last.slice(0, 10) === s.first.slice(0, 10) ? s.last.slice(11, 16) : s.last.slice(5, 16).replace("T", " ");
+    const kind = (wf && !/workflow-review|stareso-retro/.test(s.kind || "") ? "workflow review" : s.kind || "chat") + (inWorktree ? " (worktree)" : "") + (gone ? " (transcript gone)" : "");
+    // Session line, its steps and its details are written once the sessions are numbered (below).
+    const session = (n, by) => `| ${n} | ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${kind}${by ? ` (launched by #${by})` : ""} | ${hours(steps.reduce((a, st) => a + st.active, 0))} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${s.user} | ${h.n || ""} | ${fmt(Math.round(e))} |`;
+    const details = (n) => `| ${n} | ${s.compactions || ""} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${fmt(s.usage.cache_create)} | ${h.n ? `${modelsText(h.models)} · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} |`;
+    // Carried = context at the step's start above the base (what any new session starts with, see `base` below)
+    // and its share of the step's cost (extra × turns × 0.1): what a new session would have saved. Blank for a
+    // session's first step.
+    const stepLines = (n, base, by) => steps.map((st, i) => {
+      const se = equiv(st.usage) + st.hEquiv;
+      const extra = Math.max(0, (st.carried || 0) - base);
+      const carried = i && st.turns ? `${Math.round(100 * Math.min(1, extra * st.turns * 0.1 / Math.max(1, se)))} % · ${fmt(extra)}` : "";
+      const stEnd = st.last.slice(0, 10) === st.first.slice(0, 10) ? st.last.slice(11, 16) : st.last.slice(5, 16).replace("T", " ");
+      return `| ${n} | ${st.first.slice(5, 10)} ${st.first.slice(11, 16)}–${stEnd} | ${st.kind}${!i && by ? ` (launched by #${by})` : ""} | ${hours(st.active)} | ${st.turns} | ${st.user} | ${st.hN || ""} | ${fmt(Math.round(se))} | ${carried} |`;
+    });
+    (wf ? wfRows : rows).push({ first: s.first, turns: s.assistant, session, details, stepLines, steps, s, h, e, wf });
+  };
   for (const d of dirs) {
     const dir = path.join(PROJECTS, d);
     for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".jsonl"))) {
@@ -187,29 +213,19 @@ async function logMode(dryRun) {
       const hDir = path.join(dir, s.id, "subagents");
       const helpers = [];
       if (fs.existsSync(hDir)) for (const hf of fs.readdirSync(hDir).filter((x) => x.endsWith(".jsonl"))) helpers.push(await summarise(path.join(hDir, hf)));
-      const h = helpers.reduce((a, x) => { a.n++; a.out += x.usage.output; a.cr += x.usage.cache_read; a.cw += x.usage.cache_create; for (const [m, n] of Object.entries(x.models)) a.models[m] = (a.models[m] || 0) + n; for (const [m, u] of Object.entries(x.byModel)) addKinds(a.byModel, m, u); return a; }, { n: 0, out: 0, cr: 0, cw: 0, models: {}, byModel: {} });
-      const e = equiv(s.usage) + helpers.reduce((a, x) => a + equiv(x.usage), 0);
+      const h = helpers.reduce((a, x) => { a.n++; a.out += x.usage.output; a.cr += x.usage.cache_read; a.cw += x.usage.cache_create; a.equiv += equiv(x.usage); for (const [m, n] of Object.entries(x.models)) a.models[m] = (a.models[m] || 0) + n; for (const [m, u] of Object.entries(x.byModel)) addKinds(a.byModel, m, u); return a; }, { n: 0, out: 0, cr: 0, cw: 0, equiv: 0, models: {}, byModel: {} });
       const inWorktree = d !== slug;
-      const end = s.last.slice(0, 10) === s.first.slice(0, 10) ? s.last.slice(11, 16) : s.last.slice(5, 16).replace("T", " ");
       const wf = isWorkflowSession(s, d);
-      const kind = (wf && !/workflow-review|stareso-retro/.test(s.kind || "") ? "workflow review" : s.kind || "chat") + (inWorktree ? " (worktree)" : "");
-      // Session line, its steps and its details are written once the sessions are numbered (below).
-      const session = (n, by) => `| ${n} | ${s.first.slice(0, 10)} ${s.first.slice(11, 16)}–${end} | ${kind}${by ? ` (launched by #${by})` : ""} | ${hours(steps.reduce((a, st) => a + st.active, 0))} | ${modelsText(s.models) || "—"} | ${s.assistant} | ${s.user} | ${h.n || ""} | ${fmt(Math.round(e))} |`;
-      const details = (n) => `| ${n} | ${s.compactions || ""} | ${fmt(Math.round(s.usage.cache_read / Math.max(1, s.assistant)))} | ${fmt(s.usage.output)} | ${fmt(s.usage.cache_read)} | ${fmt(s.usage.cache_create)} | ${h.n ? `${modelsText(h.models)} · out ${fmt(h.out)} · cache ${fmt(h.cr)}` : ""} |`;
-      // Carried = context at the step's start above the base (what any new session starts with, see `base` below)
-      // and its share of the step's cost (extra × turns × 0.1): what a new session would have saved. Blank for a
-      // session's first step. A session with no step mark (e.g. a review run in a worktree named for it) keeps the session's label.
+      // A session with no step mark (e.g. a review run in a worktree named for it) keeps the session's label.
       const steps = splitSteps(s, helpers, wf ? "workflow review" : null);
-      const stepLines = (n, base, by) => steps.map((st, i) => {
-        const se = equiv(st.usage) + st.hEquiv;
-        const extra = Math.max(0, (st.carried || 0) - base);
-        const carried = i && st.turns ? `${Math.round(100 * Math.min(1, extra * st.turns * 0.1 / Math.max(1, se)))} % · ${fmt(extra)}` : "";
-        const stEnd = st.last.slice(0, 10) === st.first.slice(0, 10) ? st.last.slice(11, 16) : st.last.slice(5, 16).replace("T", " ");
-        return `| ${n} | ${st.first.slice(5, 10)} ${st.first.slice(11, 16)}–${stEnd} | ${st.kind}${!i && by ? ` (launched by #${by})` : ""} | ${hours(st.active)} | ${st.turns} | ${st.user} | ${st.hN || ""} | ${fmt(Math.round(se))} | ${carried} |`;
-      });
-      (wf ? wfRows : rows).push({ first: s.first, turns: s.assistant, session, details, stepLines, steps, s, h, e, wf });
+      const src = { s: strip(s), steps, h, inWorktree, wf };
+      cache.sessions[s.id] = { ...src, loggedOn: new Date().toISOString().slice(0, 10) };
+      seenIds.add(s.id);
+      addSession(src);
     }
   }
+  for (const [id, c] of Object.entries(cache.sessions)) if (!seenIds.has(id) && c.s && c.steps && c.h) addSession({ ...c, gone: true });
+  if (!dryRun) fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1) + "\n");
   // A forked or continued session shares its start timestamp with the original and repeats its turns:
   // keep the longest transcript per start time, so nothing is counted twice.
   const dedupe = (list) => {
@@ -253,9 +269,18 @@ async function logMode(dryRun) {
   try {
     const seen = new Set();
     merges = execSync("git log --all --merges --format=%H%x09%cI%x09%s", { cwd: root, encoding: "utf8" }).split("\n")
-      .map((l) => l.split("\t")).filter(([h, , subj]) => h && /^Merge slice /.test(subj || "") && !seen.has(h) && seen.add(h))
-      .map(([, date]) => new Date(date).getTime());
+      .map((l) => l.split("\t")).filter(([h, , subj]) => h && /^Merge slice[ /]/.test(subj || "") && !seen.has(h) && seen.add(h))
+      .map(([, date, subj]) => ({ t: new Date(date).getTime(), id: (/^Merge slice[ /]([A-Za-z]+\d*\.\w+|[A-Za-z]+\d+)/i.exec(subj) || [])[1] || "" }));
   } catch { /* not a git repository: no cost-per-slice table */ }
+  // A slice whose BUILD-LOG line shows helper tokens was built by a build session: its merge goes to a build step
+  // only, never to a test or chat step that happened to be open (that session's transcript is gone: unlogged).
+  const helperBuilt = new Set();
+  try {
+    for (const l of fs.readFileSync(path.join(root, "docs", "BUILD-LOG.md"), "utf8").split(/\r?\n/)) {
+      const m = /^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} · ([A-Za-z]+\d*\.\w+)\b.*?· ([\d.]+)k? tokens/.exec(l);
+      if (m && Number(m[2]) > 0 && !/inline|built in chat|not shown/i.test(l)) helperBuilt.add(m[1]);
+    }
+  } catch { /* no BUILD-LOG */ }
   // Windows can overlap (one session ends as the next starts, a manager's status runs while the build it launched
   // merges): a merge goes to a build step holding it, else to the latest-started step holding it, never to a status
   // or retro step, which do not build. An improve or test launched during a build only plans slices, so the build wins.
@@ -265,9 +290,9 @@ async function logMode(dryRun) {
   const buildKind = (x) => /^build/.test(x.st.kind);
   const merged = new Map();
   let unlogged = 0;
-  for (const m of merges) {
+  for (const { t: m, id } of merges) {
     const holding = allSteps.filter((x) => m >= x.from && m <= x.to);
-    const owner = holding.filter((x) => !managerKind(x)).sort((a, b) => buildKind(b) - buildKind(a) || b.from - a.from)[0];
+    const owner = holding.filter((x) => !managerKind(x) && (!helperBuilt.has(id) || buildKind(x))).sort((a, b) => buildKind(b) - buildKind(a) || b.from - a.from)[0];
     if (!owner) { if (holding.length) unlogged++; continue; }
     merged.set(owner.st, { r: owner.r, n: (merged.get(owner.st)?.n || 0) + 1 });
   }
@@ -322,7 +347,7 @@ async function logMode(dryRun) {
     "| Column | Meaning |", "|---|---|",
     "| # | Session number: links the Sessions, Steps and Details rows (W1… = workflow sessions). |",
     "| Date / Start–end | Start date and time, then end time (`10-18 15:10` = ended on a later day). |",
-    "| Steps | The stareso steps of the session in order (`status → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat: …` = work no skill names, a request the task list marked as new. `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. |",
+    "| Steps | The stareso steps of the session in order (`status → build M27 → improve`; `build M5` = started with M5, it may go on to later milestones). `chat: …` = work no skill names, a request the task list marked as new. `launched` = a session another session started, before its step began. `(launched by #10)` = session 10 started it (a manager). `(worktree)` = it ran in its own copy of the repo. `(transcript gone)` = the transcript was deleted after the session was logged: its numbers come from `docs/usage-sessions.json`, written at every `--log`. |",
     "| Step rows | One per step, split at the step's first message; helpers go to the step that started them. The session's totals are the sum of its steps. |",
     `| Carried | For a session's later steps: share of the step's cost spent re-reading the context it started with above the base (${fmt(base)}, the median context at the first turn of this project's sessions, which every new session pays), then that extra context's size. High = a new session would have been cheaper (target < 20 %). |`,
     "| Active h | Hours of work: time between consecutive messages, pauses over 15 min left out. |",
@@ -347,7 +372,7 @@ async function logMode(dryRun) {
     "", ...scopes.map(([label, t]) => `**${label}:** ${highlights(t)}.`),
     ...(sliceRows.length ? ["", "**Cost per slice** (steps that merged slices; the cost of the tests that found the fixes is not included)", "",
       "| # | Step start | Step | Slices merged | ≈ equiv | ≈ equiv per slice |", "|---|---|---|---|---|---|", ...sliceRows] : []),
-    ...(unlogged ? ["", `**Slices merged by an unlogged session:** ${unlogged} (only a status or retro step was running then: the session that built them left no transcript in this project, so their cost is only in the BUILD-LOG helper tokens).`] : []),
+    ...(unlogged ? ["", `**Slices merged by an unlogged session:** ${unlogged} (no build step was running then, or only a status or retro step: the session that built them left no transcript in this project, so their cost is only in the BUILD-LOG helper tokens).`] : []),
     ...(planRows.length ? ["", "**Planning cost per planned slice** (improve and test steps that added slices to the roadmap)", "",
       "| # | Step start | Step | Slices planned | ≈ equiv | ≈ equiv per planned slice |", "|---|---|---|---|---|---|", ...planRows] : []),
     "", `**Conductor-built slices:** ${conductorBuilt}${conductorBuilt ? ` (${Object.entries(byDay).sort().map(([d, n]) => `${d} ${n}`).join(" · ")})` : ""}.`,
