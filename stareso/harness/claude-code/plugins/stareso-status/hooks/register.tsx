@@ -3,7 +3,8 @@
 // state to hover and press, the running helpers, the chats computing in the project, the pace, what waits) or the
 // project's usage (the plan windows, then the tiles and nine charts of the usage report (metrics.md) from usage-report.mjs
 // --live), with toasts when a slice merges, a helper starts, a helper runs past twice the usual slice time, or a usage
-// cap comes within 15 minutes. Everything is drawn with the surface's own elements, so the terminal draws it too.
+// cap comes within 15 minutes. A row of tiles under the stat tiles shows each step a manager launched (build, test,
+// improve: model, time run, state from the conductor's STATUS line, a build's ETA). Everything is drawn with the surface's own elements, so the terminal draws it too.
 // No model call: only the tools, git and the app's own usage reading.
 //
 //   /stareso-panel                 opens the panel, or hides it when it is open
@@ -12,7 +13,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, RenderElement } from 'claude-code'
 
-import type { EtaTrack, PanelGraph, PanelLane, PanelSlice, PanelView, SliceState, UsageCharts, UsageWindow } from '../types'
+import type { EtaTrack, PanelGraph, PanelLane, PanelSlice, PanelStep, PanelView, SliceState, UsageCharts, UsageWindow } from '../types'
 
 const PANE = 'stareso-status'
 const TITLE = 'stareso status'
@@ -39,7 +40,7 @@ const MAX_CHATS = 8
 const EMPTY: PanelView = {
   project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'graph', selected: '',
   showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, chats: [],
-  etaTrack: null, expanded: [], pages: {},
+  etaTrack: null, expanded: [], pages: {}, steps: [],
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
 
@@ -103,7 +104,70 @@ async function usageFlags($: EngineInterface): Promise<string[]> {
 // A chat is active when it works, when a step it launched works (a manager waiting on its build), or when it is the
 // build and helpers run (a conductor waiting on its helpers).
 type ChatRow = { sessionId?: string; startedBy?: string; parentSessionId?: string; name?: string; title?: string; cwd?: string; isRunning?: boolean; lastActivityAt?: string }
-async function projectChats($: EngineInterface, root: string, helpersRunning: boolean): Promise<PanelView['chats']> {
+
+// ---------- the steps a manager launched: one tile each ----------
+//
+// A session the app lists as started by another (`startedBy`) whose name, or title when it has none, opens with build,
+// test or improve is a conductor. Its model and start time come from `get_session` (kept: they never change). Its state
+// never comes from the idle flag alone, since a conductor idles while its helpers work: a working session is working,
+// and an idle one is read from the end of its transcript (`list_events`, the last few messages, no model call): the
+// `STATUS` line the build skill defines ("Status reply"), or the marker a run ends with. Nothing is sent to the session.
+const STEP_NAME = /^(build|test|improve)\b/i
+const STATUS_LINE = /\bSTATUS (running|waiting-user|stopped) · ([^\n]*)/g
+const END_MARK = /\b(MILESTONE DONE|STEP DONE|RUN STOPPED)\b/g
+const EVENTS_READ = 15
+const stepMeta = new Map<string, { model: string; startedAt: number }>()
+
+// what the end of a transcript says: the last `STATUS` reply and the last end marker, the later one winning
+function readEnd(text: string): Pick<PanelStep, 'status' | 'ended'> {
+  let status: { at: number; value: NonNullable<PanelStep['status']> } | null = null
+  for (const m of text.matchAll(STATUS_LINE)) {
+    const rest = m[2] ?? ''
+    status = {
+      at: m.index ?? 0,
+      value: { state: m[1] as NonNullable<PanelStep['status']>['state'], helpers: Number(/helpers working (\d+)/.exec(rest)?.[1] ?? 0), blocker: /blocker (.*)$/.exec(rest)?.[1]?.trim() ?? '' },
+    }
+  }
+  let end: { at: number; value: 'finished' | 'stopped' } | null = null
+  for (const m of text.matchAll(END_MARK)) end = { at: m.index ?? 0, value: m[1] === 'RUN STOPPED' ? 'stopped' : 'finished' }
+  return end && (!status || end.at > status.at) ? { status: null, ended: end.value } : { status: status?.value ?? null, ended: null }
+}
+
+async function launchedSteps($: EngineInterface, rows: ChatRow[], member: (x: ChatRow) => boolean, selfId: string): Promise<PanelStep[]> {
+  const textOf = (res: { content: { type: string }[] }) => (res.content.find(c => c.type === 'text') as { text?: string } | undefined)?.text ?? ''
+  const since = Date.now() - CHATS_RECENT_MS
+  const out: PanelStep[] = []
+  for (const x of rows) {
+    const kind = STEP_NAME.exec(x.name || x.title || '')?.[1]?.toLowerCase() as PanelStep['step'] | undefined
+    if (!x.sessionId || x.sessionId === selfId || !x.startedBy || !kind || !member(x)) continue
+    if (!x.isRunning && x.lastActivityAt && Date.parse(x.lastActivityAt) < since) continue
+    let meta = stepMeta.get(x.sessionId)
+    if (!meta) {
+      try {
+        const s = JSON.parse(textOf(await $.mcp.call('ccd_session_mgmt', 'get_session', { session_id: x.sessionId })) || 'null') as { model?: string; createdAt?: string } | null
+        meta = { model: /fable|opus|sonnet|haiku/i.exec(s?.model ?? '')?.[0]?.toLowerCase() ?? '', startedAt: s?.createdAt ? Date.parse(s.createdAt) || 0 : 0 }
+        stepMeta.set(x.sessionId, meta)
+      } catch {
+        meta = { model: '', startedAt: 0 }
+      }
+    }
+    let end: Pick<PanelStep, 'status' | 'ended'> = { status: null, ended: null }
+    if (!x.isRunning) {
+      try {
+        end = readEnd(textOf(await $.mcp.call('ccd_session_mgmt', 'list_events', { session_id: x.sessionId, limit: EVENTS_READ })))
+      } catch {
+        // the transcript is not readable: the state falls back to what the kind of step implies
+      }
+    }
+    out.push({
+      id: x.sessionId, step: kind, model: meta.model, startedAt: meta.startedAt, working: !!x.isRunning, ...end,
+      milestones: [...new Set(`${x.name ?? ''} ${x.title ?? ''}`.toUpperCase().match(/\bM\d+/g) ?? [])],
+    })
+  }
+  return out.sort((a, b) => a.startedAt - b.startedAt)
+}
+
+async function projectChats($: EngineInterface, root: string, helpersRunning: boolean): Promise<{ chats: PanelView['chats']; steps: PanelStep[] }> {
   const norm = (f: string) => f.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   const textOf = (res: { content: { type: string }[] }) => (res.content.find(c => c.type === 'text') as { text?: string } | undefined)?.text ?? ''
   try {
@@ -125,13 +189,16 @@ async function projectChats($: EngineInterface, root: string, helpersRunning: bo
     // a chat in the project's folder, or one started from such a chat (a side chat often runs elsewhere, ~/.claude say)
     const inProject = (x: (typeof list)[number]) => !!x.cwd && (norm(x.cwd) === r || norm(x.cwd).startsWith(`${r}/`))
     const ids = new Set(list.filter(inProject).flatMap(x => (x.sessionId ? [x.sessionId] : [])))
+    // the panel's own family, whole when one of them works in the project (read below); its rows join the steps' too
+    let family: ChatRow[] = []
     // the app leaves the panel's own chat out of the list, which breaks the chain through it: its own family (the chat
     // that started it, the ones it started) joins whole when one of them works in the project
     try {
-      const fam = await $.mcp.call('ccd_session_mgmt', 'list_sessions', { linked: true, limit: 40 })
-      const famText = (fam.content.find(c => c.type === 'text') as { text?: string } | undefined)?.text ?? '[]'
-      const family = JSON.parse(famText) as typeof list
-      if (Array.isArray(family) && family.some(inProject)) for (const x of family) if (x.sessionId) ids.add(x.sessionId)
+      const famRes = await $.mcp.call('ccd_session_mgmt', 'list_sessions', { linked: true, limit: 40 })
+      const famText = (famRes.content.find(c => c.type === 'text') as { text?: string } | undefined)?.text ?? '[]'
+      const fam = JSON.parse(famText) as typeof list
+      family = Array.isArray(fam) ? fam : []
+      if (family.some(inProject)) for (const x of family) if (x.sessionId) ids.add(x.sessionId)
     } catch {
       // no family list: the folder and the chains in the list above
     }
@@ -144,8 +211,10 @@ async function projectChats($: EngineInterface, root: string, helpersRunning: bo
         }
       }
     }
+    // the list and the family's rows that it left out (a step started long ago, past its 40 rows)
+    const known = [...list, ...family.filter(f => f.sessionId && !list.some(x => x.sessionId === f.sessionId))]
     // a chat with a working descendant (a step it launched, or one launched from that) counts as active
-    const launchedWorking = (id: string, seen = new Set<string>()): boolean => list.some(x => {
+    const launchedWorking = (id: string, seen = new Set<string>()): boolean => known.some(x => {
       if (x.startedBy !== id || !x.sessionId || seen.has(x.sessionId)) return false
       seen.add(x.sessionId)
       return !!x.isRunning || launchedWorking(x.sessionId, seen)
@@ -153,7 +222,7 @@ async function projectChats($: EngineInterface, root: string, helpersRunning: bo
     const why = (x: ChatRow): PanelView['chats'][number]['why'] => (x.isRunning ? 'working'
       : x.sessionId && launchedWorking(x.sessionId) ? 'launched'
       : helpersRunning && /build/i.test(`${x.name ?? ''} ${x.title ?? ''}`) ? 'helpers' : undefined)
-    return list
+    const chats = list
       .filter(x => inProject(x) || (!!x.sessionId && ids.has(x.sessionId)))
       .map(x => ({ x, why: why(x) }))
       .filter(({ x, why: w }) => !!w || x.sessionId === selfId || !x.lastActivityAt || Date.parse(x.lastActivityAt) >= since)
@@ -163,8 +232,10 @@ async function projectChats($: EngineInterface, root: string, helpersRunning: bo
       }))
       // the active ones first; the list comes most recent first
       .sort((a, b) => Number(b.working) - Number(a.working))
+    const steps = await launchedSteps($, known, x => !!x.sessionId && ids.has(x.sessionId), selfId)
+    return { chats, steps }
   } catch {
-    return []
+    return { chats: [], steps: [] }
   }
 }
 
@@ -293,9 +364,9 @@ async function readOnce($: EngineInterface) {
     await $.store.set('project', s.root)
     latestMerge = s.recentMerges[0]?.id ?? ''
     alerts($, s)
-    const chats = await projectChats($, s.root, s.running.length > 0)
+    const { chats, steps } = await projectChats($, s.root, s.running.length > 0)
     await update($, panel, p => ({
-      ...p, project: s.project, root: s.root, brief: s.brief, graph: s.graph, windows: s.usage, etaTrack: s.etaTrack ?? null, chats, updated: clock(), error: '',
+      ...p, project: s.project, root: s.root, brief: s.brief, graph: s.graph, windows: s.usage, etaTrack: s.etaTrack ?? null, chats, steps, updated: clock(), error: '',
       usageNote: flags.length ? '' : 'usage windows not readable here',
     }))
   } catch (err) {
@@ -695,6 +766,7 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act, lim: Limits
   return (
     <Box flexDirection="column" gap={1}>
       {statTiles(ui, progressTiles(g))}
+      {stepTiles(ui, p.steps ?? [], g)}
 
       <Box flexDirection="column">
         <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
@@ -795,6 +867,76 @@ function progressTiles(g: PanelGraph) {
     { label: 'Per slice', value: perSlice ? `${perSlice} min` : 'n/a' },
     { label: 'Waits on you', value: String(count('you')), color: STATE.you.color },
   ]
+}
+
+// ---------- the steps running: one tile per session a manager launched ----------
+
+type StepLook = { mark: string; color: string; text: string }
+
+// How a launched step is doing, for its tile; null for one that is over and needs no tile. The idle flag alone never
+// says stopped: a conductor idles while its helpers work. A working session works. An idle one is read from its
+// `STATUS` line (helpers working, waiting for the user), else from the graph for a build (helpers running) or from the
+// kind of step for a test or improve, which wait for the person between two messages.
+function stepLook(s: PanelStep, g: PanelGraph): StepLook | null {
+  if (s.ended === 'finished') return null
+  if (s.ended === 'stopped') return { mark: '■', color: 'error', text: 'stopped' }
+  if (s.working) return { mark: '▶', color: STATE.running.color, text: 'working' }
+  const st = s.status
+  if (st?.state === 'stopped') return st.blocker && st.blocker !== 'none' ? { mark: '■', color: 'error', text: `stopped: ${st.blocker}` } : null
+  if (st?.state === 'waiting-user') return { mark: STATE.you.mark, color: STATE.you.color, text: 'waiting on you' }
+  const helpers = st ? st.helpers : s.step === 'build' ? Object.values(g.slices).filter(x => x.state === 'running' && (!s.milestones.length || s.milestones.includes(x.ms.toUpperCase()))).length : 0
+  if (helpers > 0) return { mark: '▶', color: STATE.running.color, text: `waiting for ${helpers > 1 ? `${helpers} helpers` : 'a helper'}` }
+  if (st) return { mark: '▶', color: STATE.running.color, text: 'working' }
+  if (s.step === 'build') return { mark: '■', color: STATE.waiting.color, text: 'idle, no status line' }
+  return { mark: STATE.you.mark, color: STATE.you.color, text: 'waiting on you' }
+}
+
+// a build's ETA: the latest of its milestones' ETAs (the whole roadmap's when its name gives none) and the slices left
+// in them, which the tool's ETAs already price at the usual slice time. A test or improve has none: it ends when the
+// person says so.
+function buildEta(s: PanelStep, g: PanelGraph): string {
+  const lanes = s.milestones.length ? g.lanes.filter(l => s.milestones.includes(l.id.toUpperCase())) : g.lanes.filter(l => !l.block)
+  const times = (s.milestones.length ? lanes.map(l => when(l.eta)) : [when(g.allDone ?? '')]).filter((w): w is NonNullable<typeof w> => w != null)
+  const at = times.sort((a, b) => b.order - a.order)[0]
+  const left = lanes.reduce((n, l) => n + l.total - l.done, 0)
+  return at ? `ETA ${at.value}${left ? ` · ${left} slice${left > 1 ? 's' : ''} left` : ''}` : ''
+}
+
+function elapsed(since: number): string {
+  if (!since) return 'n/a'
+  const m = Math.max(0, Math.round((Date.now() - since) / 60000))
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`
+}
+
+// one tile each, in the row of stat tiles' style: the step, the milestones and the model over the time it has run, its
+// state in the colour of the slice states, and a last line (a build's ETA, a test's reminder that the Tested marker is
+// written at the end). Nothing to press: the state is the point
+function stepTiles(ui: UI, steps: PanelStep[], g: PanelGraph) {
+  const { Box, Text } = ui
+  const tiles = steps.flatMap(s => {
+    const look = stepLook(s, g)
+    return look ? [{ s, look }] : []
+  })
+  if (!tiles.length) return null
+  const note = (s: PanelStep) => (s.step === 'build' ? buildEta(s, g) : s.step === 'test' ? 'testing: the Tested marker is written at the end' : 'ends when you say so')
+  return (
+    <Box flexDirection="column">
+      {heading(ui, 'Steps running', `${tiles.length} launched`)}
+      <Box flexDirection="row" flexWrap="wrap" gap={1}>
+        {tiles.map(({ s, look }) => (
+          <Box flexDirection="column" borderStyle="round" paddingX={1}>
+            <Text dimColor size="footnote">{[s.step, ...s.milestones, ...(s.model ? [`· ${s.model}`] : [])].join(' ')}</Text>
+            <Box flexDirection="row" columnGap={1} alignItems="flex-end">
+              <Text bold size="heading" tabular>{elapsed(s.startedAt)}</Text>
+              <Text dimColor size="footnote">elapsed</Text>
+            </Box>
+            <Text color={look.color}>{`${look.mark} ${look.text}`}</Text>
+            {note(s) !== '' && <Text dimColor size="footnote">{note(s)}</Text>}
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  )
 }
 
 // what a slice is doing, in one line

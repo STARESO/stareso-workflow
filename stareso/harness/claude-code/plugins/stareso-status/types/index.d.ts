@@ -104,6 +104,24 @@ export type EtaTrack = {
   }[];
 };
 
+// a session a manager started for a step, as the panel reads it from the app's session list and the session's transcript
+export type PanelStep = {
+  id: string;
+  step: 'build' | 'test' | 'improve';
+  /** the milestones its name and title mention ("M22", "M3"), upper case */
+  milestones: string[];
+  /** the model family ("sonnet") */
+  model: string;
+  /** epoch ms the session was created at, 0 when unknown */
+  startedAt: number;
+  /** the app says it computes now */
+  working: boolean;
+  /** the conductor's `STATUS` reply: the state it gave, its helpers working, its blocker */
+  status: { state: 'running' | 'waiting-user' | 'stopped'; helpers: number; blocker: string } | null;
+  /** the marker it ended with: `MILESTONE DONE` and `STEP DONE` (finished) or `RUN STOPPED` (stopped), read after any STATUS */
+  ended: 'finished' | 'stopped' | null;
+};
+
 export type PanelView = {
   project: string;
   root: string;
@@ -125,6 +143,9 @@ export type PanelView = {
   // the app's chats in the project (a manager, a build, a side chat, this chat), working or idle, shown for information.
   // `why` says what makes one active: it works, a step it launched works, or it is the build and helpers run
   chats: { title: string; at: string; working: boolean; why?: 'working' | 'launched' | 'helpers'; here?: boolean }[];
+  // the steps a manager launched (build, test, improve), one tile each in Progress; `status` is the conductor's latest
+  // `STATUS` line read from its transcript, `ended` the marker it closed with
+  steps: PanelStep[];
   // the ETA learning, drawn as chart 7 of the usage view
   etaTrack: EtaTrack | null;
   // the usage charts the person expanded (all their rows, and more in each row)

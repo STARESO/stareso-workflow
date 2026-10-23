@@ -165,7 +165,7 @@ const CHARTS = {
 // the engine beneath the plugin; what it answers counts the pane openings
 type Run = { exitCode: number; stdout: string; stderr: string }
 function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean, sessions: unknown[] | null = null,
-  opts: { cwd?: string; remembered?: string; run?: (argv: string[]) => Run | null } = {}) {
+  opts: { cwd?: string; remembered?: string; run?: (argv: string[]) => Run | null; events?: Record<string, string> } = {}) {
   const seen = { opened: 0 }
   on('command.register', () => ({ value: { command: 'stareso-panel' } }))
   // the project another session read last (a stale one when a test says so)
@@ -183,7 +183,10 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], open: boolean, se
   const rows = (sessions ?? []) as { self?: boolean }[]
   const reply = (v: unknown) => ({ value: { content: [{ type: 'text', text: JSON.stringify(v) }], isError: false } })
   on('mcp.call', (_, e) => (sessions && e.tool === 'list_sessions' ? reply(e.args.linked ? [] : rows.filter(x => !x.self))
-    : sessions && e.tool === 'get_session' ? reply(rows.find(x => x.self) ?? null)
+    : sessions && e.tool === 'get_session' ? reply(e.args.session_id === 'self' ? rows.find(x => x.self) ?? null : (rows as { sessionId?: string }[]).find(x => x.sessionId === e.args.session_id) ?? null)
+    // a session's recent transcript as plain text; none readable unless a test gives it
+    : sessions && e.tool === 'list_events' && opts.events?.[String(e.args.session_id)] !== undefined
+      ? { value: { content: [{ type: 'text', text: opts.events[String(e.args.session_id)] }], isError: false } }
     : { value: { content: [], isError: true } }))
   on('process.run', (_, e) => {
     const argv = (e as { argv: string[] }).argv
@@ -418,5 +421,117 @@ test('an expanded usage chart opens on a page of rows, one chart at a time', asy
   expect(await ui.find({ type: 'Text', text: /of 400 rows/ })).toBeFalsy()
   expect(await size()).toBeLessThan(100_000)
   expect(await ui.find({ type: 'Text', text: /too large to draw/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+// the steps a manager launched: one tile each, read from the app's session list (startedBy), the session's model and
+// start time, and the end of its transcript. A session that idles is not a session that stopped
+const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000 - 10_000).toISOString()
+const manager = { sessionId: 'mgr', title: 'Manager', cwd: '/work/demo', isRunning: false, lastActivityAt: ago(1) }
+const step = (sessionId: string, name: string, extra: Record<string, unknown> = {}) => ({
+  sessionId, name, title: name, startedBy: 'mgr', cwd: '/work/demo', isRunning: false, lastActivityAt: ago(1),
+  model: 'claude-sonnet-5-5', createdAt: ago(72), ...extra,
+})
+// two milestones in the roadmap, each with its ETA and open slices
+const TWO_LANES = JSON.stringify({
+  ...SNAPSHOT,
+  graph: {
+    ...SNAPSHOT.graph,
+    lanes: [
+      { id: 'M1', title: 'First steps', kind: 'app', done: 1, total: 3, block: false, eta: '≈ 19:00', planned: '1h20', slices: ['M1.1', 'M1.2', 'M1.3'] },
+      { id: 'M2', title: 'Second steps', kind: 'app', done: 0, total: 2, block: false, eta: '≈ 20:30', planned: '1h', slices: ['M2.1', 'M2.2'] },
+    ],
+    slices: {
+      ...SNAPSHOT.graph.slices,
+      'M2.1': { title: 'Other start', ms: 'M2', state: 'running', after: [], model: 'sonnet', minutes: 3, started: '17:00', eta: '17:40' },
+      'M2.2': { title: 'Other end', ms: 'M2', state: 'waiting', after: ['M2.1'], eta: '20:30' },
+    },
+  },
+})
+const twoLanes = (argv: string[]): Run | null => (argv.includes('--root') ? { exitCode: 0, stdout: TWO_LANES, stderr: '' } : null)
+
+test('two parallel builds show two tiles, each with its ETA and its state from its STATUS line', async ($, on) => {
+  engine(on, false, [
+    manager,
+    // computing now
+    step('b1', 'build-m1', { title: 'Build M1', isRunning: true }),
+    // idle, its helper at work: waiting for it, not stopped
+    step('b2', 'build-m2', { title: 'Build M2 in parallel (worktree)', cwd: '/work/demo/.claude/worktrees/m2' }),
+  ], { run: twoLanes, events: { b2: '[assistant] STATUS running · M2 fast · helpers working 1 (M2.1) · planned next 1 (M2.2) · last merged M0.9 · deadline 22:00 · blocker none' } })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'progress' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^Steps running$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^2 launched$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^build M1 · sonnet$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^build M2 · sonnet$/ })).toBeTruthy()
+  expect((await ui.findAll({ type: 'Text', text: /^1h12$/ })).length).toBe(2)
+  // the ETA is the milestone's (what is left times the usual slice time), with the slices left
+  expect(await ui.find({ type: 'Text', text: /^ETA ≈ 19:00 · 2 slices left$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^ETA ≈ 20:30 · 2 slices left$/ })).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /^▶ working$/ }))?.props.color).toBe('warning')
+  expect(await ui.find({ type: 'Text', text: /^▶ waiting for a helper$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /stopped/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('a test tile has no ETA and says the Tested marker is written at the end', async ($, on) => {
+  engine(on, false, [manager, step('t1', 'test-m1', { title: 'Test M1 and M2' }), step('i1', 'improve-m3', { title: 'Improve M3', isRunning: true })],
+    { events: { t1: '[assistant] Logged point 4: the filter label is cut off.' } })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'progress' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^test M1 M2 · sonnet$/ })).toBeTruthy()
+  // between two messages a test waits for the person
+  expect((await ui.find({ type: 'Text', text: /^■ waiting on you$/ }))?.props.color).toBe('merged')
+  expect(await ui.find({ type: 'Text', text: /^testing: the Tested marker is written at the end$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^ends when you say so$/ })).toBeTruthy()
+  // the only ETAs are the stat tiles': none for the test or the improve
+  expect(await ui.find({ type: 'Text', text: /^ETA ≈/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('an idle conductor is not stopped: its STATUS line, then the graph, then a finished run decides', async ($, on) => {
+  engine(on, false, [
+    manager,
+    // idle, STATUS says it waits for the user
+    step('s1', 'build-m1', { title: 'Build M1' }),
+    // idle, no status line readable, a helper running in the graph (M2.1): waiting for it
+    step('s2', 'build-m2', { title: 'Build M2' }),
+    // ended: a tile no more
+    step('s3', 'build-m9', { title: 'Build M9' }),
+    // stopped for a reason: shown, in red
+    step('s4', 'build-m8', { title: 'Build M8' }),
+    // a finished run, then a new STATUS: the later line wins
+    step('s5', 'build-m7', { title: 'Build M7' }),
+  ], { run: twoLanes, events: {
+    s1: '[assistant] STATUS waiting-user · M1 eco · helpers working 0 () · planned next 1 (M1.3) · last merged M1.1 · deadline none · blocker a question on M1.3',
+    s3: '[assistant] MILESTONE DONE: M9 · next: M10',
+    s4: '[assistant] RUN STOPPED: usage cap',
+    s5: '[assistant] MILESTONE DONE: M6\n[user] STATUS?\n[assistant] STATUS running · M7 eco · helpers working 0 () · planned next 1 (M7.1) · last merged M6.4 · deadline none · blocker none',
+  } })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'progress' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^build M1 · sonnet$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^■ waiting on you$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^▶ waiting for a helper$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^build M9 · sonnet$/ })).toBeFalsy()
+  expect((await ui.find({ type: 'Text', text: /^■ stopped$/ }))?.props.color).toBe('error')
+  expect(await ui.find({ type: 'Text', text: /^build M7 · sonnet$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^4 launched$/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a session nobody launched, or one that is not a step, has no tile', async ($, on) => {
+  engine(on, false, [
+    manager,
+    { sessionId: 'x1', name: 'build-m1', title: 'Build M1', cwd: '/work/demo', isRunning: true, lastActivityAt: ago(1), model: 'claude-opus-5-5', createdAt: ago(5) },
+    step('x2', 'retro-notes', { title: 'Retro notes', isRunning: true }),
+  ])
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'progress' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^Steps running$/ })).toBeFalsy()
   await ui.unmount()
 })

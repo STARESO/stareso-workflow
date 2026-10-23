@@ -75,9 +75,11 @@ Decided in one long working session on the workflow itself, with the user review
 
 Open after this session: a name for the workflow that is not tied to stareso (atelier and keel were proposed), which fits with the stage 2 move, and a generic panel mode for projects without a roadmap (plan windows, chats, git and session usage work anywhere, the progress tab only with a roadmap).
 
-## Proposed 2026-10-23 (Claude Code harness: panel tile per launched step)
+## Applied 2026-10-23 (Claude Code harness: panel tile per launched step), plugin 0.6.31
 
-Not applied. Raise at the next retro. Origin: SecuSurf, a manager session launched a test (and two builds in parallel). The panel showed the builds through the slice grid but the test only in the chats list, with no sign of what it was doing, and the milestones' Tested column stayed empty until "end test" by design.
+Applied at the user's request, as a workflow change with a test (`register.test.tsx`), before a retro. The core skills are untouched. Two choices the proposal left open: the plugin reads the `STATUS` line from the end of an idle conductor's transcript (`list_events`, the last 15 messages) and never sends `STATUS?` itself, since that would cost the conductor a turn every minute, so the line is only as fresh as the last time the manager asked. Without one, a build's state falls back to the graph (a helper running means waiting for it, else "idle, no status line") and a test or improve to waiting on you. A tile disappears at `MILESTONE DONE` or `STEP DONE`, and `RUN STOPPED` leaves a red one. Not verified on the desktop panel when it was applied.
+
+Originally proposed: Origin: SecuSurf, a manager session launched a test (and two builds in parallel). The panel showed the builds through the slice grid but the test only in the chats list, with no sign of what it was doing, and the milestones' Tested column stayed empty until "end test" by design.
 
 1. **A "steps running" tile per launched session.** One tile for each session a manager started (build, test, improve), read from the sessions the harness lists as started by the manager. It shows the step, the model, the elapsed time and a state: working, waiting for a helper, waiting on you. A parallel run shows two tiles.
 2. **ETA only where it is real.** A build keeps its ETA (slices left times the usual slice time, as today). A test and an improve show elapsed time and the state, never an ETA: they end when the user says so.
