@@ -362,3 +362,61 @@ test('a large project draws every slice number, within the size the app draws', 
   expect(await ui.find({ type: 'Button', key: 'c:M10.20' })).toBeTruthy()
   await ui.unmount()
 })
+
+// a list that grows is shown a page at a time: expanding never goes past the size the app draws, and every row is
+// still a press of Earlier away
+test('the finished milestones come a page at a time, whatever their number', async ($, on) => {
+  const ids = Array.from({ length: 1200 }, (_, i) => `F${Math.floor(i / 20) + 1}.${(i % 20) + 1}`)
+  const slices = Object.fromEntries(ids.map(id => [id, { title: `A finished slice with a long enough title ${id}`, ms: id.split('.')[0], state: 'done', after: [] }]))
+  const finished = Array.from({ length: 60 }, (_, m) => ({
+    id: `F${m + 1}`, title: `Finished milestone ${m + 1}`, kind: 'app', done: 20, total: 20, block: false, eta: '', planned: '10h', slices: ids.slice(m * 20, m * 20 + 20),
+  }))
+  const big = JSON.stringify({ ...SNAPSHOT, graph: { ...SNAPSHOT.graph, finished, slices: { ...SNAPSHOT.graph.slices, ...slices } } })
+  engine(on, false, null, { run: argv => (argv.includes('--root') ? { exitCode: 0, stdout: big, stderr: '' } : null) })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'progress' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Button', key: 'finished' })).toBeTruthy()
+  await ui.press({ key: 'finished' })
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+  expect(await ui.find({ type: 'Text', text: /too large to draw/ })).toBeFalsy()
+  // the latest finished milestone first, with Earlier for the rest
+  expect(await ui.find({ type: 'Button', key: 'l:F60' })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'l:F1' })).toBeFalsy()
+  await ui.press({ key: 'pg:finished:earlier' })
+  expect(await ui.find({ type: 'Button', key: 'l:F60' })).toBeFalsy()
+  expect(await ui.find({ type: 'Button', key: 'pg:finished:later' })).toBeTruthy()
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+  // hiding them and showing them again opens on the latest page again
+  await ui.press({ key: 'finished' })
+  expect(await ui.find({ type: 'Button', key: 'pg:finished:earlier' })).toBeFalsy()
+  await ui.press({ key: 'finished' })
+  expect(await ui.find({ type: 'Button', key: 'l:F60' })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('an expanded usage chart opens on a page of rows, one chart at a time', async ($, on) => {
+  const sessions = Array.from({ length: 400 }, (_, i) => ({ n: i + 1, date: '2026-10-22', ctx: 100000 + i * 500, turns: 100 + i, equiv: 1e7, helpers: 1, over300: false }))
+  const milestones = Array.from({ length: 150 }, (_, i) => ({ id: `M${i + 1}`, built: 'helpers', equivPerSlice: 3e6 + i, measured: '3/3', slices: 3 }))
+  const charts = JSON.stringify({ charts: { ...CHARTS, sessions, milestones }, tables: '' })
+  engine(on, false, null, { run: argv => (argv.some(a => a.endsWith('usage-report.mjs')) ? { exitCode: 0, stdout: charts, stderr: '' } : null) })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'usage' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const size = async () => JSON.stringify(await ui.drawn()).length
+  expect(await size()).toBeLessThan(100_000)
+  await ui.press({ key: 'more:u4' })
+  expect(await size()).toBeLessThan(100_000)
+  expect(await ui.find({ type: 'Text', text: /of 400 rows/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'pg:u4:later' })).toBeFalsy()
+  await ui.press({ key: 'pg:u4:earlier' })
+  expect(await ui.find({ type: 'Button', key: 'pg:u4:later' })).toBeTruthy()
+  expect(await size()).toBeLessThan(100_000)
+  // expanding another chart folds this one
+  await ui.press({ key: 'more:u3' })
+  expect(await ui.find({ type: 'Text', text: /of 150 rows/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /of 400 rows/ })).toBeFalsy()
+  expect(await size()).toBeLessThan(100_000)
+  expect(await ui.find({ type: 'Text', text: /too large to draw/ })).toBeFalsy()
+  await ui.unmount()
+})

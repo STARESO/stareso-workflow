@@ -122,7 +122,6 @@ export type PanelView = {
   usageMerge: string;
   usageError: string;
   showTables: boolean;
-  allSessions: boolean;
   // the app's chats in the project (a manager, a build, a side chat, this chat), working or idle, shown for information.
   // `why` says what makes one active: it works, a step it launched works, or it is the build and helpers run
   chats: { title: string; at: string; working: boolean; why?: 'working' | 'launched' | 'helpers'; here?: boolean }[];
@@ -130,6 +129,8 @@ export type PanelView = {
   etaTrack: EtaTrack | null;
   // the usage charts the person expanded (all their rows, and more in each row)
   expanded: string[];
+  // where the person paged to in an expanded list: the index of its first row shown (a list not here is at its default end)
+  pages: Record<string, number>;
 };
 
 declare module 'claude-code' {

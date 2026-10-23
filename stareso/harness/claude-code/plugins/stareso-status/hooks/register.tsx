@@ -25,13 +25,21 @@ const WIDE = 110
 // TREE_ROOM shows a short message instead (the app's own count adds the presses, a few percent more)
 const PREVIEW_ROOM = 30_000
 const TREE_ROOM = 90_000
+// what an expanded list or the milestones draw at most, before they are paged (Earlier / Later). The drawing halves them
+// until it fits TREE_ROOM, so a project of any size stays drawable and every row is still one page away
+const PAGE_ROWS = 40
+const PAGE_LANES = 10
+const MIN_ROWS = 4
+const MIN_LANES = 2
+type Limits = { rows: number; lanes: number }
+type Win = { start: number; end: number; total: number; size: number }
 // the project's chats listed in Progress: those idle for less than a day, at most this many
 const CHATS_RECENT_MS = 24 * 3600_000
 const MAX_CHATS = 8
 const EMPTY: PanelView = {
   project: '', root: '', brief: '', graph: null, windows: null, updated: '', error: '', view: 'graph', selected: '',
-  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, allSessions: false, chats: [],
-  etaTrack: null, expanded: [],
+  showFinished: false, usageNote: '', usage: null, usageMd: '', usageAt: 0, usageMerge: '', usageError: '', showTables: false, chats: [],
+  etaTrack: null, expanded: [], pages: {},
 }
 const panel = atom({ plugin: 'stareso-status', key: 'panel' } as const, EMPTY)
 
@@ -54,6 +62,8 @@ let inflight: Promise<void> | null = null
 let usageInflight: Promise<void> | null = null
 let ticking = false
 let latestMerge = ''
+// the last drawing was too large to show: Refresh then folds every expanded chart and list back
+let oversize = false
 let seen: { merge?: string; running: Set<string>; alerted: Set<string> } | null = null
 
 function clock(at = Date.now()): string {
@@ -203,6 +213,41 @@ async function refresh($: EngineInterface, force = false) {
 // the panel state with every field: a state kept from an older version of the mod lacks the newer ones
 async function panelState($: EngineInterface): Promise<PanelView> {
   return { ...EMPTY, ...(await read($, panel)) }
+}
+
+// every chart and list folded back to its basic view
+const folded = (p: PanelView): PanelView => ({ ...p, expanded: [], pages: {}, showFinished: false, showTables: false })
+
+// the rows [start, end) of a list of `total` that a page of `size` shows: where the person paged to, else its tail (a
+// chronological list opens on its latest rows) or its head
+function windowOf(total: number, size: number, saved: number | undefined, tail: boolean): Win {
+  const max = Math.max(0, total - size)
+  const start = saved === undefined ? (tail ? max : 0) : Math.min(max, Math.max(0, saved))
+  return { start, end: Math.min(total, start + size), total, size }
+}
+
+// the saved pages without one list's: it opens at its default end again
+const unpaged = (q: PanelView, id: string): Record<string, number> => Object.fromEntries(Object.entries(q.pages ?? {}).filter(([k]) => k !== id))
+
+// "21–40 of 212" with Earlier and Later buttons, only for a list longer than its page
+function pager(ui: UI, act: Act, id: string, w: Win, tail: boolean, what: string) {
+  if (w.total <= w.size) return null
+  const { Box, Text, Button } = ui
+  const go = (start: number) => act(q => {
+    const max = Math.max(0, w.total - w.size)
+    const s = Math.min(max, Math.max(0, start))
+    const pages = { ...(q.pages ?? {}) }
+    if (s === (tail ? max : 0)) delete pages[id]
+    else pages[id] = s
+    return { ...q, pages }
+  })
+  return (
+    <Box flexDirection="row" columnGap={1} alignItems="center">
+      <Text dimColor size="footnote" tabular>{`${w.start + 1}–${w.end} of ${w.total} ${what}`}</Text>
+      {w.start > 0 && <Button key={`pg:${id}:earlier`} dimColor onPress={go(w.start - w.size)}>Earlier</Button>}
+      {w.end < w.total && <Button key={`pg:${id}:later`} dimColor onPress={go(w.start + w.size)}>Later</Button>}
+    </Box>
+  )
 }
 
 // The folders to read, in order: the one this session settled on (a /stareso-panel <folder>, or the last good read),
@@ -372,7 +417,7 @@ export const register: Register = on => {
         </Box>
         <Box flexDirection="row" gap={1} alignItems="center">
           <Text dimColor size="footnote">{p.updated ? `updated ${p.updated}` : 'reading…'}</Text>
-          <Button key="refresh" onPress={() => void refresh($, true).catch(() => undefined)}>Refresh</Button>
+          <Button key="refresh" onPress={() => void (oversize ? update($, panel, folded) : Promise.resolve()).then(() => refresh($, true)).catch(() => undefined)}>Refresh</Button>
           <Button key="hide" role="dismiss" dimColor onPress={() => void $.ui.close({ id: PANE }).catch(() => undefined)}>Hide</Button>
         </Box>
         <Box flexDirection="row" gap={1}>
@@ -383,14 +428,31 @@ export const register: Register = on => {
         {content}
       </Box>
     )
-    // past the app's limit the pane would stay empty: the hidden hover details go first (what shows is unchanged),
-    // then the view gives way to a message, with the tabs to try the other one
-    const full = frame(body(ui, p, cols, act))
-    if (drawnSize(full) <= TREE_ROOM) return full
-    const bare = withoutHidden(full)
-    const size = drawnSize(bare)
-    if (size <= TREE_ROOM) return bare
-    return frame(<Text color="error">{`This view is too large to draw (${size} characters, the app draws about 100,000). Try the other tab, or report it to the stareso workflow.`}</Text>)
+    // past the app's limit the pane would stay empty: the hidden hover details go first (what shows is unchanged), then
+    // the pages of the expanded lists and the milestones halve until it fits, and only a view still too large (its
+    // folded part alone) gives way to a message
+    oversize = false
+    let lim: Limits = { rows: PAGE_ROWS, lanes: PAGE_LANES }
+    let size = 0
+    for (;;) {
+      const full = frame(body(ui, p, cols, act, lim))
+      if (drawnSize(full) <= TREE_ROOM) return full
+      const bare = withoutHidden(full)
+      size = drawnSize(bare)
+      if (size <= TREE_ROOM) return bare
+      if (lim.rows <= MIN_ROWS && lim.lanes <= MIN_LANES) break
+      lim = { rows: Math.max(MIN_ROWS, lim.rows >> 1), lanes: Math.max(MIN_LANES, lim.lanes >> 1) }
+    }
+    oversize = true
+    return frame(
+      <Box flexDirection="column" gap={1}>
+        <Text color="error">{`This view is too large to draw (${size} characters, the app draws about 100,000), most likely because charts or lists were expanded.`}</Text>
+        <Box flexDirection="row" gap={1}>
+          <Button key="fold-all" variant="primary" onPress={act(folded)}>Fold everything</Button>
+          <Text dimColor>Refresh does the same, or try the other tab.</Text>
+        </Box>
+      </Box>,
+    )
   })
 }
 
@@ -414,14 +476,14 @@ function withoutHidden(el: RenderElement): RenderElement {
 
 // The view under the tabs. A drawing that fails (a state kept by an older version, a shape the tool changed) shows
 // its error in the pane, where the person sees it, instead of a hook the app skips and a pane with nothing to show.
-function body(ui: UI, p: PanelView, cols: number, act: Act) {
+function body(ui: UI, p: PanelView, cols: number, act: Act, lim: Limits) {
   const { Box, Text, Code } = ui
   try {
     return (
       <Box flexDirection="column" gap={1}>
-        {p.view !== 'usage' && (p.graph ? progressView(ui, p, p.graph, act) : p.brief !== '' ? <Code source={p.brief} language="text" /> : <Text dimColor>{p.error ? 'nothing read yet' : 'reading…'}</Text>)}
+        {p.view !== 'usage' && (p.graph ? progressView(ui, p, p.graph, act, lim) : p.brief !== '' ? <Code source={p.brief} language="text" /> : <Text dimColor>{p.error ? 'nothing read yet' : 'reading…'}</Text>)}
         {/* a desktop's monospaced face runs wider than the pane's columns: the charts keep a margin so no row overflows */}
-        {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.9), act)}
+        {p.view === 'usage' && usageView(ui, p, Math.floor(cols * 0.9), act, lim)}
         {p.view === 'usage' && p.usageNote !== '' && <Text dimColor>{p.usageNote}</Text>}
       </Box>
     )
@@ -520,12 +582,15 @@ function chatsView(ui: UI, chats: PanelView['chats'], w: number) {
 // the project, the pace and what waits for the person. Each number is its state's coloured mark beside a plain Button, in a wrapping
 // row, so a press opens its card as a helper's does.
 
-function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
+function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act, lim: Limits) {
   const { Box, Text, Button } = ui
   const pick = (id: string) => act(q => ({ ...q, selected: q.selected === id ? '' : id }))
   const sec = sections(p.brief)
   const progress = sec.get('Progress')?.lines ?? []
-  const lanes = [...(p.showFinished ? g.finished : []), ...g.lanes]
+  // the finished milestones (when shown) and the open ones come a page at a time: the latest finished, the first open
+  const finW = p.showFinished ? windowOf(g.finished.length, lim.lanes, p.pages?.finished, true) : null
+  const openW = windowOf(g.lanes.length, lim.lanes, p.pages?.open, false)
+  const lanes = [...(finW ? g.finished.slice(finW.start, finW.end) : []), ...g.lanes.slice(openW.start, openW.end)]
   const ids = lanes.flatMap(l => l.slices).filter(id => g.slices[id])
   const sel = p.selected
   const selSlice = g.slices[sel] as PanelSlice | undefined
@@ -637,14 +702,16 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
             <Text size="footnote"><Text color={STATE[k].color}>{STATE[k].mark}</Text>{` ${STATE[k].label}`}</Text>
           ))}
         </Box>
+        {finW && pager(ui, act, 'finished', finW, true, 'finished milestones')}
         {lanes.map(lane)}
+        {pager(ui, act, 'open', openW, false, 'milestones')}
         <Box position="relative" height={0}>{previews}</Box>
         {g.finished.length > 0 && (
           <Box flexDirection="row" columnGap={1} marginTop={1}>
             <Box flexShrink={1}>
               <Text dimColor size="footnote" wrap="truncate-end"><Text color={STATE.done.color}>{'✓ '}</Text>{`${finished ?? g.finished.map(l => l.id).join(', ')} finished`}</Text>
             </Box>
-            <Button key="finished" dimColor onPress={act(q => ({ ...q, showFinished: !q.showFinished }))}>{p.showFinished ? 'Hide' : 'Show'}</Button>
+            <Button key="finished" dimColor onPress={act(q => ({ ...q, showFinished: !q.showFinished, pages: unpaged(q, 'finished') }))}>{p.showFinished ? 'Hide' : 'Show'}</Button>
           </Box>
         )}
       </Box>
@@ -811,8 +878,10 @@ const KIND: Record<string, string> = {
 const TIER: Record<string, string> = { light: 'success', standard: 'suggestion', strong: 'claude' }
 const BUILT: Record<string, string> = { helpers: 'suggestion', chat: 'warning' }
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
-// chart 4 shows the last sessions only, until the person asks for all of them
+// chart 4 shows the last sessions only, until the person expands it
 const RECENT_SESSIONS = 12
+// a chart's rows, cut to the latest or to a page of them
+type RowPick = <T,>(list: T[]) => T[]
 
 function fmt(n: number | null | undefined): string {
   return n == null || isNaN(n) ? 'n/a' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(Math.round(n))
@@ -830,20 +899,36 @@ function rest(used: number, cells: number, marks: number[] = []): string {
   return Array.from({ length: Math.max(0, cells - used) }, (_, i) => (marks.includes(used + i) ? '┆' : ' ')).join('')
 }
 
-function usageView(ui: UI, p: PanelView, room: number, act: Act) {
+function usageView(ui: UI, p: PanelView, room: number, act: Act, lim: Limits) {
   const { Box, Text, Button, Markdown } = ui
   const c = p.usage
   // labels: a full date (yyyy-mm-dd), a milestone, "#12 build"
   const L = 11
   const open = (id: string) => (p.expanded ?? []).includes(id)
-  // a chart folds to its latest rows; its button unfolds every row, with more in each, and folds it back
-  const more = (id: string, total: number, shown: number) => (total > shown || open(id) ? (
-    <Box flexDirection="row">
-      <Button key={`more:${id}`} dimColor onPress={act(q => ({ ...q, expanded: (q.expanded ?? []).includes(id) ? (q.expanded ?? []).filter(x => x !== id) : [...(q.expanded ?? []), id] }))}>
-        {open(id) ? 'Fold' : `Expand: all ${total}, with details`}
-      </Button>
-    </Box>
-  ) : null)
+  // the rows a chart draws: its latest `keep` while folded, a page of them while expanded. The chart reports its row
+  // count by calling this, so the button under it knows the total
+  const wins: Record<string, Win> = {}
+  const rowsOf = (id: string, keep: number): RowPick => list => {
+    const w = open(id) ? windowOf(list.length, lim.rows, p.pages?.[id], true) : windowOf(list.length, keep, undefined, true)
+    wins[id] = w
+    return list.slice(w.start, w.end)
+  }
+  // a chart folds to its latest rows; its button unfolds its rows a page at a time, with more in each, and folds it back.
+  // One chart is expanded at a time, so the drawing stays within the app's size whatever the data grows to
+  const more = (id: string, keep: number) => {
+    const w = wins[id]
+    if (!w || (w.total <= keep && !open(id))) return null
+    return (
+      <Box flexDirection="column">
+        <Box flexDirection="row">
+          <Button key={`more:${id}`} dimColor onPress={act(q => ({ ...q, expanded: (q.expanded ?? []).includes(id) ? [] : [id], pages: unpaged(q, id) }))}>
+            {open(id) ? 'Fold' : `Expand: all ${w.total}, with details`}
+          </Button>
+        </Box>
+        {open(id) && pager(ui, act, id, w, true, 'rows')}
+      </Box>
+    )
+  }
   // a chart and its button stay together, with a wider gap to the next chart's title
   const pair = (...parts: (RenderElement | null | false)[]) => <Box flexDirection="column" gap={1}>{parts}</Box>
   return (
@@ -864,20 +949,14 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
               scope: `u1:${i}`, label: t.type, segs: [{ v: t.share, color: KIND[t.type] ?? 'inactive' }],
               value: `${t.share} % · ${fmt(t.equiv)}`, detail: `${t.type}: ${fmt(t.equiv)} ≈ equiv, ${t.hours.toFixed(1)} h active, ${t.turns} turns${t.carried != null ? `, median carried ${t.carried} %` : ''}`,
             })), L, room, Math.max(...c.shareByType.map(x => x.share)))}
-          {pair(cumulativeChart(ui, c, room, L, open('u2')), more('u2', c.cumulative.days.length, FOLDED.u2))}
-          {pair(milestoneChart(ui, c, room, L, open('u3')), more('u3', measuredMilestones(c).length, FOLDED.u3))}
-          {pair(sessionChart(ui, c, room, L, p.allSessions), c.sessions.filter(s => s.ctx != null).length > RECENT_SESSIONS && (
-            <Box flexDirection="row">
-              <Button key="sessions" dimColor onPress={act(q => ({ ...q, allSessions: !q.allSessions }))}>
-                {p.allSessions ? `Only the last ${RECENT_SESSIONS} sessions` : `All ${c.sessions.filter(s => s.ctx != null).length} sessions`}
-              </Button>
-            </Box>
-          ))}
+          {pair(cumulativeChart(ui, c, room, L, rowsOf('u2', FOLDED.u2)), more('u2', FOLDED.u2))}
+          {pair(milestoneChart(ui, c, room, L, open('u3'), rowsOf('u3', FOLDED.u3)), more('u3', FOLDED.u3))}
+          {pair(sessionChart(ui, c, room, L, rowsOf('u4', RECENT_SESSIONS)), more('u4', RECENT_SESSIONS))}
           {scatterChart(ui, c, room)}
           {(() => {
             const all = c.conductorVsHelpers.filter(b => b.conductor != null || b.helpers != null)
             const wide = open('u6')
-            const steps = wide ? all : all.slice(-FOLDED.u6)
+            const steps = rowsOf('u6', FOLDED.u6)(all)
             return (
               <Box flexDirection="column" gap={1}>
                 {chart(ui, '6. Conductor against helpers, per step that merged slices', 'A launched build should be mostly helpers; a bar all conductor is a chat or a test that built itself.',
@@ -893,13 +972,13 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act) {
                   }), L, room, Math.max(...steps.map(x => (x.conductor ?? 0) + (x.helpers ?? 0))),
                   [{ text: '█ conductor', color: 'warning' }, { text: '█ helpers', color: 'suggestion' },
                     { text: wide ? 'value: slices · conductor share · conductor + helpers ≈ equiv · helpers started' : 'value: slices merged · conductor share (target under 50 %)' }])}
-                {more('u6', all.length, FOLDED.u6)}
+                {more('u6', FOLDED.u6)}
               </Box>
             )
           })()}
-          {pair(etaChart(ui, p.etaTrack, room, L, open('u7')), p.etaTrack && more('u7', p.etaTrack.rows.length, FOLDED.u7))}
+          {pair(etaChart(ui, p.etaTrack, room, L, open('u7'), rowsOf('u7', FOLDED.u7)), p.etaTrack && more('u7', FOLDED.u7))}
           {gatesChart(ui, c, room, L)}
-          {c.plan && pair(planChart(ui, c, room, L, open('u9')), more('u9', planRows(c).length, FOLDED.u9))}
+          {c.plan && pair(planChart(ui, c, room, L, rowsOf('u9', FOLDED.u9)), more('u9', FOLDED.u9))}
           {pair(
             <Box flexDirection="row">
               <Button key="tables" dimColor onPress={act(q => ({ ...q, showTables: !q.showTables }))}>{p.showTables ? 'Hide the tables' : 'Show the tables'}</Button>
@@ -1016,7 +1095,7 @@ function windowsView(ui: UI, windows: PanelView['windows'], n: number, L: number
 }
 
 // 2. the running total of each step type at the end of each day, stacked (the stacked variant of the skill's chart 2)
-// the rows a folded chart keeps (its latest); the Expand button shows them all
+// the rows a folded chart keeps (its latest); the Expand button shows them a page at a time
 const FOLDED = { u2: 14, u3: 12, u6: 8, u7: 6, u9: 8 }
 
 // 8. the gates run inside the builds (metrics.md, "Failing"): one bar per gate, its passed runs then its failed ones;
@@ -1038,11 +1117,11 @@ function gatesChart(ui: UI, c: UsageCharts, room: number, L: number) {
 // 9. how much of each milestone's build left the plan written before it (metrics.md, "Plan interventions"): its built
 // slices as planned, then off plan; the caption gives the cost and the manager messages that steered the plan
 const planRows = (c: UsageCharts) => (c.plan?.milestones ?? []).filter(x => x.offBuilt + x.planned > 0)
-function planChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
+function planChart(ui: UI, c: UsageCharts, room: number, L: number, pick: RowPick) {
   const p = c.plan
   const list = planRows(c)
   if (!p || !list.length) return null
-  const rows = all ? list : list.slice(-FOLDED.u9)
+  const rows = pick(list)
   return chart(ui, '9. Plan interventions, per milestone',
     `Slices built off the plan written before the build (added, rewritten or re-chained after its first merge) ≈ ${fmt(p.offEquiv)}, ${p.share ?? 'n/a'} % of the build cost.${p.messages ? ` ${p.steered} of ${p.messages} manager messages steered the plan.` : ''}`,
     rows.map((x, i) => ({
@@ -1054,7 +1133,7 @@ function planChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean
 }
 
 // 7. what each ETA predicted against what the slice took
-function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: boolean) {
+function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: boolean, pick: RowPick) {
   const { Box, Text } = ui
   const title = '7. ETA against what happened, per merged slice'
   if (!t || !t.rows.length) {
@@ -1065,7 +1144,7 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
       </Box>
     )
   }
-  const rows = all ? t.rows : t.rows.slice(-FOLDED.u7)
+  const rows = pick(t.rows)
   const miss = (r: EtaTrack['rows'][number]) => Math.round(((r.actual - r.predicted) / Math.max(1, r.predicted)) * 100)
   const signed = (m: number) => `${m > 0 ? '+' : ''}${m} %`
   // on time (within 25 %) green, late by more amber, early by more blue (teal looked like the green on a desktop)
@@ -1120,7 +1199,7 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
   )
 }
 
-function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
+function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number, pick: RowPick) {
   const pts = [...c.cumulative.points].sort((a, b) => a.day - b.day)
   if (!pts.length) return null
   const total = (q: { [key: string]: number }) => c.cumulative.kinds.reduce((k, kind) => k + (q[kind] ?? 0), 0)
@@ -1128,7 +1207,7 @@ function cumulativeChart(ui: UI, c: UsageCharts, room: number, L: number, all: b
   // the tool's days run to the day after the last step: stop at today
   const today = new Date()
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  const days = c.cumulative.days.filter(d => d.date <= iso).map(d => ({ d, q: [...pts].reverse().find(q => q.day < d.day + 1) })).filter(x => x.q).slice(all ? 0 : -FOLDED.u2)
+  const days = pick(c.cumulative.days.filter(d => d.date <= iso).map(d => ({ d, q: [...pts].reverse().find(q => q.day < d.day + 1) })).filter(x => x.q))
   const rows: Row[] = days.map(({ d, q }, i) => ({
     scope: `u2:${i}`, label: d.date, segs: c.cumulative.kinds.map(kind => ({ v: q![kind] ?? 0, color: KIND[kind] ?? 'inactive' })),
     value: `${total(q!).toFixed(1)}M`,
@@ -1144,7 +1223,7 @@ function measuredMilestones(c: UsageCharts) {
   return c.milestones.filter(m => m.equivPerSlice != null)
 }
 
-function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
+function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean, pick: RowPick) {
   const ref = c.referencePerSlice?.equiv ?? 0
   const measured = measuredMilestones(c)
   const max = Math.max(ref, ...measured.map(m => m.equivPerSlice ?? 0))
@@ -1153,7 +1232,7 @@ function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number, all: bo
     scope: 'u3:ref', label: 'ref', segs: [{ v: ref, color: 'inactive' }], value: fmt(ref),
     detail: `reference: ${c.referencePerSlice!.label}, ${fmt(ref)} per slice`,
   }] : []
-  const rows: Row[] = (all ? measured : measured.slice(-FOLDED.u3)).map((m, i) => ({
+  const rows: Row[] = pick(measured).map((m, i) => ({
     scope: `u3:${i}`, label: m.id, segs: [{ v: m.equivPerSlice ?? 0, color: BUILT[m.built] ?? 'claude' }],
     value: (m.equivPerSlice == null ? 'n/a' : fmt(m.equivPerSlice)) + (all ? ` · ${m.slices} sl · ${m.built}` : ''), marks: ref ? [ref] : [],
     detail: m.equivPerSlice == null
@@ -1166,8 +1245,8 @@ function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number, all: bo
 }
 
 // 4. context per turn by session (cache read ÷ turns), red past 300 turns, with the base of a launched session marked
-function sessionChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean) {
-  const list = c.sessions.filter(s => s.ctx != null).slice(all ? 0 : -RECENT_SESSIONS)
+function sessionChart(ui: UI, c: UsageCharts, room: number, L: number, pick: RowPick) {
+  const list = pick(c.sessions.filter(s => s.ctx != null))
   const BASE = 100e3
   const max = Math.max(BASE, ...list.map(s => s.ctx ?? 0))
   const baseRow: Row = { scope: 'u4:base', label: 'base', segs: [{ v: BASE, color: 'inactive' }], value: fmt(BASE), detail: 'a launched session re-reads about 100k per turn' }
