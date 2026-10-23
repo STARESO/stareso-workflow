@@ -1,6 +1,6 @@
 {
   "name": "stareso-status",
-  "version": "0.6.28",
+  "version": "0.6.29",
   "description": "Live stareso status beside the chat: the progress (context, graph, helpers, pace) and usage of a project, refreshed every minute without model tokens",
   "types": "./types/index.d.ts"
 }

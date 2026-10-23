@@ -734,7 +734,7 @@ function progressTiles(g: PanelGraph) {
 function stateLine(g: PanelGraph, id: string): string {
   const s = g.slices[id]
   if (!s) return ''
-  const eta = s.eta ? ` · ETA ≈ ${s.eta}${s.etaRange ? ` (8 in 10: ${s.etaRange})` : ''}` : ''
+  const eta = s.eta ? ` · ETA ≈ ${s.eta}` : ''
   if (s.state === 'done') return 'done'
   if (s.state === 'running') return `running since ${s.started ?? '?'} (${s.minutes ?? '?'} min)${eta}`
   if (s.state === 'ready') return `could start now${eta}`
@@ -783,7 +783,7 @@ function laneCard(ui: UI, g: PanelGraph, l: PanelLane, act: Act, pick: (id: stri
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>{`${l.id} · ${l.title}`}</Text>
-      <Text>{`${l.done} of ${l.total} done${l.planned ? ` · ${l.planned} of build left` : ''}${l.eta ? ` · ${l.eta}${l.etaRange ? ` (8 in 10: ${l.etaRange})` : ''}` : ''}`}</Text>
+      <Text>{`${l.done} of ${l.total} done${l.planned ? ` · ${l.planned} of build left` : ''}${l.eta ? ` · ${l.eta}` : ''}`}</Text>
       <Text dimColor>{(['running', 'ready', 'you', 'waiting'] as const).filter(k => count(k)).map(k => `${count(k)} ${STATE[k].label}`).join(' · ') || 'every slice done'}</Text>
       <Box flexDirection="column" marginTop={1}>
         {l.slices.filter(id => g.slices[id]).map(id => {
@@ -1053,7 +1053,7 @@ function planChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean
     [{ text: '█ as planned', color: 'suggestion' }, { text: '█ off plan', color: 'warning' }])
 }
 
-// 7. what each ETA predicted against what the slice took: the predicted duration and its range, later updates, the result
+// 7. what each ETA predicted against what the slice took
 function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: boolean) {
   const { Box, Text } = ui
   const title = '7. ETA against what happened, per merged slice'
@@ -1065,67 +1065,55 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
       </Box>
     )
   }
-  type Row = EtaTrack['rows'][number]
   const rows = all ? t.rows : t.rows.slice(-FOLDED.u7)
-  const miss = (r: Row) => Math.round(((r.actual - r.predicted) / Math.max(1, r.predicted)) * 100)
+  const miss = (r: EtaTrack['rows'][number]) => Math.round(((r.actual - r.predicted) / Math.max(1, r.predicted)) * 100)
   const signed = (m: number) => `${m > 0 ? '+' : ''}${m} %`
-  // inside the predicted range green, later than it amber, earlier blue (a row with no range: within 25 % of the prediction)
-  const tone = (r: Row) => {
-    const late = r.hi != null ? r.actual > r.hi : miss(r) > 25
-    const early = r.lo != null ? r.actual < r.lo : miss(r) < -25
-    return late ? 'warning' : early ? 'suggestion' : 'success'
-  }
+  // on time (within 25 %) green, late by more amber, early by more blue (teal looked like the green on a desktop)
+  const tone = (m: number) => (m > 25 ? 'warning' : m < -25 ? 'suggestion' : 'success')
   // the value's parts in columns of their own, as chart() aligns them
-  const parts = rows.map(r => [`${r.predicted} → ${r.actual} min`, r.lo != null && r.hi != null ? `(${r.lo}–${r.hi})` : '', ...(all ? [signed(miss(r)), r.at] : [])])
+  const parts = rows.map(r => [`${r.predicted} → ${r.actual} min`, ...(all ? [signed(miss(r)), r.at] : [])])
   const widths = parts.reduce<number[]>((w, ps) => ps.map((x, i) => Math.max(w[i] ?? 0, x.length)), [])
-  const values = parts.map(ps => ps.map((x, i) => x.padStart(widths[i] ?? 0)).join(' '))
+  const values = parts.map(ps => ps.map((x, i) => x.padStart(widths[i] ?? 0)).join(' · '))
   const n = Math.max(10, room - L - 1 - Math.max(...values.map(v => v.length)))
-  const max = Math.max(...rows.map(r => Math.max(r.actual, r.predicted, r.hi ?? 0, ...(r.updates ?? []).map(u => u.predicted))))
+  const max = Math.max(...rows.map(r => Math.max(r.actual, r.predicted)))
   const at = (v: number) => Math.min(n - 1, Math.round((Math.max(0, v) / Math.max(1, max)) * (n - 1)))
-  // one cell per column: ░ the predicted range, ▪ a later update, ○ the first prediction, ● what it took (◉ both on one cell)
-  type Run = { text: string; kind: 'band' | 'plain' | 'took' }
-  const cells = (r: Row): Run[] => {
-    const c: Run[] = Array.from({ length: n }, () => ({ text: ' ', kind: 'plain' }))
-    if (r.lo != null && r.hi != null) for (let k = at(r.lo); k <= at(r.hi); k++) c[k] = { text: '░', kind: 'band' }
-    for (const u of r.updates ?? []) c[at(u.predicted)] = { text: '▪', kind: 'plain' }
+  // a dumbbell: ○ the prediction, ● what it took, joined by a line in the colour of the miss; ◉ when both fall on
+  // one cell
+  const dumbbell = (r: EtaTrack['rows'][number]) => {
     const p = at(r.predicted)
     const a = at(r.actual)
-    c[p] = { text: '○', kind: 'plain' }
-    c[a] = { text: p === a ? '◉' : '●', kind: 'took' }
-    return c.reduce<Run[]>((runs, x) => {
-      const last = runs[runs.length - 1]
-      if (last && last.kind === x.kind) last.text += x.text
-      else runs.push({ ...x })
-      return runs
-    }, [])
+    const lo = Math.min(p, a)
+    const hi = Math.max(p, a)
+    const mid = p === a ? '◉' : Array.from({ length: hi - lo + 1 }, (_, k) => (lo + k === p ? '○' : lo + k === a ? '●' : '─')).join('')
+    return { before: ' '.repeat(lo), mid, after: ' '.repeat(n - 1 - hi) }
   }
-  const inRange = t.inRange ? ` ${t.inRange.hit} of ${t.inRange.n} took less than the top of their range and more than the bottom.` : ''
-  const drift = t.updates ? ` Updates during a run: first prediction off by ${t.updates.firstErr} min, the last update by ${t.updates.lastErr} (${t.updates.slices} slices).` : ''
   return (
     <Box flexDirection="column">
       <Text bold>{title}</Text>
       <Text dimColor size="footnote">
-        {t.typical != null ? `A slice takes ${t.typical} min typically, 8 in 10 take ${t.lo}–${t.hi} (the last ${t.window}).${inRange}` : 'Too few measured durations yet for a range.'}
-        {`${t.medianMissPct != null ? ` Median miss of the first prediction ${signed(t.medianMissPct)}.` : ''}${drift}`}
+        {`${t.typical != null ? `A slice takes ${t.typical} min typically. ` : ''}${t.samples} slice${t.samples > 1 ? 's' : ''} measured${t.medianMissPct != null ? `, median miss ${signed(t.medianMissPct)}` : ''}. ○ predicted, ● what it took: right of ○ is late, left is early.`}
       </Text>
-      {rows.map((r, i) => (
-        <Box flexDirection="row" hover={{ scope: `u7:${i}` }}>
-          <Text mono hover={{ scope: `u7:${i}`, underline: true }}>{r.id.slice(0, L).padEnd(L)}</Text>
-          {cells(r).map(x => <Text mono dimColor={x.kind === 'band'} color={x.kind === 'took' ? tone(r) : undefined} bold={x.kind === 'took'}>{x.text}</Text>)}
-          <Box flexGrow={1} flexShrink={0} justifyContent="flex-end"><Text mono color={tone(r)}>{` ${values[i]}`}</Text></Box>
-        </Box>
-      ))}
+      {rows.map((r, i) => {
+        const d = dumbbell(r)
+        const m = miss(r)
+        return (
+          <Box flexDirection="row" hover={{ scope: `u7:${i}` }}>
+            <Text mono hover={{ scope: `u7:${i}`, underline: true }}>{r.id.slice(0, L).padEnd(L)}</Text>
+            <Text mono>{d.before}</Text>
+            <Text mono color={tone(m)} bold>{d.mid}</Text>
+            <Text mono>{d.after}</Text>
+            <Box flexGrow={1} flexShrink={0} justifyContent="flex-end"><Text mono color={tone(m)}>{` ${values[i]}`}</Text></Box>
+          </Box>
+        )
+      })}
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-        <Text size="footnote" dimColor>{'░ range, 8 in 10'}</Text>
-        <Text size="footnote">{'○ predicted'}</Text>
-        {rows.some(r => r.updates?.length) && <Text size="footnote">{'▪ later update'}</Text>}
-        <Text size="footnote" color="success">{'● inside'}</Text>
-        <Text size="footnote" color="warning">{'● late'}</Text>
-        <Text size="footnote" color="suggestion">{'● early'}</Text>
+        <Text size="footnote" color="success">{'○─● on time ±25 %'}</Text>
+        <Text size="footnote" color="warning">{'○──● late'}</Text>
+        <Text size="footnote" color="suggestion">{'●──○ early'}</Text>
       </Box>
       {rows.map((r, i) => (
         <Box display="none" hover={{ scope: `u7:${i}`, display: 'flex' }}>
-          <Text>{`${r.id} merged ${r.at}: predicted ${r.predicted} min${r.lo != null ? ` (8 in 10: ${r.lo}–${r.hi})` : ''}, took ${r.actual} min (${signed(miss(r))})${r.updates?.length ? `; updates: ${r.updates.map(u => `${u.predicted} min at ${u.at} min`).join(', ')}` : ''}`}</Text>
+          <Text>{`${r.id} merged ${r.at}: predicted ${r.predicted} min, took ${r.actual} min (${signed(miss(r))})`}</Text>
         </Box>
       ))}
     </Box>

@@ -8,7 +8,7 @@
 
 export const WINDOW = 30; // last durations that make the spread
 export const MIN_SAMPLES = 6; // fewer than this: no spread, the caller falls back to one number
-export const RUNS = 200; // simulated builds
+export const RUNS = 100; // simulated builds (about 10 ms for 150 open slices)
 export const STALE = 240; // minutes: a helper running longer than any slice ever took is a leftover, not a slice about to end
 
 export const quantile = (xs, p) => {

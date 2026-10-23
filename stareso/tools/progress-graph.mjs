@@ -245,7 +245,7 @@ mode.label = runningIds.size ? `${lastProfile || (runningIds.size > 1 ? "fast" :
 // Every open slice of a numbered milestone takes a duration drawn from the last 30 (lib/eta.mjs), and a running one what is
 // left among the durations longer than its elapsed time. The helpers running now (or the profile's usual count when idle)
 // take the slices in roadmap order as soon as their `after:` slices are merged, and a tidy slice waits for the rest of its
-// milestone. The build is simulated 200 times: a slice, a lane and the whole build get the median finish and the range
+// milestone. The build is simulated 100 times: a slice, a lane and the whole build get the median finish and the range
 // between the 10 % and the 90 % run. Without enough durations (fewer than 6) every slice takes `unit`, with no range.
 // A slice that waits on the user (a [human] slice, a blocking question, an open slice of a lettered milestone) gets no ETA,
 // nor what waits on it. Not modelled: shared files in fast, pauses for the usage caps, the checker at the end of a milestone.

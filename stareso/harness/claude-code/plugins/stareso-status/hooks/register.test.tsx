@@ -255,12 +255,11 @@ test('the usage view draws the plan windows, the tiles and the nine charts', asy
     // chart 3 leaves out a planned milestone with no cost per slice yet
     expect(await ui.find({ type: 'Text', text: /^M1 +$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^M2 +$/ })).toBeFalsy()
-    // chart 7 a row per slice: ░ the predicted range, ○ predicted, ▪ updates, ● what it took, in the colour of its place against the range
+    // chart 7 a dumbbell per slice: ○ predicted, ● what it took, in the colour of the miss
     // (chart 5's scatter points use the same glyphs, so chart 7's are the last three)
-    const tones = (await ui.findAll({ type: 'Text', text: /^[●◉]$/ })).map(x => x.props.color).slice(-3)
+    const tones = (await ui.findAll({ type: 'Text', text: /^[○●◉][─○●]*$/ })).map(x => x.props.color).slice(-3)
     expect(tones).toEqual(['success', 'warning', 'suggestion'])
-    expect(await ui.find({ type: 'Text', text: /A slice takes 30 min typically, 8 in 10 take 20–60/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^░+$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /A slice takes 30 min typically. 4 slices measured/ })).toBeTruthy()
     await ui.unmount()
   }
 })

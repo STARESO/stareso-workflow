@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { args, findRoot } from "./lib/roadmap.mjs";
+import { args, findRoot, milestones } from "./lib/roadmap.mjs";
 import { readBuilds, readJsonl } from "./lib/records.mjs";
 import { durationRecords, mean, median, quantile, remaining, simulate, spread, WINDOW } from "./lib/eta.mjs";
 
@@ -55,6 +55,24 @@ for (const k of [4, 8]) {
   }
   if (m >= 5) out.push(`${k} slices in a row, ${m} windows: ${k} × median is ${Math.round((biasMed / m) * 100)} % off on average, the simulated median ${Math.round((biasSim / m) * 100)} % off, its 10–90 % range held ${pct(within, m)} %`);
 }
+// 4. similar work: the 5 earlier slices whose briefs share the most rare words, blended with the median (any project, no model call)
+const briefs = new Map();
+for (const m of milestones(root)) m.slices.forEach((s, i) => briefs.set(s.id, m.lines.slice(s.line, m.slices[i + 1]?.line ?? m.lines.length).join(" ")));
+const words = (id) => new Set((briefs.get(id) || "").toLowerCase().split(/[^a-z0-9_]+/).filter((w) => w.length > 3));
+const df = new Map();
+for (const id of briefs.keys()) for (const w of words(id)) df.set(w, (df.get(w) || 0) + 1);
+const idf = (w) => Math.log(briefs.size / (df.get(w) || 1));
+const near = (a, b) => { let both = 0, any = 0; for (const w of new Set([...a, ...b])) { any += idf(w); if (a.has(w) && b.has(w)) both += idf(w); } return any ? both / any : 0; };
+const W = new Map(recs.map((r) => [r.id, words(r.id)]));
+let ns = 0, aeMed = 0, aeSim = 0;
+for (let i = MIN; i < recs.length; i++) {
+  if (!briefs.has(recs[i].id)) continue;
+  const prior = recs.slice(0, i).filter((x) => briefs.has(x.id)), med = spread(before(i)).typical;
+  const top = prior.map((x) => ({ x, s: near(W.get(recs[i].id), W.get(x.id)) })).sort((a, b) => b.s - a.s).slice(0, 5).map((y) => y.x.minutes);
+  const est = top.length ? (top.reduce((a, b) => a + b, 0) + 2 * med) / (top.length + 2) : med;
+  ns++; aeMed += Math.abs(med - recs[i].minutes); aeSim += Math.abs(est - recs[i].minutes);
+}
+if (ns) out.push(`similar briefs, ${ns} slices: error ${(aeSim / ns).toFixed(1)} min against ${(aeMed / ns).toFixed(1)} for the median (worth using only if clearly lower)`);
 const d = recs.slice(-WINDOW).map((x) => x.minutes);
 out.push(`now: last ${d.length} durations, typical ${Math.round(median(d))} min, mean ${Math.round(mean(d))}, 10–90 % ${Math.round(quantile(d, 0.1))}–${Math.round(quantile(d, 0.9))}`);
 console.log(out.join("\n"));
