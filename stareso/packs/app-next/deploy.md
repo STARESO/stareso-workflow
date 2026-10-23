@@ -14,7 +14,7 @@ Read by `stareso-deploy`. The user does every step in the providers' consoles; C
 9. The Vercel connector (if used) is authorised on the team, not only the personal scope.
 
 ## Prepare (Claude, on a branch, then merge)
-- `vercel.json` with the region next to the database (`cdg1` Paris for Supabase eu-west-3, `fra1` for eu-central-1, `lhr1` for eu-west-2).
+- `vercel.json` from `templates/vercel.json`: the region next to the database (`cdg1` Paris for Supabase eu-west-3, `fra1` for eu-central-1, `lhr1` for eu-west-2) and the `ignoreCommand` that skips the build when a push only changes `docs/`, `tests/` or `CLAUDE.md` (guide §15). Without it every docs commit redeploys the app and shows the update banner on every open phone.
 - `/api/health` (public, one tiny real query, answers only ok / error) and `proxy.ts` letting it through.
 - `.github/workflows/keep-alive.yml`: Monday and Thursday 06:00 UTC, 3 tries, calls `${{ vars.APP_URL }}/api/health`.
 - `.env.example` complete; scripts `db:init-online` (refuses if data exists; refuses every seed with `dev` or `demo` in its name), `db:migrate-online`, `db:backup-online`, `assets:push-online` when there is a Storage bucket.

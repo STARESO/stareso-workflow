@@ -28,7 +28,7 @@ Each pattern is tagged with the app it comes from: **[A]** project A, **[B]** pr
 | Validation | **`zod`** on the server | Error messages in the UI language, so they can be shown as is. |
 | Charts | `recharts` [B] or hand-made SVG [A] | |
 | PDF | `jspdf`, loaded only on demand (`import()` on tap) [A] | |
-| Hosting | **Vercel**, EU region (`vercel.json`: `"regions": ["cdg1"]` or `"fra1"`) | Deployed from GitHub `main`. |
+| Hosting | **Vercel**, EU region (`vercel.json`: `"regions": ["cdg1"]` or `"fra1"`) | Deployed from GitHub `main`. `vercel.json` also carries the docs-only build skip (§15). |
 
 **Dependency rule:** keep the list short. Ask before adding a library and write down what it is for.
 
@@ -359,6 +359,7 @@ The project A data design (client UUIDs, idempotent upserts) was made for this; 
 - Keep transfer low: one small polling request only while on screen, cached lists, summaries computed in SQL, no background jobs (with nobody using the app, nothing runs).
 - `docs/DEPLOY.md` checklist [B]: back up, lint + typecheck + build, regions (Supabase EU + Vercel EU), private GitHub repo, Supabase **transaction pooler** URI, Vercel env vars (`DATABASE_URL`, new `SESSION_SECRET`, code hashes), check RLS is on for every table, test on phones, share codes by a private channel. Code rotation = new hash in Vercel + redeploy (changing `SESSION_SECRET` logs everyone out).
 - `.env.example` lists every variable with a comment on how to make it; real env files are git-ignored.
+- **Docs-only pushes do not deploy** [C]: `templates/vercel.json` has an `ignoreCommand` that exits 0 (skip) when nothing outside `docs/`, `tests/` and `CLAUDE.md` changed since `VERCEL_GIT_PREVIOUS_SHA` (the last successful deployment), and exits 1 (build) in every other case, including an empty or unknown previous commit. Without it each docs commit redeploys the app, and an app that compares the deployed commit (the update banner) tells every open phone to reload for nothing. Rules: the app never imports from the excluded paths (if a project builds something from `docs/`, take that path out of the list); an app already online gets the file at its next code push, and the first docs-only push after it is checked once with the Vercel connector (no new deployment). Test the command locally against real commit ranges before the push (docs-only range: exit 0, range with `src/` changes: exit 1, empty or bad sha: exit 1).
 
 ---
 

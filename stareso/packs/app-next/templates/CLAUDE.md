@@ -11,6 +11,7 @@ patterns: `~/.claude/stareso/packs/app-next/guide.md` (read only the sections yo
 - **Talk to the user in English** unless they switch to French. App interface language: […]. Code, identifiers, DB columns, commits and comments in English (comments short, explaining the why).
 - **Private material:** everything in `private/` stays private (never committed, never published). Never read `private/sources/locked/` or `private/data/`, not even through the shell; scripts on private data print counts and errors, never rows (guide §3b).
 - **Git:** one branch per slice (`slice/[id]-short-name`), merged into `main` with `--no-ff` once checked (`slice-done` tool). Pushing `main` publishes the app: push only with explicit approval.
+- **Deploys:** a push that only changes `docs/`, `tests/` or `CLAUDE.md` skips the Vercel build (`ignoreCommand` in `vercel.json`), so it makes no deployment and no update banner. The app never imports from those paths.
 - **Secrets:** never committed, never pasted in chat; `.env.example` documents them.
 - **Real names:** database and `private/` only; demo data uses invented names.
 - **Dependencies:** ask before adding one and say what it is for. Approved: [postgres, jose, zod, …].
