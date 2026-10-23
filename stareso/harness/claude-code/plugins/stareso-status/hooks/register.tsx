@@ -301,7 +301,7 @@ function windowOf(total: number, size: number, saved: number | undefined, tail: 
 const unpaged = (q: PanelView, id: string): Record<string, number> => Object.fromEntries(Object.entries(q.pages ?? {}).filter(([k]) => k !== id))
 
 // "21–40 of 212" with Earlier and Later buttons, only for a list longer than its page
-function pager(ui: UI, act: Act, id: string, w: Win, tail: boolean, what: string) {
+function pager(ui: UI, act: Act, id: string, w: Win, tail: boolean, what: string, newestFirst = false) {
   if (w.total <= w.size) return null
   const { Box, Text, Button } = ui
   const go = (start: number) => act(q => {
@@ -315,8 +315,8 @@ function pager(ui: UI, act: Act, id: string, w: Win, tail: boolean, what: string
   return (
     <Box flexDirection="row" columnGap={1} alignItems="center">
       <Text dimColor size="footnote" tabular>{`${w.start + 1}–${w.end} of ${w.total} ${what}`}</Text>
-      {w.start > 0 && <Button key={`pg:${id}:earlier`} dimColor onPress={go(w.start - w.size)}>Earlier</Button>}
-      {w.end < w.total && <Button key={`pg:${id}:later`} dimColor onPress={go(w.start + w.size)}>Later</Button>}
+      {w.start > 0 && <Button key={`pg:${id}:earlier`} dimColor onPress={go(w.start - w.size)}>{newestFirst ? 'Newer' : 'Earlier'}</Button>}
+      {w.end < w.total && <Button key={`pg:${id}:later`} dimColor onPress={go(w.start + w.size)}>{newestFirst ? 'Older' : 'Later'}</Button>}
     </Box>
   )
 }
@@ -1050,8 +1050,10 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act, lim: Limits) {
   // the rows a chart draws: its latest `keep` while folded, a page of them while expanded. The chart reports its row
   // count by calling this, so the button under it knows the total
   const wins: Record<string, Win> = {}
+  // the charts of milestones list the newest first (their first rows are the latest), the others end on the latest
+  const newest = (id: string) => id === 'u3' || id === 'u9'
   const rowsOf = (id: string, keep: number): RowPick => list => {
-    const w = open(id) ? windowOf(list.length, lim.rows, p.pages?.[id], true) : windowOf(list.length, keep, undefined, true)
+    const w = open(id) ? windowOf(list.length, lim.rows, p.pages?.[id], !newest(id)) : windowOf(list.length, keep, undefined, !newest(id))
     wins[id] = w
     return list.slice(w.start, w.end)
   }
@@ -1067,7 +1069,7 @@ function usageView(ui: UI, p: PanelView, room: number, act: Act, lim: Limits) {
             {open(id) ? 'Fold' : `Expand: all ${w.total}, with details`}
           </Button>
         </Box>
-        {open(id) && pager(ui, act, id, w, true, 'rows')}
+        {open(id) && pager(ui, act, id, w, !newest(id), 'rows', newest(id))}
       </Box>
     )
   }
@@ -1261,7 +1263,7 @@ function gatesChart(ui: UI, c: UsageCharts, room: number, L: number) {
 const planRows = (c: UsageCharts) => (c.plan?.milestones ?? []).filter(x => x.offBuilt + x.planned > 0)
 function planChart(ui: UI, c: UsageCharts, room: number, L: number, pick: RowPick) {
   const p = c.plan
-  const list = planRows(c)
+  const list = newestFirst(planRows(c))
   if (!p || !list.length) return null
   const rows = pick(list)
   return chart(ui, '9. Plan interventions, per milestone',
@@ -1373,9 +1375,15 @@ function measuredMilestones(c: UsageCharts) {
   return c.milestones.filter(m => m.equivPerSlice != null)
 }
 
+// the milestones newest first, by number (M17, M16, M15, ...): the order they were planned in, with no break in the run; the lettered lanes (H, Q) after them
+function newestFirst<T extends { id: string }>(list: T[]): T[] {
+  const num = (id: string) => (/^M(\d+)$/.exec(id) ? Number(id.slice(1)) : -1)
+  return list.map((m, i) => ({ m, i })).sort((a, b) => num(b.m.id) - num(a.m.id) || b.i - a.i).map(x => x.m)
+}
+
 function milestoneChart(ui: UI, c: UsageCharts, room: number, L: number, all: boolean, pick: RowPick) {
   const ref = c.referencePerSlice?.equiv ?? 0
-  const measured = measuredMilestones(c)
+  const measured = newestFirst(measuredMilestones(c))
   const max = Math.max(ref, ...measured.map(m => m.equivPerSlice ?? 0))
   // the reference as a row of its own too: the ┆ mark hides under bars that pass it
   const refRow: Row[] = ref ? [{
