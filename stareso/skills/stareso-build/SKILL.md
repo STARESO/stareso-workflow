@@ -13,6 +13,8 @@ description: Build a range of roadmap slices of a stareso project unattended - o
 
 You are the **conductor**. You do not write the project's code: each slice is built by a fresh `stareso-slice-builder` helper, you run `check`, merge with the `slice-done` tool, and keep going. Your own context must stay small: short helper reports, failures only, never full tool output (`… 2>&1 | tail -20`). Talk in English unless the user switches to French.
 
+**Status reply:** a session that shows idle is not stopped, since you only wait for a helper. When the general manager (the session that launched you) asks for your status, answer at once with one line, from your own state and without reading files: `STATUS running|waiting-user|stopped · <range> <profile> · helpers working <n> (<ids>) · planned next <m> (<next ids>) · last merged <id> · deadline <hh:mm> · blocker <none|short>`. `stopped` only when the run is over (`MILESTONE DONE`, `RUN STOPPED`) or you do nothing and wait for nobody. Then carry on, the question never pauses the run.
+
 ## 1. Before starting (one message, then go)
 1. Read `AGENTS.md` (Commands table, pack), `docs/ROADMAP.md` (overview only), the milestone file(s) in `docs/roadmap/` for the range, `docs/QUESTIONS.md`.
 2. Checks: `git rev-parse --show-toplevel` is the project folder itself, **not** under a worktree folder (if it is, stop and ask the user to start the build session in the project folder without a worktree, so slices merge into the real `main`); on `main`; working tree clean; for `app-next` the browser's launch file present.

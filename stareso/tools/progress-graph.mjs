@@ -15,6 +15,7 @@
 //                            and the alert data, as one JSON line (pass --max-lanes 99 for every open lane)
 //         --status           the answer of /stareso-status: 3 to 6 short lines, the rule table applied, the next step
 //                            (`--models opus/sonnet/haiku` names the tiers; nothing written but the plan readings)
+//                            `--title <name>` replaces the project name on the first line (default: the folder name)
 //         `lines` holds the one-line status items ready to print: running, usage, pace, waits, ready.
 import fs from "node:fs";
 import os from "node:os";
@@ -191,8 +192,10 @@ for (const e of builds) if (e.type === "slice") {
 const etaSamples = etaRecords.map((x) => {
   const actual = (mergedAt.get(x.id) || []).find((at) => at >= x.start - 60e3);
   const predMin = (x.predEnd - x.start) / 60000, actMin = actual ? (actual - x.start) / 60000 : null;
-  return actual && predMin >= 3 && actMin > 0 ? { id: x.id, at: actual, predicted: Math.round(predMin), actual: Math.round(actMin), raw: (actMin / predMin) * (x.factor || 1) } : null;
-}).filter(Boolean).sort((a, b) => a.at - b.at);
+  return actual && predMin >= 3 && actMin > 0 ? { id: x.id, at: actual, start: x.start, predicted: Math.round(predMin), actual: Math.round(actMin), raw: (actMin / predMin) * (x.factor || 1) } : null;
+}).filter(Boolean).sort((a, b) => a.at - b.at || a.start - b.start)
+  // one sample per merge: when the dataset holds several predictions for one slice, the earliest one counts, so a slice is one row and one sample
+  .filter((x, i, all) => all.findIndex((y) => y.id === x.id && y.at === x.at) === i);
 const recentSamples = etaSamples.slice(-20);
 const etaFactor = recentSamples.length >= 4 ? Math.min(3, Math.max(0.5, median(recentSamples.map((x) => x.raw)))) : 1;
 const etaTrack = {
@@ -266,10 +269,17 @@ if (unit != null) {
   eta.planBySlice = {};
   for (const [id, m] of finish) eta.planBySlice[id] = { minutes: Math.round(m - begin.get(id)), start: begin.get(id) > 0 ? clock(now + begin.get(id) * 60000) : null };
   // a running slice seen for the first time: its prediction is kept, to be compared with its merge
-  const fresh = running.filter((r) => runningIds.has(r.id) && finish.has(r.id)).map((r) => {
-    const start = r.minutes != null && r.minutes < 12 * 60 ? now - r.minutes * 60000 : now;
+  const fresh = running.filter((r) => runningIds.has(r.id) && finish.has(r.id) && r.minutes != null && r.minutes < 12 * 60).map((r) => {
+    const start = now - r.minutes * 60000;
     return { t: stamp(), id: r.id, start, predEnd: now + finish.get(r.id) * 60000, unit: Math.round(unit), factor: +etaFactor.toFixed(2), helpers: simHelpers, profile: lastProfile };
-  }).filter((x) => !etaRecords.some((y) => y.id === x.id && Math.abs(y.start - x.start) < 30 * 60000));
+  // a slice with no running time, or one that looks stale (12 h or more), has no known start, so it is not recorded. Further predictions of the same
+  // run (up to 5, the first after 10 minutes) are kept in the dataset as an updated ETA, for studying how predictions drift; the charts and the factor count the first one only
+  }).filter((x) => {
+    const run = etaRecords.filter((y) => y.id === x.id && Math.abs(y.start - x.start) < 30 * 60000)
+    if (!run.length) return true
+    // updated predictions of a long run, at most 5 in all: the next one once the last is 10 minutes old, then 20, 30 and 40
+    return run.length < 5 && Date.now() - Math.max(...run.map((y) => Date.parse(String(y.t).replace(" ", "T")) || 0)) >= run.length * 10 * 60000
+  });
   try { if (fresh.length) appendJsonl(etaFile, fresh); } catch { /* the learning is a convenience */ }
   for (const l of shown.filter((x) => !x.block)) {
     const open = l.nodes.filter((n) => n.s !== "d").map((n) => n.id);
@@ -590,7 +600,7 @@ function status() {
     head = `${phase}, in use`;
     go = `new ideas: ${next("/stareso-improve", "strong", "new session")}`;
   }
-  const out = [`${name} · ${head}`];
+  const out = [typeof opt.title === "string" && opt.title ? opt.title : name, head];
 
   // ⚠ a question that blocks slices, then one line per usage window (5-hour, weekly) when it matters now: a cap
   // reached, the first cap the run reaches before the reset, or a window past 90 %. Each line names its window.

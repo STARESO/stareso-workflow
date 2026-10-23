@@ -339,3 +339,25 @@ test('a view that cannot be drawn shows its error in the pane', async ($, on) =>
   expect((await ui.find({ type: 'Text', text: /could not draw this view/ }))?.props.color).toBe('error')
   await ui.unmount()
 })
+
+// the app drops a drawing past about 100,000 characters: the pane stays empty and its buttons stop answering. A large
+// project (two hundred open slices, each needing the one before) still draws every number, under that size
+test('a large project draws every slice number, within the size the app draws', async ($, on) => {
+  const ids = Array.from({ length: 200 }, (_, i) => `M${Math.floor(i / 20) + 1}.${(i % 20) + 1}`)
+  const slices = Object.fromEntries(ids.map((id, i) => [id, {
+    title: `A slice with a title of some length, number ${i + 1}`, ms: id.split('.')[0], state: i === 0 ? 'running' : 'waiting',
+    after: i ? [ids[i - 1]] : [], eta: '04:00', planned: '30m', planStart: '03:30', ...(i === 0 ? { started: '02:00', minutes: 5, branch: `slice/${id}-x` } : {}),
+  }]))
+  const lanes = Array.from({ length: 10 }, (_, m) => ({
+    id: `M${m + 1}`, title: `Milestone ${m + 1}`, kind: 'app', done: 0, total: 20, block: false, eta: '≈ 04:00', planned: '10h', slices: ids.slice(m * 20, m * 20 + 20),
+  }))
+  const big = JSON.stringify({ ...SNAPSHOT, graph: { ...SNAPSHOT.graph, lanes, slices }, running: [{ id: ids[0], minutes: 5 }] })
+  engine(on, false, null, { run: argv => (argv.includes('--root') ? { exitCode: 0, stdout: big, stderr: '' } : null) })
+  await $.session.start({ cwd: '/work/demo', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'stareso-panel', args: 'progress' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+  expect(await ui.find({ type: 'Text', text: /too large to draw/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Button', key: 'c:M10.20' })).toBeTruthy()
+  await ui.unmount()
+})

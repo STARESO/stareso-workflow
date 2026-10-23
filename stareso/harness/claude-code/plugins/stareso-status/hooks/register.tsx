@@ -20,6 +20,11 @@ const EVERY_MS = 60_000
 // the usage report (a few seconds) is read again while its view is open once it is older than this, or a slice merged
 const USAGE_STALE_MS = 5 * 60_000
 const WIDE = 110
+// a drawing past about 100,000 characters (as the app receives it) is dropped by the app: the pane stays empty and its
+// buttons stop answering. The hover previews of the slices take at most PREVIEW_ROOM of it, and a drawing past
+// TREE_ROOM shows a short message instead (the app's own count adds the presses, a few percent more)
+const PREVIEW_ROOM = 30_000
+const TREE_ROOM = 90_000
 // the project's chats listed in Progress: those idle for less than a day, at most this many
 const CHATS_RECENT_MS = 24 * 3600_000
 const MAX_CHATS = 8
@@ -359,7 +364,7 @@ export const register: Register = on => {
       <Button key={`view-${view}`} variant={(p.view === 'usage') === (view === 'usage') ? 'primary' : 'secondary'} onPress={() => void show($, view).catch(() => undefined)}>{label}</Button>
     )
 
-    return (
+    const frame = (content: RenderElement | null) => (
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="column">
           <Text size="title" weight="bold">{p.project || 'stareso'}</Text>
@@ -375,10 +380,36 @@ export const register: Register = on => {
           {tab('usage', 'Usage')}
         </Box>
         {p.error !== '' && <Text color="error">{p.error}</Text>}
-        {body(ui, p, cols, act)}
+        {content}
       </Box>
     )
+    // past the app's limit the pane would stay empty: the hidden hover details go first (what shows is unchanged),
+    // then the view gives way to a message, with the tabs to try the other one
+    const full = frame(body(ui, p, cols, act))
+    if (drawnSize(full) <= TREE_ROOM) return full
+    const bare = withoutHidden(full)
+    const size = drawnSize(bare)
+    if (size <= TREE_ROOM) return bare
+    return frame(<Text color="error">{`This view is too large to draw (${size} characters, the app draws about 100,000). Try the other tab, or report it to the stareso workflow.`}</Text>)
   })
+}
+
+// The characters of a drawing as plain data, the handlers left out; a drawing that cannot be measured counts as none
+function drawnSize(tree: unknown): number {
+  try {
+    return JSON.stringify(tree)?.length ?? 0
+  } catch {
+    return 0
+  }
+}
+
+// A drawing without its hidden elements (`display: 'none'`, shown by a hover): the details and previews a hover reveals
+function withoutHidden(el: RenderElement): RenderElement {
+  const kids = (el as { children?: unknown[] }).children
+  if (!Array.isArray(kids)) return el
+  const hidden = (k: unknown) => typeof k === 'object' && k !== null && (k as { props?: { display?: string } }).props?.display === 'none'
+  const children = kids.filter(k => !hidden(k)).map(k => (typeof k === 'object' && k !== null ? withoutHidden(k as RenderElement) : k))
+  return { ...el, children } as RenderElement
 }
 
 // The view under the tabs. A drawing that fails (a state kept by an older version, a shape the tool changed) shows
@@ -578,11 +609,23 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
       <Box flexGrow={1} flexShrink={1}><Text wrap="truncate-end">{s.title}</Text></Box>
     </Box>
   )
-  // a hovered slice's card for the preview: its ids as coloured text, nothing to press
-  const marks = (_where: string, list: string[]) => list.map(id => (
-    <Text><Text color={STATE[g.slices[id]?.state ?? 'waiting'].color}>{`${STATE[g.slices[id]?.state ?? 'waiting'].mark} `}</Text>{id}</Text>
-  ))
   const card = selSlice ? sliceCard(ui, g, sel, act, chips) : selLane ? laneCard(ui, g, selLane, act, pick) : null
+  // hovering a number previews its card just under the grid, over what follows (an open card too), so nothing moves:
+  // a hover reaches no hook, so each card is drawn hidden and revealed by its number. The overlay is a transparent
+  // row, so the card takes the width of its text and keeps its background inside its border. The previews share
+  // PREVIEW_ROOM in the order of the grid; a number past it opens its card on a press alone
+  const previews: RenderElement[] = []
+  let room = PREVIEW_ROOM
+  for (const id of ids.filter(x => x !== sel)) {
+    const preview = (
+      <Box position="absolute" top={0} left={0} right={0} flexDirection="row" alignItems="flex-start" display="none" hover={{ scope: `g:${id}`, display: 'flex' }}>
+        {sliceCard(ui, g, id, act, chips, true)}
+      </Box>
+    )
+    room -= drawnSize(preview)
+    if (room < 0) break
+    previews.push(preview)
+  }
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -595,16 +638,7 @@ function progressView(ui: UI, p: PanelView, g: PanelGraph, act: Act) {
           ))}
         </Box>
         {lanes.map(lane)}
-        {/* hovering a number previews its card just under the grid, over what follows (an open card too), so nothing
-            moves: a hover reaches no hook, so each card is drawn hidden and revealed by its number. The overlay is a
-            transparent row, so the card takes the width of its text and keeps its background inside its border */}
-        <Box position="relative" height={0}>
-          {ids.filter(id => id !== sel).map(id => (
-            <Box position="absolute" top={0} left={0} right={0} flexDirection="row" alignItems="flex-start" display="none" hover={{ scope: `g:${id}`, display: 'flex' }}>
-              {sliceCard(ui, g, id, act, marks, true)}
-            </Box>
-          ))}
-        </Box>
+        <Box position="relative" height={0}>{previews}</Box>
         {g.finished.length > 0 && (
           <Box flexDirection="row" columnGap={1} marginTop={1}>
             <Box flexShrink={1}>
@@ -716,7 +750,8 @@ function planLine(s: PanelSlice): string {
   return `planned ${s.planned} of build${s.planStart ? `, ${s.planStart} → ${end || '?'}` : end ? `, until ${end}` : ''}`
 }
 
-// a slice's card; a preview (the card of a hovered number) has nothing to press
+// a slice's card; a preview (the card of a hovered number) has nothing to press, and its links as one line of ids
+// (each id drawn as its own coloured mark made the hidden previews most of the drawing)
 function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: string, list: string[]) => RenderElement[], preview = false) {
   const { Box, Text, Button } = ui
   const s = g.slices[id]
@@ -729,8 +764,12 @@ function sliceCard(ui: UI, g: PanelGraph, id: string, act: Act, chips: (where: s
       {s.planned && <Text bold>{planLine(s)}</Text>}
       {s.branch && <Text dimColor>{`on ${s.branch}`}</Text>}
       <Text dimColor>{[s.ms, s.model, s.opus ? 'an Opus slice, the costly ones' : ''].filter(Boolean).join(' · ')}</Text>
-      {s.after.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>needs</Text>{chips('needs', s.after.filter(a => g.slices[a]))}</Box>}
-      {unblocks.length > 0 && <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>unblocks</Text>{chips('unblocks', unblocks)}</Box>}
+      {(['needs', 'unblocks'] as const).map(where => {
+        const list = where === 'needs' ? s.after.filter(a => g.slices[a]) : unblocks
+        if (!list.length) return null
+        if (preview) return <Text dimColor>{`${where} ${list.join(', ')}`}</Text>
+        return <Box flexDirection="row" flexWrap="wrap" columnGap={1}><Text dimColor>{where}</Text>{chips(where, list)}</Box>
+      })}
       {!preview && <Box flexDirection="row"><Button key="close-card" dimColor onPress={act(q => ({ ...q, selected: '' }))}>Close</Button></Box>}
     </Box>
   )
