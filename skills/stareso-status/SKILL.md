@@ -37,7 +37,7 @@ A retro (`/stareso-retro [quick | deep]`) runs only when the user asks for it: n
 
 ## 4. Answer: the tool's lines, then one line
 1. Print the tool's lines as they are, as plain lines (no code block, no bold, nothing added or reworded): the project name alone on the first line, then the head (step, build mode, the number that matters) on the line under it, `⚠` a slice blocked by a question, then one line per usage window (5-hour, weekly) when a cap matters now, `□` what waits on you, `▶` the next step with its model, session and permission mode.
-2. When `▶` names `/stareso-build`, `/stareso-test` or `/stareso-improve` and this session can start sessions, end that line with "launch it in a new session?" (§5).
+2. When `▶` names `/stareso-build`, `/stareso-test` or `/stareso-improve`, this session can start sessions and is not itself running a step (§5), end that line with "launch it in a new session?" (§5).
 3. Then the `↗` line: `↗ panel: ◆ stareso-status or /stareso-panel`, as plain text, nothing else on the line. Never draw the graph here.
 4. Say nothing more. When the name line says "(worktree)", add that a build must run in the main folder.
 
@@ -53,11 +53,11 @@ build M11 7/13 · fast · ends ≈ 21:18
 ```
 
 ## 5. Launch from this session (general manager)
-The session that runs status can act as the project's **general manager**. Each step it launches is a **conductor** (the build, test or improve session), which runs helpers. The usage records keep the step type `manager`. The general manager stays open, and each step runs in its own new session. This applies to build, test and improve. Init, retrofit and deploy stay typed by the user in a session they open.
+Status can be asked in any session, a conductor's included, and **does not make that session a manager**. A session becomes the project's **general manager** by launching a step: either the user accepts the launch offered by status in a session that is free to launch, or the user types build, test or improve in a session that already carries another step or a long chat (the Hand-over paragraph of those skills; the typed command is then the go and nothing is asked). A session that is itself running a step (a conductor, a test or improve session) answers status with the lines only: no launch offer, since one writer owns the folder. Each step it launches is a **conductor** (the build, test or improve session), which runs helpers. The usage records keep the step type `manager`. The general manager stays open, and each step runs in its own new session. This applies to build, test and improve. Init, retrofit and deploy stay typed by the user in a session they open.
 1. End the `▶ Next` line with the question: launch it in a new session? For a build, the same question offers the relay (start the test, then the next milestone, without asking again).
 2. Before launching a build, refresh the records (`node ~/.claude/stareso/tools/session-stats.mjs --log`, commit `docs/data/`), so that earlier sessions are logged and the tree is clean for `slice-done`.
 3. One writer per checkout: never launch a step while another session or a helper works in the same folder.
-4. On the user's yes, start the step in the project folder without a worktree, with the step's tier and permission mode. The launch message names the step and its arguments and says that the manager launched it on the user's go. It carries nothing else, because the step reads the files.
+4. On the user's yes (or the typed command), start the step in the project folder without a worktree, with the step's tier and permission mode. The launch message names the step and its arguments and says that the manager launched it on the user's go. It carries nothing else, because the step reads the files.
 5. An idle child that finished its step is reused for the next one when the folder, tier and mode are the same, which keeps the list of sessions short.
 6. To check a conductor, never read its flag "idle" as stopped, since it waits for a helper. Send it `STATUS?` (`SendMessage`) and relay its one-line `STATUS` reply (build's "Status reply") in one short line: running or stopped, helpers working, helpers planned next. Do not read its transcript.
 6b. When a child ends with `MILESTONE DONE` or `STEP DONE`, tell the user in one line, and launch the step it names only when the user accepted the relay. On `RUN STOPPED`, report the reason and launch nothing.
