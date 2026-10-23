@@ -62,7 +62,7 @@ Sessions load the installed copy, not this folder. After an edit:
 2. `claude plugin marketplace update stareso`, then `claude plugin update stareso-status@stareso`.
 3. Sessions load it at their next start or `/reload-plugins`.
 
-`claude plugin validate` and `claude plugin test` in `plugins/` check it (nine tests in `hooks/register.test.tsx`).
+`claude plugin validate` and `claude plugin test` in `plugins/` check it (the tests in `hooks/register.test.tsx`).
 When `claude` is not on the PATH, the desktop app's own copy works the same: `%LOCALAPPDATA%\Claude-Data\<…>\claude-code\<version>\<…>\claude.exe`.
 
 ## Install on a new machine

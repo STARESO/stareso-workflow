@@ -191,7 +191,7 @@ Plain Node in `stareso/tools/`, no install. The everyday ones:
 - ■ **Lanes.** One row per milestone with open slices, each slice coloured by state: done, running, could start, waits on you, waiting.
 - ▶ **Running.** A helper is a branch `slice/<id>-…` whose slice is still open.
 - ⏱ **Pace.** The time of one slice is the median gap between serial merges. The ETA is the larger of "slices shared among the helpers" and "the longest chain".
-- 🎯 **ETA learning.** Each running helper's prediction is kept once, compared with its merge, and the median miss of the last 20 slices corrects the next ETAs. The panel's chart 7 draws it.
+- 🎯 **ETA with a range.** A slice takes 30 minutes typically but one in five takes over 50, so an ETA is a median finish with a 10 % to 90 % range, from a seeded simulation that draws every slice from the last 30 durations. Each running helper's prediction is kept, compared with its merge, and the panel's chart 7 draws both.
 - ⚠ **Usage and caps.** The tool keeps the plan's readings per machine, works out the burn rate, and says when each stop cap is reached, one line per window.
 
 <details>
@@ -200,8 +200,8 @@ Plain Node in `stareso/tools/`, no install. The everyday ones:
 - **Lanes.** Lettered milestones (`H`, `P`, `Q`) are one block each. Finished milestones fold into one line. `--max-lanes` (default 8) caps the lanes.
 - **Ready, human, questions.** `ready` holds the open slices whose `after:` slices are done, that no helper runs and no question blocks. A tidy slice waits for the rest of its milestone.
 - **Pace.** Gaps over 90 minutes are left out. Without serial merges, the recent gap between merges stands in, undivided, since it already holds that run's parallelism.
-- **ETA per slice and per milestone.** A small simulation plays the rest of the build with the helpers running now (or the profile's usual count when idle). A slice that waits on you, and what waits on it, gets no time. Shared files, pauses at the caps and the checker are not modelled, so the times are a floor more than a promise, which the learned factor then corrects.
-- **ETA learning.** Predictions live in `stareso/data/eta/<project>.jsonl` on this machine, never in the project. The factor is the median of actual ÷ predicted over the last 20 merged slices (at least 4), clamped to 0.5–3 and measured against the raw estimate, so it never compounds.
+- **ETA per slice and per milestone.** A small simulation plays the rest of the build with the helpers running now (or the profile's usual count when idle). A slice that waits on you, and what waits on it, gets no time. Shared files, pauses at the caps and the checker are not modelled, so the times are a floor more than a promise. Every slice draws its duration from the last 30 merged ones (200 simulated builds, median and 10 %–90 % range), a running slice draws what is left among the longer durations, and the sum of a lane is not a sum of medians, which would be about 20 % short.
+- **ETA learning.** Predictions live in `stareso/data/eta/<project>.jsonl` on this machine, never in the project: the first prediction of a run with its range, and up to four updates. The durations come from the build records (helper minutes) and the first-seen-to-merge times. `tools/eta-backtest.mjs` replays the history (each slice predicted with the slices merged before it) and prints the errors of the method, run it after changing `tools/lib/eta.mjs`.
 - **Usage and caps.** Readings live in `stareso/data/plan-windows.jsonl`. The burn rate comes from the oldest reading of the same window in the last three hours. Caps come from the newest caps event of the build records (`record.mjs caps --start 85 --pause 90 --weekly 95`) or from `--caps`.
 - **Live panel.** The `stareso-status` plugin shows all of this beside the chat and refreshes it every minute without a model call.
 

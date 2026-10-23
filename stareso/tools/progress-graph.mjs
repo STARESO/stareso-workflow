@@ -23,6 +23,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { args, findRoot, milestones, stamp } from "./lib/roadmap.mjs";
+import { durationRecords, quantile, remaining as remainingOf, draw, simulate, spread } from "./lib/eta.mjs";
 import { appendJsonl, planWindowsFile, readBuilds, readJsonlTail } from "./lib/records.mjs";
 
 const opt = args(process.argv.slice(2));
@@ -177,45 +178,58 @@ const longest = Math.max(0, ...openNumbered.map((s) => chain(s.id)));
 const perSlice = serialGaps.length >= 3 ? median(serialGaps) : null;
 const helpers = Math.max(1, runningIds.size);
 
-// ---------- ETA learning: what the predictions missed, and the factor that corrects the next ones ----------
-// When a helper is first seen running, its predicted merge time is kept (one line per slice run, in this machine's
-// stareso/data/eta/<project>.jsonl, never in the project). Once the slice merges, actual ÷ predicted duration is one
-// sample; the median of the last 20 (at least 4) scales the time of one slice, clamped to 0.5–3. Each prediction keeps
-// the factor it used, so the samples measure the raw estimate and the factor does not compound.
+// ---------- ETA learning: the spread of slice durations, and what the earlier predictions missed ----------
+// A slice takes 30 minutes typically, but one in five takes over 50 and a few over 100, and nothing known at the start tells
+// which (tools/eta-backtest.mjs). So the estimate is the spread of the last 30 durations (lib/eta.mjs), not one number.
+// When a helper is first seen running, its prediction (median finish and 10 %–90 % range) is kept, one line per slice run
+// and up to four updates of a long run, in this machine's stareso/data/eta/<project>.jsonl, never in the project. Once the slice merges, the
+// first prediction against what happened is one sample of chart 7; the updates stay for studying how predictions drift.
 const etaFile = path.join(path.dirname(planWindowsFile()), "eta", `${path.basename(root).replace(/[^\w.-]+/g, "_")}.jsonl`);
-const etaRecords = readJsonlTail(etaFile, 64e3).filter((x) => x && x.id && x.start && x.predEnd);
+const etaRecords = readJsonlTail(etaFile, 96e3).filter((x) => x && x.id && x.start && x.predEnd);
 const mergedAt = new Map();
 for (const e of builds) if (e.type === "slice") {
   const at = Date.parse(e.merge?.at || (e.t ? e.t.replace(" ", "T") + ":00" : ""));
   if (!isNaN(at)) (mergedAt.get(e.id) || mergedAt.set(e.id, []).get(e.id)).push(at);
 }
+const tMs = (x) => Date.parse(String(x.t).replace(" ", "T")) || x.start;
 const etaSamples = etaRecords.map((x) => {
   const actual = (mergedAt.get(x.id) || []).find((at) => at >= x.start - 60e3);
   const predMin = (x.predEnd - x.start) / 60000, actMin = actual ? (actual - x.start) / 60000 : null;
-  return actual && predMin >= 3 && actMin > 0 ? { id: x.id, at: actual, start: x.start, predicted: Math.round(predMin), actual: Math.round(actMin), raw: (actMin / predMin) * (x.factor || 1) } : null;
-}).filter(Boolean).sort((a, b) => a.at - b.at || a.start - b.start)
-  // one sample per merge: when the dataset holds several predictions for one slice, the earliest one counts, so a slice is one row and one sample
-  .filter((x, i, all) => all.findIndex((y) => y.id === x.id && y.at === x.at) === i);
-const recentSamples = etaSamples.slice(-20);
-const etaFactor = recentSamples.length >= 4 ? Math.min(3, Math.max(0.5, median(recentSamples.map((x) => x.raw)))) : 1;
+  return actual && predMin >= 3 && actMin > 0 ? { id: x.id, at: actual, start: x.start, predicted: Math.round(predMin), actual: Math.round(actMin), lo: x.predLo, hi: x.predHi, t: tMs(x) } : null;
+}).filter(Boolean).sort((a, b) => a.at - b.at || a.start - b.start);
+// one sample per merge: the earliest prediction of the run counts, the later ones are its updates
+const firstSamples = etaSamples.filter((x, i, all) => all.findIndex((y) => y.id === x.id && y.at === x.at) === i);
+const updatesOf = (x) => etaSamples.filter((y) => y.id === x.id && y.at === x.at && y !== x)
+  .map((y) => ({ at: Math.max(0, Math.round((y.t - y.start) / 60000)), predicted: y.predicted })).filter((u) => u.at > 0);
+const durRecs = durationRecords(builds, new Map(firstSamples.map((x) => [`${x.id}@${x.at}`, x.actual])));
+const sp = spread(durRecs.map((d) => d.minutes));
+// a row from before the ranges were kept gets the range its time would have had: the spread of the slices merged before it started
+const rangeAt = (x) => { const s = spread(durRecs.filter((d) => d.at < x.start).map((d) => d.minutes)); return s ? [Math.round(s.lo), Math.round(s.hi)] : null; };
+const etaRows = firstSamples.map((x) => { const r = x.lo != null && x.hi != null ? [x.lo, x.hi] : rangeAt(x); return { id: x.id, predicted: x.predicted, actual: x.actual, at: clock(x.at), ...(r ? { lo: r[0], hi: r[1] } : {}), updates: updatesOf(x) }; });
+const rated = etaRows.filter((r) => r.lo != null);
+const drifted = etaRows.filter((r) => r.updates.length);
+const avg = (xs) => Math.round(xs.reduce((p, c) => p + c, 0) / xs.length);
 const etaTrack = {
-  factor: +etaFactor.toFixed(2), samples: etaSamples.length,
-  medianMissPct: etaSamples.length ? Math.round(median(etaSamples.slice(-20).map((x) => ((x.actual - x.predicted) / x.predicted) * 100))) : null,
-  rows: etaSamples.slice(-12).map(({ id, predicted, actual, at }) => ({ id, predicted, actual, at: clock(at) })),
+  samples: firstSamples.length, medianMissPct: firstSamples.length ? Math.round(median(firstSamples.slice(-20).map((x) => ((x.actual - x.predicted) / x.predicted) * 100))) : null,
+  typical: sp ? Math.round(sp.typical) : null, lo: sp ? Math.round(sp.lo) : null, hi: sp ? Math.round(sp.hi) : null, window: sp ? sp.n : 0,
+  inRange: rated.length ? { n: rated.length, hit: rated.filter((r) => r.actual >= r.lo && r.actual <= r.hi).length } : null,
+  updates: drifted.length ? { slices: drifted.length, firstErr: avg(drifted.map((r) => Math.abs(r.predicted - r.actual))), lastErr: avg(drifted.map((r) => Math.abs(r.updates.at(-1).predicted - r.actual))) } : null,
+  rows: etaRows.slice(-12),
 };
-const unit = (perSlice ?? med) == null ? null : (perSlice ?? med) * etaFactor;
+// the time of one slice for the pace line and the fallback: the mean of the spread (what sums add up), else the merge gaps
+const unit = sp ? sp.mean : (perSlice ?? med) ?? null;
 let pace = null;
 if (unit != null) {
-  const rowH = remaining * unit / 60, chainH = longest * unit / 60, shareH = perSlice != null ? remaining * unit / helpers / 60 : rowH;
+  const rowH = remaining * unit / 60, chainH = longest * unit / 60, shareH = sp || perSlice != null ? remaining * unit / helpers / 60 : rowH;
   const etaH = Math.max(chainH, shareH), binds = chainH >= shareH ? "chain" : "slices";
   pace = {
     medianMinutes: med == null ? null : Math.round(med), perSliceMinutes: perSlice == null ? null : Math.round(perSlice), samples: gaps.length,
     lastMerge: merges.length ? stamp(new Date(merges.at(-1).t)) : null, remaining, helpers, longestChain: longest,
     etaHours: +etaH.toFixed(1), binds, inARowHours: +rowH.toFixed(1), chainFloorHours: +chainH.toFixed(1),
   };
-  pace.line = remaining === 0 ? null : perSlice != null && helpers > 1
+  pace.line = remaining === 0 ? null : (sp || perSlice != null) && helpers > 1
     ? `${Math.round(unit)} min per slice, so about ${hours(etaH)} for ${remaining} slices with ${helpers} helpers (${binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"}), at most ${hours(rowH)} in a row`
-    : `${Math.round(unit)} min per ${perSlice != null ? "slice" : "merged slice lately"}, about ${hours(etaH)} for ${remaining} slices (the longest chain, ${longest} slices, needs ${hours(chainH)} on its own)`;
+    : `${Math.round(unit)} min per ${sp || perSlice != null ? "slice" : "merged slice lately"}, about ${hours(etaH)} for ${remaining} slices (the longest chain, ${longest} slices, needs ${hours(chainH)} on its own)`;
 }
 
 // ---------- build mode: the profile of the newest logged merge (eco, fast, night, day), the helpers running now, the pack's profiles ----------
@@ -227,14 +241,16 @@ const nightPack = /night runs?|stareso-build.*night|`night`/i.test(packDoc);
 const mode = { pack, last: lastProfile, helpers: runningIds.size, available: ["eco", "fast", ...(nightPack ? ["night", "day"] : [])] };
 mode.label = runningIds.size ? `${lastProfile || (runningIds.size > 1 ? "fast" : "eco")} · ${runningIds.size} helper${runningIds.size > 1 ? "s" : ""}` : lastProfile ? `idle · last run ${lastProfile}` : "idle";
 
-// ---------- ETA per slice and per milestone: a small simulation of the rest of the build ----------
-// Every open slice of a numbered milestone takes `unit` minutes. A running one has `unit` minus its minutes left (at least 5).
-// The helpers running now (or the profile's usual count when idle) take the slices in roadmap order as soon as their
-// `after:` slices are merged, and a tidy slice waits for the rest of its milestone. A slice that waits on the user
-// (a [human] slice, a blocking question, an open slice of a lettered milestone) gets no ETA, nor what waits on it.
-// Not modelled: shared files in fast, pauses for the usage caps, the checker at the end of a milestone.
+// ---------- ETA per slice and per milestone: a seeded simulation of the rest of the build, drawn from the spread ----------
+// Every open slice of a numbered milestone takes a duration drawn from the last 30 (lib/eta.mjs), and a running one what is
+// left among the durations longer than its elapsed time. The helpers running now (or the profile's usual count when idle)
+// take the slices in roadmap order as soon as their `after:` slices are merged, and a tidy slice waits for the rest of its
+// milestone. The build is simulated 200 times: a slice, a lane and the whole build get the median finish and the range
+// between the 10 % and the 90 % run. Without enough durations (fewer than 6) every slice takes `unit`, with no range.
+// A slice that waits on the user (a [human] slice, a blocking question, an open slice of a lettered milestone) gets no ETA,
+// nor what waits on it. Not modelled: shared files in fast, pauses for the usage caps, the checker at the end of a milestone.
 const simHelpers = runningIds.size || ({ eco: 1, day: 1, fast: 3, night: 3 }[lastProfile] || 1);
-const eta = { helpers: simHelpers, minutesPerSlice: unit == null ? null : Math.round(unit), bySlice: {}, byMilestone: {}, allDone: null };
+const eta = { helpers: simHelpers, minutesPerSlice: unit == null ? null : Math.round(unit), bySlice: {}, rangeBySlice: {}, byMilestone: {}, allDone: null };
 if (unit != null) {
   const depsOf = (s) => [...s.after, ...(/\.tidy$/.test(s.id) ? ms.find((m) => m.id === s.ms).slices.filter((x) => x.id !== s.id).map((x) => x.id) : [])].filter((d) => byId.has(d) && !byId.get(d).done);
   const waitMemo = new Map();
@@ -247,49 +263,72 @@ if (unit != null) {
   };
   const order = shown.filter((l) => !l.block).flatMap((l) => l.nodes.map((n) => n.id)).concat(openNumbered.map((s) => s.id));
   const pending = [...new Set(order)].filter((id) => !byId.get(id).done && !runningIds.has(id) && !waitsOnUser(id));
-  // finish and start of each simulated slice, in minutes from now (a running slice starts now, with its time left)
-  const finish = new Map(), begin = new Map();
-  let active = running.filter((r) => runningIds.has(r.id) && !waitsOnUser(r.id)).map((r) => ({ id: r.id, end: Math.max(5, unit - (r.minutes ?? 0)) }));
-  for (const a of active) begin.set(a.id, 0);
-  let t = 0;
-  const merged = (d, at) => byId.get(d).done || (finish.has(d) && finish.get(d) <= at);
-  for (let guard = 0; guard < 2000 && (pending.length || active.length); guard++) {
-    for (let i = 0; i < pending.length && active.length < simHelpers;) {
-      const s = byId.get(pending[i]);
-      if (depsOf(s).every((d) => merged(d, t))) { active.push({ id: s.id, end: t + unit }); begin.set(s.id, t); pending.splice(i, 1); } else i++;
+  const activeRuns = running.filter((r) => runningIds.has(r.id) && !waitsOnUser(r.id));
+  // what is left of a running slice, or the duration of a pending one: a spread to draw from (one value without durations)
+  const leftOf = new Map(activeRuns.map((r) => [r.id, sp ? remainingOf(sp.sample, r.minutes ?? 0) : { typical: Math.max(5, unit - (r.minutes ?? 0)), mean: Math.max(5, unit - (r.minutes ?? 0)), sample: [Math.max(5, unit - (r.minutes ?? 0))] }]));
+  const pendingSample = sp ? sp.sample : [unit];
+  const pick = (rnd, sample) => (sample.length === 1 ? sample[0] : draw(sample, rnd));
+  // one simulated build: finish and start of each slice, in minutes from now (a running slice starts now)
+  const once = (rnd) => {
+    const finish = new Map(), begin = new Map(), left = [...pending];
+    let active = activeRuns.map((r) => ({ id: r.id, end: pick(rnd, leftOf.get(r.id).sample) }));
+    for (const a of active) begin.set(a.id, 0);
+    let t = 0;
+    const merged = (d, at) => byId.get(d).done || (finish.has(d) && finish.get(d) <= at);
+    for (let guard = 0; guard < 2000 && (left.length || active.length); guard++) {
+      for (let i = 0; i < left.length && active.length < simHelpers;) {
+        const s = byId.get(left[i]);
+        if (depsOf(s).every((d) => merged(d, t))) { active.push({ id: s.id, end: t + pick(rnd, pendingSample) }); begin.set(s.id, t); left.splice(i, 1); } else i++;
+      }
+      if (!active.length) break;
+      active.sort((a, b) => a.end - b.end);
+      t = active[0].end;
+      for (const a of active.filter((x) => x.end === t)) finish.set(a.id, t);
+      active = active.filter((x) => x.end !== t);
     }
-    if (!active.length) break;
-    active.sort((a, b) => a.end - b.end);
-    t = active[0].end;
-    for (const a of active.filter((x) => x.end === t)) finish.set(a.id, t);
-    active = active.filter((x) => x.end !== t);
-  }
-  for (const [id, m] of finish) eta.bySlice[id] = clock(now + m * 60000);
-  // each slice's planned build time (left, for a running one) and its planned start when it is not running yet
+    const out = new Map(finish);
+    for (const [id, b] of begin) out.set(`b:${id}`, b);
+    for (const l of shown.filter((x) => !x.block)) { const f = l.nodes.filter((n) => n.s !== "d" && finish.has(n.id)).map((n) => finish.get(n.id)); if (f.length) out.set(`l:${l.id}`, Math.max(...f)); }
+    if (finish.size) out.set("all", Math.max(...finish.values()));
+    return out;
+  };
+  const sim = simulate(once, 7, sp ? undefined : 1);
+  const at = (k) => sim.get(k) ? clock(now + sim.get(k).typical * 60000) : null;
+  // the 10 % and 90 % finish; the day is written once when both fall on the same one
+  const range = (k) => {
+    if (!sp || !sim.get(k)) return null;
+    const a = now + sim.get(k).lo * 60000, b = now + sim.get(k).hi * 60000;
+    return [clock(a), new Date(a).toDateString() === new Date(b).toDateString() ? clock(b).split(" ")[0] : clock(b)];
+  };
+  const finishIds = [...sim.keys()].filter((k) => !/^(b:|l:|all$)/.test(k));
+  for (const id of finishIds) { eta.bySlice[id] = at(id); const r = range(id); if (r) eta.rangeBySlice[id] = r; }
+  // each slice's planned build time (left, for a running one: the mean of what is left) and its planned start when it is not running yet
   eta.planBySlice = {};
-  for (const [id, m] of finish) eta.planBySlice[id] = { minutes: Math.round(m - begin.get(id)), start: begin.get(id) > 0 ? clock(now + begin.get(id) * 60000) : null };
-  // a running slice seen for the first time: its prediction is kept, to be compared with its merge
-  const fresh = running.filter((r) => runningIds.has(r.id) && finish.has(r.id) && r.minutes != null && r.minutes < 12 * 60).map((r) => {
-    const start = now - r.minutes * 60000;
-    return { t: stamp(), id: r.id, start, predEnd: now + finish.get(r.id) * 60000, unit: Math.round(unit), factor: +etaFactor.toFixed(2), helpers: simHelpers, profile: lastProfile };
+  for (const id of finishIds) {
+    const b = sim.get(`b:${id}`);
+    eta.planBySlice[id] = { minutes: Math.round(leftOf.get(id)?.mean ?? (sp ? sp.mean : unit)), start: b && b.typical > 0 ? clock(now + b.typical * 60000) : null };
+  }
+  // a running slice seen for the first time: its prediction and range are kept, to be compared with its merge
+  const fresh = running.filter((r) => runningIds.has(r.id) && sim.has(r.id) && r.minutes != null && r.minutes < 12 * 60).map((r) => {
+    const start = now - r.minutes * 60000, f = sim.get(r.id);
+    return { t: stamp(), id: r.id, start, predEnd: now + f.typical * 60000, ...(sp ? { predLo: Math.round(r.minutes + f.lo), predHi: Math.round(r.minutes + f.hi) } : {}), unit: Math.round(unit), helpers: simHelpers, profile: lastProfile, m: 2 };
   // a slice with no running time, or one that looks stale (12 h or more), has no known start, so it is not recorded. Further predictions of the same
-  // run (up to 5, the first after 10 minutes) are kept in the dataset as an updated ETA, for studying how predictions drift; the charts and the factor count the first one only
+  // run (up to 5, the first after 10 minutes) are kept in the dataset as an updated ETA, for studying how predictions drift; the charts count the first one as the sample
   }).filter((x) => {
-    const run = etaRecords.filter((y) => y.id === x.id && Math.abs(y.start - x.start) < 30 * 60000)
-    if (!run.length) return true
+    const run = etaRecords.filter((y) => y.id === x.id && Math.abs(y.start - x.start) < 30 * 60000);
+    if (!run.length) return true;
     // updated predictions of a long run, at most 5 in all: the next one once the last is 10 minutes old, then 20, 30 and 40
-    return run.length < 5 && Date.now() - Math.max(...run.map((y) => Date.parse(String(y.t).replace(" ", "T")) || 0)) >= run.length * 10 * 60000
+    return run.length < 5 && Date.now() - Math.max(...run.map(tMs)) >= run.length * 10 * 60000;
   });
   try { if (fresh.length) appendJsonl(etaFile, fresh); } catch { /* the learning is a convenience */ }
   for (const l of shown.filter((x) => !x.block)) {
     const open = l.nodes.filter((n) => n.s !== "d").map((n) => n.id);
-    const times = open.filter((id) => finish.has(id)).map((id) => finish.get(id));
-    const waiting = open.filter((id) => !finish.has(id)).length;
-    // the planned work left: the build minutes of its simulated slices, whatever the number of helpers
-    const work = open.filter((id) => finish.has(id)).reduce((sum, id) => sum + finish.get(id) - begin.get(id), 0);
-    eta.byMilestone[l.id] = { at: times.length ? clock(now + Math.max(...times) * 60000) : null, waiting, minutes: Math.round(work) };
+    const waiting = open.filter((id) => !sim.has(id)).length;
+    // the planned work left: the mean build minutes of its simulated slices, whatever the number of helpers
+    const work = open.filter((id) => eta.planBySlice[id]).reduce((sum, id) => sum + eta.planBySlice[id].minutes, 0);
+    eta.byMilestone[l.id] = { at: at(`l:${l.id}`), range: range(`l:${l.id}`), waiting, minutes: Math.round(work) };
   }
-  if (finish.size) { const end = Math.max(...finish.values()); eta.allDone = clock(now + end * 60000); eta.allDoneHours = +(end / 60).toFixed(1); }
+  if (sim.has("all")) { eta.allDone = at("all"); eta.allDoneRange = range("all"); eta.allDoneHours = +(sim.get("all").typical / 60).toFixed(1); }
 }
 // "40m", "2h", "2h10"
 const span = (m) => m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? p2(m % 60) : ""}`;
@@ -514,7 +553,7 @@ function brief() {
   for (const r of [...runningNow].sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0))) {
     const s = byId.get(r.id);
     const started = r.minutes != null ? clock(now - r.minutes * 60000) : "";
-    out.push(`  ${pad(r.id, 8)} ${pad(s.model || "?", 7)} ${pad(started, 7)} ${pad(r.minutes != null ? `${r.minutes} min` : "", 8)} ${pad(eta.bySlice[r.id] ? `≈ ${eta.bySlice[r.id]}` : "", 8)} ${cut(s.title, 48)}`);
+    out.push(`  ${pad(r.id, 8)} ${pad(s.model || "?", 7)} ${pad(started, 7)} ${pad(r.minutes != null ? `${r.minutes} min` : "", 8)} ${pad(eta.bySlice[r.id] ? `≈ ${eta.bySlice[r.id]}` : "", 8)} ${cut(s.title, 48)}${eta.rangeBySlice[r.id] ? ` (${eta.rangeBySlice[r.id].join("–")})` : ""}`);
   }
 
   if (usage.five || usage.week || caps) {
@@ -534,10 +573,10 @@ function brief() {
   if (pace && remaining) {
     out.push("", "Pace");
     out.push(`  ${pace.perSliceMinutes ?? pace.medianMinutes} min per slice, ${remaining} slices left, ${helpers} helper${helpers > 1 ? "s" : ""}`);
-    if (eta.allDone) out.push(`  all done ≈ ${eta.allDone} (about ${hours(eta.allDoneHours)} with ${eta.helpers} helper${eta.helpers > 1 ? "s" : ""}, ${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
+    if (eta.allDone) out.push(`  all done ≈ ${eta.allDone}${eta.allDoneRange ? `, 8 in 10 between ${eta.allDoneRange.join(" and ")}` : ""} (about ${hours(eta.allDoneHours)} with ${eta.helpers} helper${eta.helpers > 1 ? "s" : ""}, ${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
     else out.push(`  about ${hours(pace.etaHours)} (${pace.binds === "chain" ? `the longest chain, ${longest} slices, binds` : "the slice count binds"})`);
     out.push(`  at most ${hours(pace.inARowHours)} if run one after the other`);
-    if (etaTrack.samples) out.push(`  learned from ${etaTrack.samples} merged slice${etaTrack.samples > 1 ? "s" : ""}: times ×${etaTrack.factor}${etaTrack.medianMissPct != null ? `, median miss ${etaTrack.medianMissPct > 0 ? "+" : ""}${etaTrack.medianMissPct} %` : ""}`);
+    if (etaTrack.samples) out.push(`  learned from ${etaTrack.samples} merged slice${etaTrack.samples > 1 ? "s" : ""}: typically ${etaTrack.typical} min, 8 in 10 between ${etaTrack.lo} and ${etaTrack.hi}${etaTrack.inRange ? `, ${etaTrack.inRange.hit} of ${etaTrack.inRange.n} inside their range` : ""}${etaTrack.medianMissPct != null ? `, median miss ${etaTrack.medianMissPct > 0 ? "+" : ""}${etaTrack.medianMissPct} %` : ""}`);
   }
 
   if (humanSlices.length || questions.length) {
@@ -637,11 +676,11 @@ function panelGraph() {
       : s.human || q || /waits on \/stareso/.test(s.rest) || lettered({ id: s.ms }) ? "you" : "waiting";
     slices[s.id] = { title: s.title, ms: s.ms, state, after: s.after, ...(s.model ? { model: s.model } : {}), ...(s.opus ? { opus: true } : {}),
       ...(r ? { minutes: r.minutes, started: r.minutes != null ? clock(now - r.minutes * 60000) : null, branch: r.branch } : {}),
-      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}),
+      ...(eta.bySlice[s.id] ? { eta: eta.bySlice[s.id] } : {}), ...(eta.rangeBySlice[s.id] ? { etaRange: eta.rangeBySlice[s.id].join("–") } : {}),
       ...(eta.planBySlice?.[s.id] ? { planned: span(eta.planBySlice[s.id].minutes), ...(eta.planBySlice[s.id].start ? { planStart: eta.planBySlice[s.id].start } : {}) } : {}), ...(q ? { question: q.text } : {}) };
   }
-  const lane = (l) => ({ id: l.id, title: l.title, kind: l.kind, done: l.done, total: l.total, block: l.block, eta: etaLane(l.id), planned: plannedLane(l.id), slices: l.nodes.map((n) => n.id) });
-  return { mode: mode.label, allDone: eta.allDone ?? null, pace: pace?.line ?? null, lanes: shown.map(lane), finished: finished.map(lane), hidden, slices };
+  const lane = (l) => ({ id: l.id, title: l.title, kind: l.kind, done: l.done, total: l.total, block: l.block, eta: etaLane(l.id), ...(eta.byMilestone[l.id]?.range ? { etaRange: eta.byMilestone[l.id].range.join("–") } : {}), planned: plannedLane(l.id), slices: l.nodes.map((n) => n.id) });
+  return { mode: mode.label, allDone: eta.allDone ?? null, ...(eta.allDoneRange ? { allDoneRange: eta.allDoneRange.join("–") } : {}), pace: pace?.line ?? null, lanes: shown.map(lane), finished: finished.map(lane), hidden, slices };
 }
 if (opt.panel) {
   console.log(JSON.stringify({ project: path.basename(root), root, brief: brief(), graph: panelGraph(), recentMerges: recent,

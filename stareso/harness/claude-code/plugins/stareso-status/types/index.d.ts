@@ -13,6 +13,8 @@ export type PanelSlice = {
   started?: string | null;
   branch?: string;
   eta?: string;
+  /** the 10 % and 90 % finish of 200 simulated builds, "12:51–13:38" */
+  etaRange?: string;
   /** the planned build time ("36m"), what is left of it for a running slice */
   planned?: string;
   /** the planned start ("07:30"), for a slice not running yet */
@@ -28,6 +30,7 @@ export type PanelLane = {
   total: number;
   block: boolean;
   eta: string;
+  etaRange?: string;
   /** the planned build time left, "2h10" (optional: older tools leave it out) */
   planned?: string;
   slices: string[];
@@ -37,6 +40,7 @@ export type PanelLane = {
 export type PanelGraph = {
   mode: string;
   allDone: string | null;
+  allDoneRange?: string;
   pace: string | null;
   lanes: PanelLane[];
   finished: PanelLane[];
@@ -78,12 +82,26 @@ export type UsageCharts = {
   };
 };
 
-// progress-graph.mjs: what the ETAs missed, the factor learned from it, the latest measured slices (minutes)
+// progress-graph.mjs: the spread of slice durations, what the ETAs missed, the latest measured slices (minutes)
 export type EtaTrack = {
-  factor: number;
   samples: number;
   medianMissPct: number | null;
-  rows: { id: string; predicted: number; actual: number; at: string }[];
+  /** the last `window` durations: typical (median) and the 10 % and 90 % points */
+  typical: number | null;
+  lo: number | null;
+  hi: number | null;
+  window: number;
+  /** slices whose duration fell inside the range predicted for them */
+  inRange: { n: number; hit: number } | null;
+  /** the updated predictions of long runs against the first one: mean error in minutes */
+  updates?: { slices: number; firstErr: number; lastErr: number } | null;
+  rows: {
+    id: string; predicted: number; actual: number; at: string;
+    /** the range predicted for its duration, minutes from its start */
+    lo?: number; hi?: number;
+    /** later predictions: minutes into the run, then the duration predicted then */
+    updates?: { at: number; predicted: number }[];
+  }[];
 };
 
 export type PanelView = {
