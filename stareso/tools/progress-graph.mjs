@@ -86,7 +86,14 @@ for (const line of (git("worktree", "list", "--porcelain") + "\n").split("\n")) 
     const m = /^refs\/heads\/slice\/([A-Za-z]+\d*\.\w+)(?:-|$)/.exec(line.slice(7));
     if (m && byId.has(m[1])) {
       let minutes = null;
-      try { const b = fs.statSync(cur.path); minutes = Math.max(0, Math.round((now - (b.birthtimeMs || b.ctimeMs)) / 60000)); } catch { /* folder gone */ }
+      // a worktree's folder is as old as its run, but the main folder is as old as the project: its run began when the branch was checked out
+      if (path.resolve(cur.path).toLowerCase() === path.resolve(root).toLowerCase()) {
+        const out = git("reflog", "show", "--date=unix", "--format=%gd\t%gs", "HEAD").split("\n").find((l) => l.endsWith(`to ${line.slice(18)}`) && /\tcheckout: moving from /.test(l));
+        const t = out && Number(/@\{(\d+)\}/.exec(out)?.[1]);
+        if (t) minutes = Math.max(0, Math.round((now - t * 1000) / 60000));
+      } else {
+        try { const b = fs.statSync(cur.path); minutes = Math.max(0, Math.round((now - (b.birthtimeMs || b.ctimeMs)) / 60000)); } catch { /* folder gone */ }
+      }
       running.push({ id: m[1], branch: line.slice(18), path: cur.path, minutes });
     }
   }
@@ -186,15 +193,21 @@ const helpers = Math.max(1, runningIds.size);
 // first prediction against what happened is one sample of chart 7; the updates stay for studying how predictions drift.
 const etaFile = path.join(path.dirname(planWindowsFile()), "eta", `${path.basename(root).replace(/[^\w.-]+/g, "_")}.jsonl`);
 const etaRecords = readJsonlTail(etaFile, 96e3).filter((x) => x && x.id && x.start && x.predEnd);
-const mergedAt = new Map();
+const mergedAt = new Map(), helperMin = new Map();
 for (const e of builds) if (e.type === "slice") {
   const at = Date.parse(e.merge?.at || (e.t ? e.t.replace(" ", "T") + ":00" : ""));
   if (!isNaN(at)) (mergedAt.get(e.id) || mergedAt.set(e.id, []).get(e.id)).push(at);
+  if (!isNaN(at) && e.usage?.minutes > 0) helperMin.set(`${e.id}@${at}`, e.usage.minutes);
 }
 const tMs = (x) => Date.parse(String(x.t).replace(" ", "T")) || x.start;
 const etaSamples = etaRecords.map((x) => {
   const actual = (mergedAt.get(x.id) || []).find((at) => at >= x.start - 60e3);
   const predMin = (x.predEnd - x.start) / 60000, actMin = actual ? (actual - x.start) / 60000 : null;
+  // a run abandoned and redone (a night run stopped by its cap, the slice built again a day later): the prediction was made for the first run, and the
+  // merge came from the second, so the time between them is a wait, not a build. The helper's own minutes in the build record tell: such a sample is dropped
+  // (the duration then comes from those minutes, in durationRecords)
+  const own = helperMin.get(`${x.id}@${actual}`);
+  if (own && actMin > 2 * own + 15) return null;
   return actual && predMin >= 3 && actMin > 0 ? { id: x.id, at: actual, start: x.start, predicted: Math.round(predMin), actual: Math.round(actMin), lo: x.predLo, hi: x.predHi, t: tMs(x) } : null;
 }).filter(Boolean).sort((a, b) => a.at - b.at || a.start - b.start);
 // one sample per merge: the earliest prediction of the run counts, the later ones are its updates
