@@ -1292,7 +1292,7 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
   // on time (within 25 %) green, late by more amber, early by more blue (teal looked like the green on a desktop)
   const tone = (m: number) => (m > 25 ? 'warning' : m < -25 ? 'suggestion' : 'success')
   // the value's parts in columns of their own, as chart() aligns them
-  const parts = rows.map(r => [`${r.predicted} → ${r.actual} min`, ...(all ? [signed(miss(r)), r.at] : [])])
+  const parts = rows.map(r => [`${r.predicted} → ${r.actual} min${r.est ? '*' : ''}`, ...(all ? [signed(miss(r)), r.at] : [])])
   const widths = parts.reduce<number[]>((w, ps) => ps.map((x, i) => Math.max(w[i] ?? 0, x.length)), [])
   const values = parts.map(ps => ps.map((x, i) => x.padStart(widths[i] ?? 0)).join(' · '))
   const n = Math.max(10, room - L - 1 - Math.max(...values.map(v => v.length)))
@@ -1338,10 +1338,11 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
         <Text size="footnote" color="warning">{'○──● late'}</Text>
         <Text size="footnote" color="suggestion">{'●──○ early'}</Text>
         {anyOff && <Text size="footnote" dimColor>{'» beyond the scale (more than 3 × the median)'}</Text>}
+        {rows.some(r => r.est) && <Text size="footnote" dimColor>{'* estimated afterwards (no prediction was kept)'}</Text>}
       </Box>
       {rows.map((r, i) => (
         <Box display="none" hover={{ scope: `u7:${i}`, display: 'flex' }}>
-          <Text>{`${r.id} merged ${r.at}: predicted ${r.predicted} min, took ${r.actual} min (${signed(miss(r))})`}</Text>
+          <Text>{`${r.id} merged ${r.at}: ${r.est ? 'estimated afterwards, the typical was ' : 'predicted '}${r.predicted} min, took ${r.actual} min (${signed(miss(r))})`}</Text>
         </Box>
       ))}
     </Box>

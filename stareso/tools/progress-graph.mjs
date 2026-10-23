@@ -216,14 +216,27 @@ const updatesOf = (x) => etaSamples.filter((y) => y.id === x.id && y.at === x.at
   .map((y) => ({ at: Math.max(0, Math.round((y.t - y.start) / 60000)), predicted: y.predicted })).filter((u) => u.at > 0);
 const durRecs = durationRecords(builds, new Map(firstSamples.map((x) => [`${x.id}@${x.at}`, x.actual])));
 const sp = spread(durRecs.map((d) => d.minutes));
+// A slice merged since the predictions are kept, with none that fits (a run abandoned and redone, or a run in the main folder before its start was
+// known), still gets a row, estimated afterwards: it took the helper's own minutes of the build record, against the typical duration of the slices merged
+// before it, which is what the panel would have predicted. Such a row is marked `est`.
+const firstStart = etaRecords.length ? Math.min(...etaRecords.map((x) => x.start)) : Infinity;
+const sampledKeys = new Set(firstSamples.map((x) => `${x.id}@${x.at}`));
+const estimated = builds.flatMap((e) => {
+  if (e.type !== "slice" || e.result !== "ok" || !(e.usage?.minutes > 0)) return [];
+  const at = Date.parse(e.merge?.at || (e.t ? e.t.replace(" ", "T") + ":00" : ""));
+  if (isNaN(at) || at < firstStart || sampledKeys.has(`${e.id}@${at}`)) return [];
+  const before = spread(durRecs.filter((d) => d.at < at).map((d) => d.minutes));
+  return before ? [{ id: e.id, at, start: at - e.usage.minutes * 60000, predicted: Math.round(before.typical), actual: Math.round(e.usage.minutes), lo: Math.round(before.lo), hi: Math.round(before.hi), t: at, est: true }] : [];
+});
+const rowSamples = [...firstSamples, ...estimated].sort((a, b) => a.at - b.at || a.start - b.start);
 // a row from before the ranges were kept gets the range its time would have had: the spread of the slices merged before it started
 const rangeAt = (x) => { const s = spread(durRecs.filter((d) => d.at < x.start).map((d) => d.minutes)); return s ? [Math.round(s.lo), Math.round(s.hi)] : null; };
-const etaRows = firstSamples.map((x) => { const r = x.lo != null && x.hi != null ? [x.lo, x.hi] : rangeAt(x); return { id: x.id, predicted: x.predicted, actual: x.actual, at: clock(x.at), ...(r ? { lo: r[0], hi: r[1] } : {}), updates: updatesOf(x) }; });
+const etaRows = rowSamples.map((x) => { const r = x.lo != null && x.hi != null ? [x.lo, x.hi] : rangeAt(x); return { id: x.id, predicted: x.predicted, actual: x.actual, at: clock(x.at), ...(r ? { lo: r[0], hi: r[1] } : {}), ...(x.est ? { est: true } : {}), updates: x.est ? [] : updatesOf(x) }; });
 const rated = etaRows.filter((r) => r.lo != null);
 const drifted = etaRows.filter((r) => r.updates.length);
 const avg = (xs) => Math.round(xs.reduce((p, c) => p + c, 0) / xs.length);
 const etaTrack = {
-  samples: firstSamples.length, medianMissPct: firstSamples.length ? Math.round(median(firstSamples.slice(-20).map((x) => ((x.actual - x.predicted) / x.predicted) * 100))) : null,
+  samples: rowSamples.length, medianMissPct: rowSamples.length ? Math.round(median(rowSamples.slice(-20).map((x) => ((x.actual - x.predicted) / x.predicted) * 100))) : null,
   typical: sp ? Math.round(sp.typical) : null, lo: sp ? Math.round(sp.lo) : null, hi: sp ? Math.round(sp.hi) : null, window: sp ? sp.n : 0,
   inRange: rated.length ? { n: rated.length, hit: rated.filter((r) => r.actual >= r.lo && r.actual <= r.hi).length } : null,
   updates: drifted.length ? { slices: drifted.length, firstErr: avg(drifted.map((r) => Math.abs(r.predicted - r.actual))), lastErr: avg(drifted.map((r) => Math.abs(r.updates.at(-1).predicted - r.actual))) } : null,

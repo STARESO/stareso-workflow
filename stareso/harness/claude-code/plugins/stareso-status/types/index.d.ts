@@ -99,6 +99,8 @@ export type EtaTrack = {
     id: string; predicted: number; actual: number; at: string;
     /** the range predicted for its duration, minutes from its start */
     lo?: number; hi?: number;
+    /** no prediction was kept for its run: estimated afterwards from the helper's minutes against the typical duration before it */
+    est?: boolean;
     /** later predictions: minutes into the run, then the duration predicted then */
     updates?: { at: number; predicted: number }[];
   }[];
