@@ -1296,16 +1296,22 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
   const widths = parts.reduce<number[]>((w, ps) => ps.map((x, i) => Math.max(w[i] ?? 0, x.length)), [])
   const values = parts.map(ps => ps.map((x, i) => x.padStart(widths[i] ?? 0)).join(' · '))
   const n = Math.max(10, room - L - 1 - Math.max(...values.map(v => v.length)))
-  const max = Math.max(...rows.map(r => Math.max(r.actual, r.predicted)))
-  const at = (v: number) => Math.min(n - 1, Math.round((Math.max(0, v) / Math.max(1, max)) * (n - 1)))
+  // the scale ends at the longest ordinary row: a row longer than 3 times the median (a helper that waited for hours)
+  // runs off the end with » instead of squeezing every other row into a few cells
+  const longest = rows.map(r => Math.max(r.actual, r.predicted))
+  const median = [...longest].sort((x, y) => x - y)[Math.floor(longest.length / 2)] ?? 1
+  const max = Math.max(1, ...longest.filter(v => v <= 3 * median))
+  const off = (v: number) => v > max
+  const at = (v: number) => Math.min(n - 1, Math.round((Math.max(0, v) / max) * (n - 1)))
+  const anyOff = longest.some(off)
   // a dumbbell: ○ the prediction, ● what it took, joined by a line in the colour of the miss; ◉ when both fall on
-  // one cell
+  // one cell; » for an end beyond the scale
   const dumbbell = (r: EtaTrack['rows'][number]) => {
     const p = at(r.predicted)
     const a = at(r.actual)
     const lo = Math.min(p, a)
     const hi = Math.max(p, a)
-    const mid = p === a ? '◉' : Array.from({ length: hi - lo + 1 }, (_, k) => (lo + k === p ? '○' : lo + k === a ? '●' : '─')).join('')
+    const mid = p === a ? '◉' : Array.from({ length: hi - lo + 1 }, (_, k) => (lo + k === p ? (off(r.predicted) ? '»' : '○') : lo + k === a ? (off(r.actual) ? '»' : '●') : '─')).join('')
     return { before: ' '.repeat(lo), mid, after: ' '.repeat(n - 1 - hi) }
   }
   return (
@@ -1331,6 +1337,7 @@ function etaChart(ui: UI, t: EtaTrack | null, room: number, L: number, all: bool
         <Text size="footnote" color="success">{'○─● on time ±25 %'}</Text>
         <Text size="footnote" color="warning">{'○──● late'}</Text>
         <Text size="footnote" color="suggestion">{'●──○ early'}</Text>
+        {anyOff && <Text size="footnote" dimColor>{'» beyond the scale (more than 3 × the median)'}</Text>}
       </Box>
       {rows.map((r, i) => (
         <Box display="none" hover={{ scope: `u7:${i}`, display: 'flex' }}>
