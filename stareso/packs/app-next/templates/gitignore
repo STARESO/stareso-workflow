@@ -3,6 +3,9 @@ private/
 .env*
 !.env.example
 
+# worktrees of parallel helpers (inside the project, never beside it)
+.claude/worktrees/
+
 # build
 node_modules/
 .next/
