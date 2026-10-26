@@ -233,6 +233,14 @@ A new kind of work gets its pack from its first real project: copy the closest p
 
 ---
 
+## 📁 Files stay in the project
+
+- Every step and every helper creates files and folders **only inside the project folder**: never beside it, never elsewhere on the disk. Parallel helpers (`fast`, `night`) work in worktrees at `.claude/worktrees/<id>` inside the project, git-ignored, removed by `slice-done` once merged.
+- The only exceptions are the harness's own scratch and memory folders, and this repository when the user asks to change the workflow.
+- Each pack's project template states the rule and ignores `.claude/worktrees/`, and the two helper roles repeat it.
+
+---
+
 ## 🪶 Keeping it light
 
 - **One step per session.** The files are the memory, not the chat. `/clear` and `/stareso-status` beat a compaction.

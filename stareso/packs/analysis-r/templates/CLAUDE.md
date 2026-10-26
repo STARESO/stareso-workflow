@@ -9,6 +9,7 @@ logbook: `docs/LOGBOOK.md` · conventions: `~/.claude/stareso/packs/analysis-r/g
 
 ## Rules
 - **Talk to the user in English** unless they switch to French. Report, figure labels and comments in French; code, functions, variables and column names in English.
+- **Stay in the project folder:** create files and folders only inside it, never beside it or elsewhere on the disk. Worktrees live in `.claude/worktrees/` (git-ignored). The only exceptions are the tool's own scratch and memory folders, and the workflow repo `~/.claude` when the user asks to change the workflow.
 - **Data are private:** `data/raw/`, `data/processed/` and `private/` are never committed or published; Claude sees their **structure only** (`structure` command) and never prints rows, not even through the shell (guide §3b). Development and tests use the toy data in `tests/toy/`.
 - **Raw files are never edited:** every correction is code with a control that reports what it changed (guide §4).
 - **Hypotheses live in `config/`** and are quoted in the report; nothing scientific is hidden in a script.

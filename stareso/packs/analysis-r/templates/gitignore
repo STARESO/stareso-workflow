@@ -5,6 +5,9 @@ data/processed/
 outputs/
 !outputs/.gitkeep
 
+# worktrees of parallel helpers (inside the project, never beside it)
+.claude/worktrees/
+
 # R
 .Rproj.user/
 .Rhistory

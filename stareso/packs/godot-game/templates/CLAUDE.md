@@ -9,6 +9,7 @@ playtest checklist: `docs/PLAYTEST.md` · conventions: `~/.claude/stareso/packs/
 
 ## Rules
 - **Talk to the user in English** unless they switch to French. Game text in [first language] through translation keys, English second. Code, comments and docs in English.
+- **Stay in the project folder:** create files and folders only inside it, never beside it or elsewhere on the disk. Worktrees live in `.claude/worktrees/` (git-ignored). The only exceptions are the tool's own scratch and memory folders, and the workflow repo `~/.claude` when the user asks to change the workflow.
 - **No game window on the main screen and no game sound, ever** (guide §5): headless runs, or `tools/screenshot.sh` / `tools/windowed.sh` only. Never launch a windowed Godot any other way, never pass `--position`, never open the Godot editor on the project.
 - **The author's art, music and texts are never replaced, edited or deleted.** Unused drawings first, then provisional `pv_` assets with a drawing request (guide §11). Moves go through the logged move tool.
 - **Never claim it works without running it:** `check` for every slice, a `shot` looked at for every visible change.
